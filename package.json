@@ -1,0 +1,26 @@
+{
+  "name": "clawxmemory",
+  "version": "0.1.0",
+  "private": true,
+  "description": "OpenClaw multi-level memory plugin with local-first storage and a minimal dashboard UI.",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "dev:plugin": "npm run dev --workspace @clawxmemory/clawxmemory-openclaw",
+    "reload:memory-plugin": "node ./scripts/reload-memory-plugin.mjs",
+    "relink:memory-plugin": "node ./scripts/relink-memory-plugin.mjs",
+    "uninstall:memory-plugin": "node ./scripts/uninstall-memory-plugin.mjs",
+    "typecheck": "npm run typecheck --workspaces",
+    "lint": "npm run lint --workspaces",
+    "test": "npm run test --workspaces"
+  },
+  "engines": {
+    "node": ">=22.16.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.4.0",
+    "typescript": "^5.9.3"
+  }
+}

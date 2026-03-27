@@ -1,0 +1,11 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "./packages/memory-core"
+    },
+    {
+      "path": "./packages/openclaw-memory-plugin"
+    }
+  ]
+}

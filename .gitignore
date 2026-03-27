@@ -1,0 +1,14 @@
+node_modules/
+dist/
+coverage/
+.DS_Store
+.env
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.log
+packages/openclaw-memory-plugin/tmp/
+*.tsbuildinfo
+__pycache__/
+*.pyc
+.venv/
