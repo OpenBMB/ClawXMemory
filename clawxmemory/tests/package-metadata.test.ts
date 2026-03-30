@@ -13,12 +13,20 @@ describe("package metadata", () => {
     expect(packageJson.peerDependencies?.openclaw).toBe(">=2026.3.22");
     expect(packageJson.publishConfig?.access).toBe("public");
     expect(packageJson.files).toEqual(
-      expect.arrayContaining(["dist", "agent-skills", "skills", "openclaw.plugin.json", "README.md"]),
+      expect.arrayContaining([
+        "dist",
+        "src",
+        "ui-source",
+        "agent-skills",
+        "skills",
+        "openclaw.plugin.json",
+        "README.md",
+      ]),
     );
   });
 
   it("declares ClawHub compatibility metadata for code-plugin publishing", () => {
-    expect(packageJson.openclaw?.extensions).toEqual(["./dist/index.js"]);
+    expect(packageJson.openclaw?.extensions).toEqual(["./src/index.ts"]);
     expect(packageJson.openclaw?.compat).toEqual({
       pluginApi: ">=2026.3.22",
       minGatewayVersion: "2026.3.22",

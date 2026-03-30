@@ -1,6 +1,6 @@
 {
   "name": "openbmb-clawxmemory",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "OpenClaw memory-slot plugin with L0/L1/L2 local indexes and a minimal dashboard UI.",
   "keywords": [
     "openclaw",
@@ -31,6 +31,8 @@
   },
   "files": [
     "dist",
+    "src",
+    "ui-source",
     "agent-skills",
     "skills",
     "openclaw.plugin.json",
@@ -65,7 +67,7 @@
   },
   "openclaw": {
     "extensions": [
-      "./dist/index.js"
+      "./src/index.ts"
     ],
     "compat": {
       "pluginApi": ">=2026.3.22",
