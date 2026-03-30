@@ -1,32 +1,32 @@
 # ClawXMemory Plugin
 
-`@openbmb/clawxmemory` 是 ClawXMemory 仓库中的 OpenClaw `memory` 插件包。
+`@openbmb/clawxmemory` is the OpenClaw `memory` plugin package published from the ClawXMemory repository.
 
-它负责：
+It is responsible for:
 
-- 采集对话并写入 `L0`
-- 在话题闭合时构建 `L1`
-- 更新 `L2` 项目、`L2` 每日时间记忆和单例 `GlobalProfileRecord`
-- 在 `before_prompt_build` 阶段注入记忆上下文
-- 在 `before_reset` 前做当前 session 的 best-effort flush
-- 启动本地记忆看板
+- capturing conversations into `L0`
+- building `L1` memory fragments when topics close
+- updating `L2` project memory, `L2` daily timeline memory, and the singleton `GlobalProfileRecord`
+- injecting memory context during `before_prompt_build`
+- performing a best-effort session flush before `before_reset`
+- serving the local memory dashboard
 
-## 安装
+## Install
 
 ```bash
 openclaw plugins install @openbmb/clawxmemory
 openclaw gateway restart
 ```
 
-安装后建议确认状态：
+After installation, it is recommended to verify the plugin status:
 
 ```bash
 openclaw plugins inspect clawxmemory --json
 ```
 
-## 关键配置
+## Required Config
 
-OpenClaw 里应确保：
+Make sure your OpenClaw config includes:
 
 ```json
 {
@@ -46,24 +46,24 @@ OpenClaw 里应确保：
 }
 ```
 
-说明：
+Notes:
 
-- 这是 `kind: "memory"` 插件，应该放在 `plugins.slots.memory`
-- `allowPromptInjection: true` 需要开启，否则 `before_prompt_build` 的记忆注入会被 OpenClaw 屏蔽
-- 如果本机 `39393` 端口冲突，可在 `plugins.entries.clawxmemory.config.uiPort` 中显式改端口
+- This is a `kind: "memory"` plugin and should be assigned to `plugins.slots.memory`.
+- `allowPromptInjection: true` must be enabled, or OpenClaw will block the memory injection performed during `before_prompt_build`.
+- If port `39393` is already in use on your machine, explicitly set `plugins.entries.clawxmemory.config.uiPort`.
 
-## 开发
+## Development
 
-在这个目录下执行：
+Run these commands from this directory:
 
 ```bash
 npm install
 npm run build
 npm run test
-npm run debug:retrieve -- --query "项目进展"
+npm run debug:retrieve -- --query "project progress"
 ```
 
-本地 OpenClaw 联调命令：
+For local OpenClaw integration and debugging:
 
 ```bash
 npm run relink
@@ -71,18 +71,18 @@ npm run reload
 npm run uninstall
 ```
 
-## 发布到 ClawHub
+## Publish to ClawHub
 
-在这个目录下执行：
+Run from this directory:
 
 ```bash
 npx clawhub package publish . --family code-plugin
 ```
 
-当前 `clawhub package publish` CLI 不支持 `--dry-run`。如果需要先确认参数，可先执行：
+The `clawhub package publish` CLI version tested in this repository does not support `--dry-run`. To inspect the currently supported arguments first, run:
 
 ```bash
 npx clawhub package publish --help
 ```
 
-仓库级安装、使用与设计说明见根目录 `README.md` 和 `docs/README_zh.md`。
+Repository-level installation, usage, and design docs are available in the root `README.md` and `docs/README_zh.md`.

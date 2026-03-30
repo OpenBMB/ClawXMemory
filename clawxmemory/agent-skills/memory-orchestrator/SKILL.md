@@ -28,19 +28,28 @@ Use this skill when the task depends on conversation history, project status, ti
 
 - Prefer concise query strings; avoid copying the entire user prompt unless necessary.
 - Keep `limit` small, usually `4` to `8`, unless the user asks for exhaustive history.
-- For browse-only questions like "你记得什么" or "有哪些项目记忆", use `memory_overview` / `memory_list` rather than `memory_search`.
+- For browse-only questions, use `memory_overview` / `memory_list` rather than `memory_search`.
 - Use `memory_get` only after `memory_search` has given you the ids worth reading.
 - If evidence conflicts, prefer the newest verified `l1` / `l0` record and say that the history appears inconsistent.
 
 ## Minimal Example
 
 ```text
-User asks: "我这个项目最近进展到哪里了？"
-1) memory_search({ query: "项目最近进展", limit: 6 })
+User asks: "Where is this project now?"
+1) memory_search({ query: "recent project progress", limit: 6 })
 2) Read refs.l2 and choose the best l2_project id
 3) memory_get({ level: "l2_project", ids: ["<l2-id>"] })
 4) If exact wording still matters, read the linked l1 or l0 ids with memory_get
 ```
+
+## Example User Requests
+
+- "What do you remember?"
+  Use `memory_overview` or `memory_list`, not `memory_search`.
+- "What project memory entries exist?"
+  Use `memory_overview` or `memory_list`, not `memory_search`.
+- "What is the latest progress on this project?"
+  Start with `memory_search`, then verify the most relevant `l2_project` entry with `memory_get` if needed.
 
 ## Guardrails
 

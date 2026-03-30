@@ -15,12 +15,16 @@ Use this skill when the user asks what ClawXMemory currently remembers, what ind
 2. Call `memory_list` to browse recent or filtered memory indexes.
 3. If the user wants exact detail for one item, call `memory_get` only for that specific id.
 
-## Recommended Usage
+## Example User Requests
 
-- "你记得什么？": start with `memory_overview`, then `memory_list({ level: "l2" })`.
-- "有哪些 L2 项目记忆？": use `memory_list({ level: "l2_project" })`.
-- "最近有哪些时间记忆？": use `memory_list({ level: "l2_time" })`.
-- "为什么没记住？": start with `memory_overview`, then use `memory_flush` if the user wants an immediate refresh.
+- "What do you remember?"
+  Start with `memory_overview`, then `memory_list({ level: "l2" })`.
+- "What L2 project memory entries exist?"
+  Use `memory_list({ level: "l2_project" })`.
+- "What recent timeline memory entries exist?"
+  Use `memory_list({ level: "l2_time" })`.
+- "Why was this not remembered?"
+  Start with `memory_overview`, then use `memory_flush` if the user wants an immediate refresh.
 
 ## Guardrails
 
