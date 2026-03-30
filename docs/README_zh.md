@@ -270,6 +270,7 @@ npm run uninstall:memory-plugin
 - 本地联调阶段优先用 `relink` / `reload`，它们会负责构建、链接、同步配置和重启网关。
 - 提交或发布前至少跑一次 `npm run typecheck`、`npm run test --workspace @clawxmemory/clawxmemory-openclaw` 和 `npm run pack:check --workspace @clawxmemory/clawxmemory-openclaw`。
 - 如果需要在独立环境验证安装链路，可先执行 `npm pack --workspace @clawxmemory/clawxmemory-openclaw`，再用生成的 `.tgz` 做一次 `openclaw plugins install` smoke test。
+- OpenClaw `v2026.3.28` 新增了由 memory 插件接管的 pre-compaction memory flush 契约。ClawXMemory 已评估该变更，但当前版本仍故意保持宿主侧 `agents.defaults.compaction.memoryFlush` 关闭，等后续为 SQLite 型记忆设计专门的 durable-write 路径后再接入。
 
 ### 贡献
 

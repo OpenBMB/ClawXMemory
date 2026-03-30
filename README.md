@@ -270,6 +270,7 @@ It is recommended to separate daily development from pre-release validation:
 - During local integration, prefer `relink` / `reload`; they handle build, link, config sync, and gateway restart for you.
 - Before submitting or releasing, run at least `npm run typecheck`, `npm run test --workspace @clawxmemory/clawxmemory-openclaw`, and `npm run pack:check --workspace @clawxmemory/clawxmemory-openclaw` once.
 - If you need to validate the install flow in an isolated environment, run `npm pack --workspace @clawxmemory/clawxmemory-openclaw` first, then do a smoke test with the generated `.tgz` via `openclaw plugins install`.
+- OpenClaw `v2026.3.28` adds a memory-plugin-owned pre-compaction memory flush contract. ClawXMemory has evaluated that change, but this release intentionally keeps host-side `agents.defaults.compaction.memoryFlush` disabled until ClawXMemory has a dedicated durable-write path for its SQLite-backed memory model.
 
 ### Contributing
 

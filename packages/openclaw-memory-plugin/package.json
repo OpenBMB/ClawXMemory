@@ -57,7 +57,7 @@
     "openclaw": ">=2026.3.22"
   },
   "devDependencies": {
-    "openclaw": "^2026.3.24",
+    "openclaw": "^2026.3.28",
     "vitest": "^4.0.5"
   },
   "openclaw": {
@@ -69,7 +69,7 @@
       "minGatewayVersion": "2026.3.22"
     },
     "build": {
-      "openclawVersion": "2026.3.24"
+      "openclawVersion": "2026.3.28"
     }
   }
 }

@@ -22,7 +22,7 @@ describe("package metadata", () => {
       minGatewayVersion: "2026.3.22",
     });
     expect(packageJson.openclaw?.build).toEqual({
-      openclawVersion: "2026.3.24",
+      openclawVersion: "2026.3.28",
     });
   });
 
