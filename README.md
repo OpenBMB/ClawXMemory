@@ -43,9 +43,17 @@ ClawXMemory focuses on three core questions: what to remember, how to organize i
 > This is the simplest and most stable option.
 
 ```bash
-openclaw plugins install @clawxmemory/clawxmemory-openclaw
+openclaw plugins install @openbmb/clawxmemory
 openclaw gateway restart
 ```
+
+The package is also published on npm:
+
+```bash
+npm install @openbmb/clawxmemory
+```
+
+Use `openclaw plugins install` for actual OpenClaw activation; plain npm install is mainly useful for package inspection or custom packaging workflows.
 
 If your OpenClaw setup uses `tools.profile: "coding"` or any explicit allowlist, you also need to expose these three chat-facing tools to the agent. Otherwise, even though the plugin is loaded, the model side will still only see `memory_search` / `memory_get`:
 
@@ -60,7 +68,7 @@ If your OpenClaw setup uses `tools.profile: "coding"` or any explicit allowlist,
 After installation, it is recommended to inspect the status:
 
 ```bash
-openclaw plugins inspect clawxmemory-openclaw --json
+openclaw plugins inspect clawxmemory --json
 ```
 
 If the gateway is not running yet:
@@ -76,8 +84,9 @@ Use this when you need to modify code or debug the plugin locally:
 ```bash
 git clone https://github.com/OpenBMB/ClawXMemory.git
 cd ClawXMemory
+cd clawxmemory
 npm install
-npm run relink:memory-plugin
+npm run relink
 ```
 
 #### What does `relink` do?
@@ -89,29 +98,30 @@ npm run relink:memory-plugin
 This avoids polluting your current OpenClaw environment:
 
 ```bash
-OPENCLAW_CONFIG_PATH=/path/to/openclaw.json npm run relink:memory-plugin
+cd clawxmemory
+OPENCLAW_CONFIG_PATH=/path/to/openclaw.json npm run relink
 ```
 
 #### Daily development flow
 
 - First-time setup, switching installation mode, or clearing state
--> use `npm run relink:memory-plugin`
+-> use `npm run relink`
 - Reloading after code-only changes
--> use `npm run reload:memory-plugin`
+-> use `npm run reload`
 
 ### Installation verification
 
 Run the following commands to verify plugin status:
 
 ```bash
-openclaw plugins inspect clawxmemory-openclaw --json
+openclaw plugins inspect clawxmemory --json
 openclaw gateway status --json
 ```
 
 Confirm that:
 
-- `clawxmemory-openclaw` has `status: loaded`
-- `plugins.slots.memory` points to `clawxmemory-openclaw`
+- `clawxmemory` has `status: loaded`
+- `plugins.slots.memory` points to `clawxmemory`
 - the gateway is running normally
 
 ### UI access
@@ -130,7 +140,7 @@ The default UI address is `http://127.0.0.1:39393/clawxmemory/`. If port `39393`
 {
   "plugins": {
     "entries": {
-      "clawxmemory-openclaw": {
+      "clawxmemory": {
         "config": {
           "uiPort": 40404
         }
@@ -143,7 +153,8 @@ The default UI address is `http://127.0.0.1:39393/clawxmemory/`. If port `39393`
 The default config file is `~/.openclaw/openclaw.json`. If you use an isolated config, for example:
 
 ```bash
-OPENCLAW_CONFIG_PATH=/path/to/openclaw.json npm run reload:memory-plugin
+cd clawxmemory
+OPENCLAW_CONFIG_PATH=/path/to/openclaw.json npm run reload
 ```
 
 then edit the file pointed to by `OPENCLAW_CONFIG_PATH`, not the default config file.
@@ -153,14 +164,14 @@ The same plugin config block also supports:
 - `uiHost`
 - `uiPathPrefix`
 
-After changing the config, run `openclaw gateway restart`, or in development run `npm run reload:memory-plugin` / `npm run relink:memory-plugin`. After reload, rely on the final `UI` address printed by the script; it follows the actual configured `uiHost`, `uiPort`, and `uiPathPrefix`.
+After changing the config, run `openclaw gateway restart`, or in development run `npm run reload` / `npm run relink`. After reload, rely on the final `UI` address printed by the script; it follows the actual configured `uiHost`, `uiPort`, and `uiPathPrefix`.
 
 ### Uninstall
 
 To uninstall only the plugin:
 
 ```bash
-openclaw plugins uninstall clawxmemory-openclaw --force
+openclaw plugins uninstall clawxmemory --force
 ```
 
 > [!WARNING]
@@ -169,13 +180,14 @@ openclaw plugins uninstall clawxmemory-openclaw --force
 To fully uninstall and restore native memory:
 
 ```bash
-npm run uninstall:memory-plugin
+npm run uninstall
 ```
 
 If you are debugging against an isolated config, you can specify it explicitly:
 
 ```bash
-OPENCLAW_CONFIG_PATH=/path/to/openclaw.json npm run uninstall:memory-plugin
+cd clawxmemory
+OPENCLAW_CONFIG_PATH=/path/to/openclaw.json npm run uninstall
 ```
 
 ---
@@ -228,48 +240,50 @@ The process is closer to progressively locating an answer along the memory struc
 
 ```text
 ClawXMemory/
-├── packages/
-│   └── openclaw-memory-plugin/
-│       ├── src/          # Core logic (most important)
-│       ├── ui-source/    # Local UI dashboard
-├── docs/
-└── scripts/
+├── clawxmemory/
+│   ├── src/          # Core logic (most important)
+│   ├── ui-source/    # Local UI dashboard
+│   ├── tests/
+│   ├── scripts/
+│   └── openclaw.plugin.json
+└── docs/
 ```
 
 ### Development workflow
 
-```bash
+Run these commands inside `clawxmemory/`:
 
+```bash
 # First-time link from this repo into your local OpenClaw
-npm run relink:memory-plugin
+npm run relink
 
 # Rebuild and reload after modifying src/ or ui-source/
-npm run reload:memory-plugin
+npm run reload
 
 # Optional: keep the plugin compiling continuously
-npm run dev:plugin
+npm run dev
 
 # Type checking
 npm run typecheck
 
-# Test the plugin workspace
-npm run test --workspace @clawxmemory/clawxmemory-openclaw
+# Run tests
+npm run test
 
 # Debug the memory retrieval flow
-npm run debug:retrieve --workspace @clawxmemory/clawxmemory-openclaw -- --query "项目进展"
+npm run debug:retrieve -- --query "project progress"
 
 # Check npm package contents before release
-npm run pack:check --workspace @clawxmemory/clawxmemory-openclaw
+npm run pack:check
 
 # Remove the plugin and restore OpenClaw native memory ownership
-npm run uninstall:memory-plugin
+npm run uninstall
 ```
 
 It is recommended to separate daily development from pre-release validation:
 
 - During local integration, prefer `relink` / `reload`; they handle build, link, config sync, and gateway restart for you.
-- Before submitting or releasing, run at least `npm run typecheck`, `npm run test --workspace @clawxmemory/clawxmemory-openclaw`, and `npm run pack:check --workspace @clawxmemory/clawxmemory-openclaw` once.
-- If you need to validate the install flow in an isolated environment, run `npm pack --workspace @clawxmemory/clawxmemory-openclaw` first, then do a smoke test with the generated `.tgz` via `openclaw plugins install`.
+- Before submitting or releasing, run at least `npm run typecheck`, `npm run test`, and `npm run pack:check` once.
+- If you need to validate the install flow in an isolated environment, run `npm pack` first inside `clawxmemory/`, then do a smoke test with the generated `.tgz` via `openclaw plugins install`.
 - OpenClaw `v2026.3.28` adds a memory-plugin-owned pre-compaction memory flush contract. ClawXMemory has evaluated that change, but this release intentionally keeps host-side `agents.defaults.compaction.memoryFlush` disabled until ClawXMemory has a dedicated durable-write path for its SQLite-backed memory model.
 
 ### Contributing

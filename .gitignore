@@ -7,7 +7,7 @@ coverage/
 *.sqlite-shm
 *.sqlite-wal
 *.log
-packages/openclaw-memory-plugin/tmp/
+clawxmemory/tmp/
 *.tsbuildinfo
 __pycache__/
 *.pyc

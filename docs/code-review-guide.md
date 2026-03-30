@@ -4,19 +4,19 @@
 
 ## 1. 先看整体分层
 
-- 插件能力层：`packages/openclaw-memory-plugin/src/**`
-- Agent Skills 编排层：`packages/openclaw-memory-plugin/agent-skills/**`
-- 策略配置层：`packages/openclaw-memory-plugin/skills/**`
+- 插件能力层：`clawxmemory/src/**`
+- Agent Skills 编排层：`clawxmemory/agent-skills/**`
+- 策略配置层：`clawxmemory/skills/**`
 
 ## 2. 功能与文件映射
 
 ### 插件入口与生命周期
 
-- `packages/openclaw-memory-plugin/src/index.ts`
+- `clawxmemory/src/index.ts`
   - runtime 组装、tools 注册、hook 注册
-- `packages/openclaw-memory-plugin/src/runtime.ts`
+- `clawxmemory/src/runtime.ts`
   - 运行态 service、queue、timer、`before_reset` flush
-- `packages/openclaw-memory-plugin/src/hooks.ts`
+- `clawxmemory/src/hooks.ts`
   - `before_prompt_build`
   - `before_message_write`
   - `agent_end`
@@ -24,11 +24,11 @@
 
 ### 记忆构建与检索
 
-- `packages/openclaw-memory-plugin/src/core/pipeline/heartbeat.ts`
-- `packages/openclaw-memory-plugin/src/core/indexers/l1-extractor.ts`
-- `packages/openclaw-memory-plugin/src/core/indexers/l2-builder.ts`
-- `packages/openclaw-memory-plugin/src/core/retrieval/reasoning-loop.ts`
-- `packages/openclaw-memory-plugin/src/core/storage/sqlite.ts`
+- `clawxmemory/src/core/pipeline/heartbeat.ts`
+- `clawxmemory/src/core/indexers/l1-extractor.ts`
+- `clawxmemory/src/core/indexers/l2-builder.ts`
+- `clawxmemory/src/core/retrieval/reasoning-loop.ts`
+- `clawxmemory/src/core/storage/sqlite.ts`
 
 重点关注：
 
@@ -38,11 +38,11 @@
 
 ### 工具与 UI
 
-- `packages/openclaw-memory-plugin/src/tools.ts`
-- `packages/openclaw-memory-plugin/src/ui-server.ts`
-- `packages/openclaw-memory-plugin/ui-source/index.html`
-- `packages/openclaw-memory-plugin/ui-source/app.js`
-- `packages/openclaw-memory-plugin/ui-source/app.css`
+- `clawxmemory/src/tools.ts`
+- `clawxmemory/src/ui-server.ts`
+- `clawxmemory/ui-source/index.html`
+- `clawxmemory/ui-source/app.js`
+- `clawxmemory/ui-source/app.css`
 
 重点关注：
 
@@ -51,16 +51,16 @@
 
 ### Agent Skills
 
-- `packages/openclaw-memory-plugin/agent-skills/memory-orchestrator/SKILL.md`
-- `packages/openclaw-memory-plugin/agent-skills/memory-maintenance/SKILL.md`
-- `packages/openclaw-memory-plugin/agent-skills/memory-maintenance/scripts/*.mjs`
+- `clawxmemory/agent-skills/memory-orchestrator/SKILL.md`
+- `clawxmemory/agent-skills/memory-maintenance/SKILL.md`
+- `clawxmemory/agent-skills/memory-maintenance/scripts/*.mjs`
 
 ### 策略配置
 
-- `packages/openclaw-memory-plugin/skills/intent-rules.json`
-- `packages/openclaw-memory-plugin/skills/extraction-rules.json`
-- `packages/openclaw-memory-plugin/skills/project-status-rules.json`
-- `packages/openclaw-memory-plugin/skills/context-template.md`
+- `clawxmemory/skills/intent-rules.json`
+- `clawxmemory/skills/extraction-rules.json`
+- `clawxmemory/skills/project-status-rules.json`
+- `clawxmemory/skills/context-template.md`
 - `docs/memory-design.md`
 
 ## 3. 推荐审查顺序
@@ -78,5 +78,5 @@
 ```bash
 npm run build
 npm run typecheck
-npm run debug:retrieve --workspace @clawxmemory/clawxmemory-openclaw -- --query "项目进展"
+npm run debug:retrieve -- --query "项目进展"
 ```

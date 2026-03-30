@@ -392,7 +392,7 @@ before_prompt_build:
 这里要严格区分两层：
 
 - `memory slot`
-  - 由 `clawxmemory-openclaw` 接管
+  - 由 `clawxmemory` 接管
   - 这是动态对话记忆 provider
 - `Project Context`
   - 这是 OpenClaw 宿主自己的 workspace bootstrap 注入
