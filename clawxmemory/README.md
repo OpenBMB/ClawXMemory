@@ -1,6 +1,6 @@
 # ClawXMemory Plugin
 
-`@openbmb/clawxmemory` is the OpenClaw `memory` plugin package published from the ClawXMemory repository.
+`clawxmemory` is the OpenClaw `memory` plugin package published from the ClawXMemory repository.
 
 It is responsible for:
 
@@ -14,8 +14,14 @@ It is responsible for:
 ## Install
 
 ```bash
-openclaw plugins install @openbmb/clawxmemory
+openclaw plugins install clawhub:clawxmemory
 openclaw gateway restart
+```
+
+If you want to install directly from npm for inspection or custom packaging workflows:
+
+```bash
+npm install clawxmemory
 ```
 
 After installation, it is recommended to verify the plugin status:

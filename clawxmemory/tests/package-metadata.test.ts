@@ -9,7 +9,7 @@ const pluginManifest = JSON.parse(readFileSync(join(packageDir, "openclaw.plugin
 
 describe("package metadata", () => {
   it("targets OpenClaw 2026.3.22+ and public npm packaging", () => {
-    expect(packageJson.name).toBe("@openbmb/clawxmemory");
+    expect(packageJson.name).toBe("clawxmemory");
     expect(packageJson.peerDependencies?.openclaw).toBe(">=2026.3.22");
     expect(packageJson.publishConfig?.access).toBe("public");
     expect(packageJson.files).toEqual(

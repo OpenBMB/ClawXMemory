@@ -43,17 +43,17 @@ ClawXMemory focuses on three core questions: what to remember, how to organize i
 > This is the simplest and most stable option.
 
 ```bash
-openclaw plugins install @openbmb/clawxmemory
+openclaw plugins install clawhub:clawxmemory
 openclaw gateway restart
 ```
 
 The package is also published on npm:
 
 ```bash
-npm install @openbmb/clawxmemory
+npm install clawxmemory
 ```
 
-Use `openclaw plugins install` for actual OpenClaw activation; plain npm install is mainly useful for package inspection or custom packaging workflows.
+Use `openclaw plugins install clawhub:clawxmemory` for the intended OpenClaw activation path; plain npm install is mainly useful for package inspection or custom packaging workflows.
 
 If your OpenClaw setup uses `tools.profile: "coding"` or any explicit allowlist, you also need to expose these three chat-facing tools to the agent. Otherwise, even though the plugin is loaded, the model side will still only see `memory_search` / `memory_get`:
 
