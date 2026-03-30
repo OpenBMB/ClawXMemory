@@ -68,7 +68,7 @@ If your OpenClaw setup uses `tools.profile: "coding"` or any explicit allowlist,
 After installation, it is recommended to inspect the status:
 
 ```bash
-openclaw plugins inspect clawxmemory --json
+openclaw plugins inspect openbmb-clawxmemory --json
 ```
 
 If the gateway is not running yet:
@@ -114,14 +114,14 @@ OPENCLAW_CONFIG_PATH=/path/to/openclaw.json npm run relink
 Run the following commands to verify plugin status:
 
 ```bash
-openclaw plugins inspect clawxmemory --json
+openclaw plugins inspect openbmb-clawxmemory --json
 openclaw gateway status --json
 ```
 
 Confirm that:
 
-- `clawxmemory` has `status: loaded`
-- `plugins.slots.memory` points to `clawxmemory`
+- `openbmb-clawxmemory` has `status: loaded`
+- `plugins.slots.memory` points to `openbmb-clawxmemory`
 - the gateway is running normally
 
 ### UI access
@@ -140,7 +140,7 @@ The default UI address is `http://127.0.0.1:39393/clawxmemory/`. If port `39393`
 {
   "plugins": {
     "entries": {
-      "clawxmemory": {
+      "openbmb-clawxmemory": {
         "config": {
           "uiPort": 40404
         }
@@ -171,7 +171,7 @@ After changing the config, run `openclaw gateway restart`, or in development run
 To uninstall only the plugin:
 
 ```bash
-openclaw plugins uninstall clawxmemory --force
+openclaw plugins uninstall openbmb-clawxmemory --force
 ```
 
 > [!WARNING]

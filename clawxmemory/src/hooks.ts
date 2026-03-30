@@ -65,7 +65,7 @@ export function registerMemoryHooks(
     "message:received",
     runtime.handleInternalMessageReceived,
     {
-      name: "clawxmemory.message-received",
+      name: "openbmb-clawxmemory.message-received",
       description: "Track inbound business messages for ClawXMemory without indexing command turns.",
     },
   );
@@ -73,7 +73,7 @@ export function registerMemoryHooks(
     COMMAND_HOOK_EVENTS,
     runtime.handleInternalCommandEvent,
     {
-      name: "clawxmemory.command-turn-filter",
+      name: "openbmb-clawxmemory.command-turn-filter",
       description: "Keep OpenClaw command/system turns visible in chat but out of ClawXMemory.",
     },
   );

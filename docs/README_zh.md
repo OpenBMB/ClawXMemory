@@ -68,7 +68,7 @@ npm install openbmb-clawxmemory
 安装完成后，建议检查状态：
 
 ```bash
-openclaw plugins inspect clawxmemory --json
+openclaw plugins inspect openbmb-clawxmemory --json
 ```
 
 如果 gateway 尚未启动：
@@ -114,14 +114,14 @@ OPENCLAW_CONFIG_PATH=/path/to/openclaw.json npm run relink
 执行以下命令检查插件状态：
 
 ```bash
-openclaw plugins inspect clawxmemory --json
+openclaw plugins inspect openbmb-clawxmemory --json
 openclaw gateway status --json
 ```
 
 请确认：
 
-- `clawxmemory` 的 `status` 为 `loaded`
-- `plugins.slots.memory` 已指向 `clawxmemory`
+- `openbmb-clawxmemory` 的 `status` 为 `loaded`
+- `plugins.slots.memory` 已指向 `openbmb-clawxmemory`
 - 网关运行正常
 
 ### UI 访问
@@ -140,7 +140,7 @@ http://127.0.0.1:39393/clawxmemory/
 {
   "plugins": {
     "entries": {
-      "clawxmemory": {
+      "openbmb-clawxmemory": {
         "config": {
           "uiPort": 40404
         }
@@ -171,7 +171,7 @@ OPENCLAW_CONFIG_PATH=/path/to/openclaw.json npm run reload
 只卸载插件：
 
 ```bash
-openclaw plugins uninstall clawxmemory --force
+openclaw plugins uninstall openbmb-clawxmemory --force
 ```
 
 > [!WARNING]

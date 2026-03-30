@@ -36,7 +36,7 @@ import { join, resolve } from "node:path";
 
 const MEMORY_REPAIR_VERSION = "2026-03-24-recall-injection-cleanup-v15";
 const INDEXING_SETTINGS_MIGRATION_VERSION = "2026-03-16-reasoning-mode-settings-v1";
-const PLUGIN_ID = "clawxmemory";
+const PLUGIN_ID = "openbmb-clawxmemory";
 const RECENT_INBOUND_TTL_MS = 30_000;
 const COMMAND_REPLY_TTL_MS = 10_000;
 const NON_MEMORY_TURN_TTL_MS = 15_000;

@@ -27,7 +27,7 @@ npm install openbmb-clawxmemory
 After installation, it is recommended to verify the plugin status:
 
 ```bash
-openclaw plugins inspect clawxmemory --json
+openclaw plugins inspect openbmb-clawxmemory --json
 ```
 
 ## Required Config
@@ -38,10 +38,10 @@ Make sure your OpenClaw config includes:
 {
   "plugins": {
     "slots": {
-      "memory": "clawxmemory"
+      "memory": "openbmb-clawxmemory"
     },
     "entries": {
-      "clawxmemory": {
+      "openbmb-clawxmemory": {
         "enabled": true,
         "hooks": {
           "allowPromptInjection": true
@@ -56,7 +56,7 @@ Notes:
 
 - This is a `kind: "memory"` plugin and should be assigned to `plugins.slots.memory`.
 - `allowPromptInjection: true` must be enabled, or OpenClaw will block the memory injection performed during `before_prompt_build`.
-- If port `39393` is already in use on your machine, explicitly set `plugins.entries.clawxmemory.config.uiPort`.
+- If port `39393` is already in use on your machine, explicitly set `plugins.entries.openbmb-clawxmemory.config.uiPort`.
 
 ## Development
 

@@ -9,7 +9,7 @@ function isGatewayRuntimeProcess(): boolean {
 }
 
 const plugin = definePluginEntry({
-  id: "clawxmemory",
+  id: "openbmb-clawxmemory",
   name: "ClawXMemory",
   description: "L0/L1/L2 local-first memory plugin for OpenClaw.",
   kind: "memory",
@@ -34,7 +34,7 @@ const plugin = definePluginEntry({
 
     const liveRuntimeEnabled = isGatewayRuntimeProcess();
     api.registerService({
-      id: "clawxmemory-runtime",
+      id: "openbmb-clawxmemory-runtime",
       start: () => {
         if (liveRuntimeEnabled) runtime.start();
       },

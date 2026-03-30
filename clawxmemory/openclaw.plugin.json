@@ -1,5 +1,5 @@
 {
-  "id": "clawxmemory",
+  "id": "openbmb-clawxmemory",
   "name": "ClawXMemory",
   "description": "Multi-level memory plugin (L0/L1/L2) with local-first SQLite and ChatGPT-style UI.",
   "version": "0.1.0",

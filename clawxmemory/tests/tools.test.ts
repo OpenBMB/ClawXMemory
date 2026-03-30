@@ -90,7 +90,7 @@ const baseOverview: DashboardOverview = {
   lastRecallInjected: true,
   lastRecallEnoughAt: "l2",
   lastRecallCacheHit: false,
-  slotOwner: "clawxmemory",
+  slotOwner: "openbmb-clawxmemory",
   dynamicMemoryRuntime: "healthy",
   workspaceBootstrapPresent: true,
   memoryRuntimeHealthy: true,

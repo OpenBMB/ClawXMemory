@@ -2,7 +2,7 @@
 name: memory-maintenance
 description: Diagnose and maintain ClawXMemory index health using scripts and tools. Use when installation, indexing, or data quality looks wrong.
 homepage: https://github.com/OpenBMB/ClawXMemory/tree/main/clawxmemory
-metadata: {"openclaw":{"skillKey":"clawxmemory","requires":{"config":["plugins.entries.clawxmemory.enabled"]}}}
+metadata: {"openclaw":{"skillKey":"openbmb-clawxmemory","requires":{"config":["plugins.entries.openbmb-clawxmemory.enabled"]}}}
 ---
 
 # Memory Maintenance

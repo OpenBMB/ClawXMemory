@@ -92,7 +92,7 @@ describe("LocalUiServer static assets", () => {
     await vi.waitFor(() => {
       expect(warn).toHaveBeenCalledWith(expect.stringContaining(`port ${occupiedPort} is already in use`));
     });
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining("plugins.entries.clawxmemory.config.uiPort"));
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("plugins.entries.openbmb-clawxmemory.config.uiPort"));
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("~/.openclaw/openclaw.json"));
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("OPENCLAW_CONFIG_PATH"));
   });

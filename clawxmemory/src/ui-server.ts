@@ -176,7 +176,7 @@ function buildServerErrorMessage(error: unknown, options: UiServerOptions): stri
     const port = typeof nodeError.port === "number" ? nodeError.port : options.port;
     return [
       `[clawxmemory] dashboard server failed: port ${port} is already in use (EADDRINUSE).`,
-      `Update plugins.entries.clawxmemory.config.uiPort in ${DEFAULT_OPENCLAW_CONFIG_PATH_HINT}.`,
+      `Update plugins.entries.openbmb-clawxmemory.config.uiPort in ${DEFAULT_OPENCLAW_CONFIG_PATH_HINT}.`,
       "If you use OPENCLAW_CONFIG_PATH, update that file instead.",
     ].join(" ");
   }

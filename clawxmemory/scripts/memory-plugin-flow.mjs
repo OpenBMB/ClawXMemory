@@ -5,7 +5,7 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
-const PLUGIN_ID = "clawxmemory";
+const PLUGIN_ID = "openbmb-clawxmemory";
 const NATIVE_MEMORY_PLUGIN_ID = "memory-core";
 const DEFAULT_DATA_DIR = path.join(os.homedir(), ".openclaw", "clawxmemory");
 const DEFAULT_UI_HOST = "127.0.0.1";
