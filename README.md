@@ -9,8 +9,21 @@
 </p>
 
 <p align="center">
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge" alt="MIT License"></a>
+  <a href="https://github.com/OpenBMB/ClawXMemory"><img src="https://img.shields.io/github/stars/OpenBMB/ClawXMemory?style=for-the-badge" alt="Stars"></a>
+  <a href="https://github.com/OpenBMB/ClawXMemory/issues"><img src="https://img.shields.io/github/issues/OpenBMB/ClawXMemory?style=for-the-badge" alt="Issues"></a>
+  <a href="https://www.npmjs.com/package/openbmb-clawxmemory"><img src="https://img.shields.io/npm/v/openbmb-clawxmemory?style=for-the-badge&logo=npm" alt="npm"></a>
+</p>
+
+<p align="center">
   <a href="./docs/README_zh.md"><b>简体中文</b></a> &nbsp;|&nbsp; <b>English</b>
 </p>
+
+---
+
+**Latest Updates** 🔥
+
+- **[2026.04.07]** 🎉 ClawXMemory is now open source as a multi-level memory system for long-term context
 
 ---
 
@@ -84,24 +97,48 @@ This process is closer to how a human expert would progressively reason along me
 
 ### Installation
 
-Prerequisites: OpenClaw and Node.js are already installed.
-
 ```bash
-# Install from npm
-npm install openbmb-clawxmemory
+# Prerequisite: OpenClaw is already installed
+
+# Install from npm (recommended)
+npm install -g openbmb-clawxmemory
 
 # Or install from ClawHub
 openclaw plugins install clawhub:openbmb-clawxmemory
 ```
 
+### Start
+
+```bash
+openclaw gateway restart
+# ClawXMemory Ready! Dashboard -> http://127.0.0.1:39393/clawxmemory/
+```
+
+Once the gateway restarts, open `http://127.0.0.1:39393/clawxmemory/` in your browser to access the ClawXMemory dashboard.
+
+If port `39393` is already in use on your machine, explicitly set `uiPort` in the OpenClaw plugin config:
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "openbmb-clawxmemory": {
+        "config": {
+          "uiPort": 40404
+        }
+      }
+    }
+  }
+}
+```
+
 ### Development and Debugging
 
-If you need to modify code or debug the plugin, install from source:
+If you need to modify the plugin, debug it, or install it offline, install from source:
 
 ```bash
 git clone https://github.com/OpenBMB/ClawXMemory.git
-cd ClawXMemory
-cd clawxmemory
+cd ClawXMemory/clawxmemory
 npm install
 npm run relink
 ```
@@ -115,28 +152,13 @@ npm run relink
 # Rebuild and reload after changing src/ or ui-source/
 npm run reload
 
-# Optional: keep compiling the plugin continuously
-npm run dev
-
-# Type checking
-npm run typecheck
-
-# Run tests
-npm run test
-
 # Debug the memory retrieval flow
 npm run debug:retrieve -- --query "project progress"
-
-# Inspect npm package contents before release
-npm run pack:check
-
-# Remove the plugin and restore native OpenClaw memory ownership
-npm run uninstall
 ```
 
 ### Uninstall
 
-If you want to remove the plugin, run:
+If you want to uninstall the plugin and restore native OpenClaw memory ownership, run:
 
 ```bash
 npm run uninstall
@@ -153,38 +175,14 @@ rm -rf ~/.openclaw/extensions/openbmb-clawxmemory
 Run the following commands to check plugin status:
 
 ```bash
-openclaw plugins inspect openbmb-clawxmemory --json
-openclaw gateway status --json
-```
+openclaw plugins inspect openbmb-clawxmemory
+# Ensure the output includes "status: loaded"
 
-Please confirm:
+grep -n '"memory"' ~/.openclaw/openclaw.json
+# Ensure the output includes "openbmb-clawxmemory"
 
-- `openbmb-clawxmemory` has `status: loaded`
-- `plugins.slots.memory` points to `openbmb-clawxmemory`
-- the gateway is running normally
-
-### UI Access
-
-Open:
-
-```text
-http://127.0.0.1:39393/clawxmemory/
-```
-
-If port `39393` is already in use on your machine, explicitly set `uiPort` in the OpenClaw plugin config:
-
-```json
-{
-  "plugins": {
-    "entries": {
-      "openbmb-clawxmemory": {
-        "config": {
-          "uiPort": 40404
-        }
-      }
-    }
-  }
-}
+openclaw gateway status
+# Ensure the output includes "service.runtime.status: running"
 ```
 
 ---
