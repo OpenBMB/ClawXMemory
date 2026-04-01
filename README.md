@@ -29,13 +29,14 @@
 
 ## 📖 About ClawXMemory
 
-ClawXMemory is a memory system jointly developed by Tsinghua University's THUNLP Lab, OpenBMB, ModelBest, and AI9Stars.
+ClawXMemory is a memory system jointly developed by Tsinghua University's [THUNLP](https://nlp.csai.tsinghua.edu.cn/), [OpenBMB](https://www.openbmb.cn/home), [ModelBest](https://modelbest.cn/en), and [AI9stars](https://github.com/AI9Stars).
 
 Built on EdgeClaw's native long-term memory capability, it introduces a deeply structured abstraction and systematic extension of the memory mechanism, then plugs into the OpenClaw ecosystem through a plugin-based design. ClawXMemory is not just a simple accumulation of historical context for large models. Instead, it provides a structured, multi-level, and evolvable long-term memory system. During conversations, the system gradually distills scattered information into memory fragments, then further aggregates them into project memory, timeline memory, and user profiles. When generating a response, the model actively reasons and navigates along this "memory tree," bringing only genuinely useful and highly relevant context into the current conversation.
 
-To address what to remember, how to organize it, and how to actually make memory usable, ClawXMemory provides three core capabilities:
+To address what to remember, how to organize it, and how to actually make memory usable, ClawXMemory provides four core capabilities:
 
 - **Structured multi-level memory system**: Move beyond flat history logs. The system progressively extracts and aggregates raw conversations (L0) into memory fragments (L1) and higher-level memories (L2), building a richer memory structure that keeps growing and evolving with user interaction.
+- **Continuous Memory Consolidation**: The system automatically detects topic shifts in the user’s conversation and, during idle moments, triggers memory consolidation to progressively transform raw dialogue into higher-level structured memory.
 - **Model-driven selection and reasoning**: Instead of relying on rigid vector retrieval, ClawXMemory lets the model actively "think" along the memory index, locating and reasoning over relevant context layer by layer.
 - **Memory management and visualization**: A built-in visual dashboard offers both canvas and list views, making the hierarchy and relationships of memory easy to inspect. All data is stored locally in SQLite by default, with one-click import and export for seamless state migration across devices.
 
