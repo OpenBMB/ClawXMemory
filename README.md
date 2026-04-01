@@ -23,7 +23,7 @@
 
 **Latest Updates** 🔥
 
-- **[2026.04.07]** 🎉 ClawXMemory is now open source as a multi-level memory system for long-term context
+- **[2026.04.01]** 🎉 ClawXMemory is now open source as a multi-level memory system for long-term context
 
 ---
 
@@ -151,9 +151,6 @@ npm run relink
 
 # Rebuild and reload after changing src/ or ui-source/
 npm run reload
-
-# Debug the memory retrieval flow
-npm run debug:retrieve -- --query "project progress"
 ```
 
 ### Uninstall

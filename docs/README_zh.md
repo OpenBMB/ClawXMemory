@@ -23,7 +23,7 @@
 
 **最新动态** 🔥
 
-- **[2026.04.07]** 🎉 ClawXMemory 正式开源，面向长期上下文的多层记忆系统
+- **[2026.04.01]** 🎉 ClawXMemory 正式开源，面向长期上下文的多层记忆系统
 
 ---
 
@@ -157,9 +157,6 @@ npm run relink
 
 # 修改 src/ 或 ui-source/ 后重建并重新加载
 npm run reload
-
-# 调试记忆召回流程
-npm run debug:retrieve -- --query "项目进展"
 ```
 
 ### 卸载
