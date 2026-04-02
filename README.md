@@ -29,7 +29,7 @@
 
 ## 📖 About ClawXMemory
 
-ClawXMemory is a memory system jointly developed by Tsinghua University's [THUNLP](https://nlp.csai.tsinghua.edu.cn/), [OpenBMB](https://www.openbmb.cn/home), [ModelBest](https://modelbest.cn/en), and [AI9stars](https://github.com/AI9Stars).
+ClawXMemory is a memory system jointly developed by [THUNLP (Tsinghua University)](https://nlp.csai.tsinghua.edu.cn/), [Renmin University of China](http://ai.ruc.edu.cn/), [AI9stars](https://github.com/AI9Stars), [OpenBMB](https://www.openbmb.cn/home) and[ModelBest](https://modelbest.cn/en).
 
 Built on EdgeClaw's native long-term memory capability, it introduces a deeply structured abstraction and systematic extension of the memory mechanism, then plugs into the OpenClaw ecosystem through a plugin-based design. ClawXMemory is not just a simple accumulation of historical context for large models. Instead, it provides a structured, multi-level, and evolvable long-term memory system. During conversations, the system gradually distills scattered information into memory fragments, then further aggregates them into project memory, timeline memory, and user profiles. When generating a response, the model actively reasons and navigates along this "memory tree," bringing only genuinely useful and highly relevant context into the current conversation.
 

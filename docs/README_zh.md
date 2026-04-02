@@ -29,7 +29,7 @@
 
 ## 📖 关于 ClawXMemory
 
-ClawXMemory 是一款由清华大学 [THUNLP](https://nlp.csai.tsinghua.edu.cn/)、[OpenBMB](https://www.openbmb.cn/home)、[面壁智能](https://modelbest.cn/)与 [AI9Stars](https://github.com/AI9Stars) 联合研发的记忆系统。
+ClawXMemory 是一款由 [清华大学 THUNLP](https://nlp.csai.tsinghua.edu.cn/)、[中国人民大学](http://ai.ruc.edu.cn/)、[AI9stars](https://github.com/AI9Stars)、[OpenBMB](https://www.openbmb.cn/home) 与 [面壁智能](https://modelbest.cn/) 联合研发的记忆系统。
 
 基于 EdgeClaw 内生的长期记忆能力，我们对其记忆机制进行了深度的结构化抽象与系统化扩展，并以插件化的设计模式无缝接入 OpenClaw 生态。ClawXMemory 并非对传统大模型上下文的简单堆砌，而是引入了一套结构化、多层次、可演化的长期记忆体系。在对话交互中，系统会在后台将零散信息逐步沉淀为记忆片段，并向上聚合为「项目记忆」、「时间线记忆」与「用户画像」。在生成回答时，模型将沿着这棵“记忆树”主动进行推理与定位，确保仅将真正有用且高度相关的上下文引入当前对话。
 
