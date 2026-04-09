@@ -1,438 +1,190 @@
-import { describe, expect, it, vi } from "vitest";
-import type {
-  DreamReviewResult,
-  GlobalProfileRecord,
-  L0SessionRecord,
-  L1WindowRecord,
-  L2ProjectIndexRecord,
-} from "../src/core/index.js";
-import { DreamReviewRunner, DreamRewriteRunner } from "../src/core/index.js";
-
-function createL1(overrides: Partial<L1WindowRecord> = {}): L1WindowRecord {
-  return {
-    l1IndexId: "l1-1",
-    sessionKey: "session-1",
-    timePeriod: "2026-04-01 morning",
-    startedAt: "2026-04-01T08:00:00.000Z",
-    endedAt: "2026-04-01T09:00:00.000Z",
-    summary: "Discussed Dream review and project status.",
-    facts: [],
-    situationTimeInfo: "Project state changed.",
-    projectTags: ["dream-review"],
-    projectDetails: [
-      {
-        key: "dream-review",
-        name: "Dream Review",
-        status: "in_progress",
-        summary: "Reviewing how Dream should govern project memories.",
-        latestProgress: "Narrowed Dream to L1 -> L2Project governance.",
-        confidence: 0.88,
-      },
-    ],
-    l0Source: ["l0-1"],
-    createdAt: "2026-04-01T09:00:00.000Z",
-    ...overrides,
-  };
-}
-
-function createSecondL1(overrides: Partial<L1WindowRecord> = {}): L1WindowRecord {
-  return createL1({
-    l1IndexId: "l1-2",
-    sessionKey: "session-2",
-    timePeriod: "2026-04-02 morning",
-    startedAt: "2026-04-02T08:00:00.000Z",
-    endedAt: "2026-04-02T09:00:00.000Z",
-    summary: "Merged Dream rebuild direction around project memory reconstruction.",
-    situationTimeInfo: "Project summaries should be rebuilt from L1.",
-    projectDetails: [
-      {
-        key: "dream-review",
-        name: "Dream Review",
-        status: "in_progress",
-        summary: "Rebuilding L2 project memory from all L1 windows.",
-        latestProgress: "Confirmed exact L1 source pruning for rebuilt projects.",
-        confidence: 0.93,
-      },
-    ],
-    createdAt: "2026-04-02T09:00:00.000Z",
-    ...overrides,
-  });
-}
-
-function createProfile(): GlobalProfileRecord {
-  return {
-    recordId: "global_profile_record",
-    profileText: "User prefers Chinese planning docs and iterative architecture reviews.",
-    sourceL1Ids: ["l1-profile"],
-    createdAt: "2026-04-01T00:00:00.000Z",
-    updatedAt: "2026-04-01T00:00:00.000Z",
-  };
-}
-
-function createProject(): L2ProjectIndexRecord {
-  return {
-    l2IndexId: "l2-project-1",
-    projectKey: "dream-review",
-    projectName: "Dream Review",
-    summary: "Dream governance work is underway.",
-    currentStatus: "in_progress",
-    latestProgress: "Still deciding which layer should be governed.",
-    l1Source: ["l1-1"],
-    createdAt: "2026-04-01T00:00:00.000Z",
-    updatedAt: "2026-04-01T10:00:00.000Z",
-  };
-}
-
-function createL0(): L0SessionRecord {
-  return {
-    l0IndexId: "l0-1",
-    sessionKey: "session-1",
-    timestamp: "2026-04-01T08:30:00.000Z",
-    messages: [
-      { role: "user", content: "dream 应该重新看 l1" },
-      { role: "assistant", content: "可以把 Dream 收敛到项目层治理。" },
-    ],
-    source: "openclaw",
-    indexed: true,
-    createdAt: "2026-04-01T08:30:00.000Z",
-  };
-}
-
-describe("DreamReviewRunner", () => {
-  it("returns a no-signal review when indexed memory is empty", async () => {
-    const extractor = {
-      reviewDream: vi.fn(),
-    } as never;
-    const runner = new DreamReviewRunner({
-      listRecentL1: () => [],
-      getL2ProjectByKey: () => undefined,
-      getGlobalProfileRecord: () => ({
-        recordId: "global_profile_record",
-        profileText: "",
-        sourceL1Ids: [],
-        createdAt: "2026-04-01T00:00:00.000Z",
-        updatedAt: "2026-04-01T00:00:00.000Z",
-      }),
-      getL0ByL1Ids: () => [],
-      getL2TimeByDate: () => undefined,
-    }, extractor);
-
-    const result = await runner.review("all");
-    expect(result.summary).toContain("Not enough indexed memory evidence");
-    expect(result.projectRebuild).toEqual([]);
-    expect(result.timeLayerNotes).toEqual([]);
-    expect(extractor.reviewDream).not.toHaveBeenCalled();
-  });
-
-  it("adds deterministic time integrity notes but leaves semantic review to the extractor", async () => {
-    const extractorResult: Omit<DreamReviewResult, "timeLayerNotes" | "evidenceRefs"> = {
-      summary: "Recent L1 windows suggest one project summary should be rebuilt.",
-      projectRebuild: [
-        {
-          title: "Project summary lags recent L1",
-          rationale: "The latest L1 shows a clearer project stage transition than the current L2Project summary.",
-          confidence: 0.83,
-          target: "l2_project",
-          evidenceRefs: ["l1:l1-1", "l2_project:l2-project-1"],
-        },
-      ],
-      profileSuggestions: [],
-      cleanup: [],
-      ambiguous: [],
-      noAction: [],
-    };
-    const extractor = {
-      reviewDream: vi.fn().mockResolvedValue(extractorResult),
-    } as never;
-    const runner = new DreamReviewRunner({
-      listRecentL1: () => [createL1()],
-      getL2ProjectByKey: () => createProject(),
-      getGlobalProfileRecord: () => createProfile(),
-      getL0ByL1Ids: () => [createL0()],
-      getL2TimeByDate: () => undefined,
-    }, extractor);
-
-    const result = await runner.review("all");
-
-    expect(extractor.reviewDream).toHaveBeenCalledTimes(1);
-    expect(result.projectRebuild).toHaveLength(1);
-    expect(result.timeLayerNotes).toEqual([
-      expect.objectContaining({
-        target: "time_note",
-        title: "Missing L2Time summary for 2026-04-01",
-      }),
-    ]);
-    expect(result.evidenceRefs).toEqual(expect.arrayContaining([
-      expect.objectContaining({ refId: "l1:l1-1", level: "l1" }),
-      expect.objectContaining({ refId: "l2_project:l2-project-1", level: "l2_project" }),
-      expect.objectContaining({ refId: "profile:global_profile_record", level: "profile" }),
-    ]));
-  });
-});
+import { mkdtemp, rm, unlink, access } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { DreamRewriteRunner, LlmMemoryExtractor, MemoryRepository } from "../src/core/index.js";
 
 describe("DreamRewriteRunner", () => {
-  it("rewrites project memory and profile using exact retained L1 sources", async () => {
-    const applyDreamRewrite = vi.fn();
-    const extractor = {
-      planDreamProjectRebuild: vi.fn().mockResolvedValue({
-        summary: "Merged duplicate Dream project summaries into one canonical project.",
-        duplicateTopicCount: 1,
-        conflictTopicCount: 0,
-        projects: [
-          {
-            projectKey: "dream-review",
-            projectName: "Dream Review",
-            currentStatus: "in_progress",
-            summary: "Dream now rebuilds L2 project memory from validated L1 windows.",
-            latestProgress: "Exact L1 references were pruned for the rebuilt project.",
-            retainedL1Ids: ["l1-2"],
-          },
-        ],
-        deletedProjectKeys: ["old-dream-review"],
-        l1Issues: [
-          {
-            issueType: "duplicate",
-            title: "Two L1 windows described the same Dream topic cluster",
-            l1Ids: ["l1-1", "l1-2"],
-            relatedProjectKeys: ["dream-review", "old-dream-review"],
-          },
-        ],
-      }),
-      rewriteDreamGlobalProfile: vi.fn().mockResolvedValue({
-        profileText: "用户偏好用中文做规划，并且会迭代式地整理 memory 架构。",
-        sourceL1Ids: ["l1-1", "l1-2"],
-        conflictWithExisting: false,
-      }),
-    } as never;
+  const cleanupPaths: string[] = [];
 
-    const currentProject: L2ProjectIndexRecord = {
-      ...createProject(),
-      l1Source: ["l1-1", "l1-2", "l1-stale"],
-    };
-    const duplicateProject: L2ProjectIndexRecord = {
-      ...createProject(),
-      l2IndexId: "l2-project-2",
-      projectKey: "old-dream-review",
-      projectName: "Dream Review Old",
-      l1Source: ["l1-1"],
-      updatedAt: "2026-04-01T11:00:00.000Z",
-    };
-    const runner = new DreamRewriteRunner({
-      listAllL1: () => [createL1(), createSecondL1()],
-      listAllL2Projects: () => [currentProject, duplicateProject],
-      getGlobalProfileRecord: () => ({
-        ...createProfile(),
-        sourceL1Ids: ["l1-profile", "l1-1", "l1-stale"],
-      }),
-      getL0ByL1Ids: () => [createL0()],
-      applyDreamRewrite,
-    }, extractor);
+  afterEach(async () => {
+    await Promise.all(cleanupPaths.splice(0).map((target) => rm(target, { recursive: true, force: true })));
+  });
+
+  it("returns a no-op summary when no file-based memory exists", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "clawxmemory-dream-"));
+    cleanupPaths.push(dir);
+    const repository = new MemoryRepository(join(dir, "memory.sqlite"), {
+      memoryDir: join(dir, "memory"),
+    });
+    const runner = new DreamRewriteRunner(repository, {
+      reviewDream: async () => ({ summary: "", projectRebuild: [], profileSuggestions: [], cleanup: [], ambiguous: [], noAction: [] }),
+    } as never as LlmMemoryExtractor);
 
     const result = await runner.run();
 
-    expect(extractor.planDreamProjectRebuild).toHaveBeenCalledTimes(1);
-    expect(extractor.rewriteDreamGlobalProfile).toHaveBeenCalledTimes(1);
-    expect(applyDreamRewrite).toHaveBeenCalledWith({
-      projects: [
-        expect.objectContaining({
-          projectKey: "dream-review",
-          l1Source: ["l1-2"],
-        }),
-      ],
-      profileText: "用户偏好用中文做规划，并且会迭代式地整理 memory 架构。",
-      profileSourceL1Ids: ["l1-2", "l1-1"],
-    });
     expect(result).toMatchObject({
-      reviewedL1: 2,
-      rewrittenProjects: 1,
-      deletedProjects: 1,
-      profileUpdated: true,
-      duplicateTopicCount: 1,
-      conflictTopicCount: 0,
-      prunedProjectL1Refs: 3,
-      prunedProfileL1Refs: 1,
+      reviewedL1: 0,
+      rewrittenProjects: 0,
+      profileUpdated: false,
     });
+    expect(result.summary).toContain("No file-based memory exists yet");
+    repository.close();
   });
 
-  it("passes the configured Dream rebuild timeout into project planning", async () => {
-    const applyDreamRewrite = vi.fn();
-    const extractor = {
-      planDreamProjectRebuild: vi.fn().mockResolvedValue({
-        summary: "Merged duplicate Dream project summaries into one canonical project.",
-        duplicateTopicCount: 0,
-        conflictTopicCount: 0,
-        projects: [
-          {
-            projectKey: "dream-review",
-            projectName: "Dream Review",
-            currentStatus: "in_progress",
-            summary: "Dream now rebuilds L2 project memory from validated L1 windows.",
-            latestProgress: "Exact L1 references were pruned for the rebuilt project.",
-            retainedL1Ids: ["l1-2"],
-          },
-        ],
-        deletedProjectKeys: [],
-        l1Issues: [],
-      }),
-      rewriteDreamGlobalProfile: vi.fn().mockResolvedValue({
-        profileText: "用户偏好用中文做规划，并且会迭代式地整理 memory 架构。",
-        sourceL1Ids: ["l1-1", "l1-2"],
-        conflictWithExisting: false,
-      }),
-    } as never;
-
-    const runner = new DreamRewriteRunner({
-      listAllL1: () => [createL1(), createSecondL1()],
-      listAllL2Projects: () => [createProject()],
-      getGlobalProfileRecord: () => createProfile(),
-      getL0ByL1Ids: () => [createL0()],
-      applyDreamRewrite,
-    }, extractor, {
-      getDreamProjectRebuildTimeoutMs: () => 42_000,
+  it("promotes tmp project memories into a formal project and rebuilds manifests", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "clawxmemory-dream-"));
+    cleanupPaths.push(dir);
+    const memoryDir = join(dir, "memory");
+    const repository = new MemoryRepository(join(dir, "memory.sqlite"), { memoryDir });
+    const store = repository.getFileMemoryStore();
+    store.upsertCandidate({
+      type: "user",
+      scope: "global",
+      name: "user-profile",
+      description: "Stable user profile.",
+      summary: "The user prefers direct engineering language.",
+      preferences: ["中文"],
+    });
+    store.upsertCandidate({
+      type: "feedback",
+      scope: "project",
+      name: "review-style",
+      description: "This project needs engineering-style review notes.",
+      rule: "For this project, start with findings and concrete risks.",
+      why: "The project is in an architecture refactor stage.",
+      howToApply: "Focus on regressions and missing tests.",
+    });
+    store.upsertCandidate({
+      type: "project",
+      scope: "project",
+      name: "ClawXMemory memory refactor",
+      description: "Memory refactor progress for ClawXMemory.",
+      stage: "The file-based memory migration is in progress.",
+      nextSteps: ["Wire retriever and tools to the new memory files."],
+      timeline: ["2026-04-09: started the file-memory refactor."],
     });
 
-    await runner.run();
+    await unlink(join(memoryDir, "global", "MEMORY.md"));
+    await unlink(join(memoryDir, "projects", "_tmp", "MEMORY.md"));
 
-    expect(extractor.planDreamProjectRebuild).toHaveBeenCalledWith(expect.objectContaining({
-      timeoutMs: 42_000,
-    }));
+    const runner = new DreamRewriteRunner(repository, {} as never as LlmMemoryExtractor);
+    const result = await runner.run();
+
+    await expect(access(join(memoryDir, "global", "MEMORY.md"))).resolves.toBeUndefined();
+    const projectIds = store.listProjectIds().filter((projectId) => projectId !== "_tmp");
+    expect(projectIds).toHaveLength(1);
+    const projectId = projectIds[0]!;
+    await expect(access(join(memoryDir, "projects", projectId, "MEMORY.md"))).resolves.toBeUndefined();
+    await expect(access(join(memoryDir, "projects", projectId, "project.meta.md"))).resolves.toBeUndefined();
+    const meta = store.getProjectMeta(projectId);
+    expect(meta?.projectName).toBe("ClawXMemory memory refactor");
+    expect(meta?.description).toBe("Memory refactor progress for ClawXMemory.");
+    expect(store.listTmpEntries()).toHaveLength(0);
+    expect(result.reviewedL1).toBe(3);
+    expect(result.rewrittenProjects).toBe(1);
+    expect(result.summary).toContain("Dream reviewed 3 memory files");
+    expect(result.summary).toContain("Promoted 2 temporary project memories into 1 formal projects");
+    repository.close();
   });
 
-  it("fails closed when project rebuild planning fails", async () => {
-    const applyDreamRewrite = vi.fn();
-    const extractor = {
-      planDreamProjectRebuild: vi.fn().mockRejectedValue(new Error("project rebuild failed")),
-      rewriteDreamGlobalProfile: vi.fn(),
-    } as never;
-    const runner = new DreamRewriteRunner({
-      listAllL1: () => [createL1(), createSecondL1()],
-      listAllL2Projects: () => [createProject()],
-      getGlobalProfileRecord: () => createProfile(),
-      getL0ByL1Ids: () => [createL0()],
-      applyDreamRewrite,
-    }, extractor);
+  it("keeps unresolved tmp project memories in separate files even when they share a generic name", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "clawxmemory-dream-"));
+    cleanupPaths.push(dir);
+    const repository = new MemoryRepository(join(dir, "memory.sqlite"), {
+      memoryDir: join(dir, "memory"),
+    });
+    const store = repository.getFileMemoryStore();
 
-    await expect(runner.run()).rejects.toThrow("project rebuild failed");
-    expect(extractor.rewriteDreamGlobalProfile).not.toHaveBeenCalled();
-    expect(applyDreamRewrite).not.toHaveBeenCalled();
+    store.upsertCandidate({
+      type: "project",
+      scope: "project",
+      name: "overview",
+      description: "Project A progress",
+      stage: "Project A is in discovery.",
+    });
+    store.upsertCandidate({
+      type: "project",
+      scope: "project",
+      name: "overview",
+      description: "Project B progress",
+      stage: "Project B is in implementation.",
+    });
+
+    const tmpEntries = store.listTmpEntries(20).filter((entry) => entry.type === "project");
+    expect(tmpEntries).toHaveLength(2);
+    expect(new Set(tmpEntries.map((entry) => entry.file)).size).toBe(2);
+    repository.close();
   });
 
-  it("fails closed when profile rewrite fails or does not meet the source gate", async () => {
-    const applyDreamRewrite = vi.fn();
-    const projectPlan = {
-      summary: "ok",
-      duplicateTopicCount: 0,
-      conflictTopicCount: 0,
-      projects: [
-        {
-          projectKey: "dream-review",
-          projectName: "Dream Review",
-          currentStatus: "in_progress" as const,
-          summary: "Dream project summary",
-          latestProgress: "Dream latest progress",
-          retainedL1Ids: ["l1-1", "l1-2"],
-        },
-      ],
-      deletedProjectKeys: [],
-      l1Issues: [],
-    };
+  it("promotes feedback-only tmp memory into a formal project instead of dropping it", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "clawxmemory-dream-"));
+    cleanupPaths.push(dir);
+    const repository = new MemoryRepository(join(dir, "memory.sqlite"), {
+      memoryDir: join(dir, "memory"),
+    });
+    const store = repository.getFileMemoryStore();
 
-    const extractorFail = {
-      planDreamProjectRebuild: vi.fn().mockResolvedValue(projectPlan),
-      rewriteDreamGlobalProfile: vi.fn().mockRejectedValue(new Error("profile rewrite failed")),
-    } as never;
-    const runnerFail = new DreamRewriteRunner({
-      listAllL1: () => [createL1(), createSecondL1()],
-      listAllL2Projects: () => [createProject()],
-      getGlobalProfileRecord: () => createProfile(),
-      getL0ByL1Ids: () => [createL0()],
-      applyDreamRewrite,
-    }, extractorFail);
+    store.upsertCandidate({
+      type: "feedback",
+      scope: "project",
+      name: "api-review-style",
+      description: "This API redesign needs stricter contract reviews.",
+      rule: "Review API contracts before implementation in this project.",
+      why: "The project is changing retrieval and tool boundaries quickly.",
+      howToApply: "Start every review from contract drift and compatibility risk.",
+    });
 
-    await expect(runnerFail.run()).rejects.toThrow("profile rewrite failed");
-    expect(applyDreamRewrite).not.toHaveBeenCalled();
+    const runner = new DreamRewriteRunner(repository, {} as never as LlmMemoryExtractor);
+    const result = await runner.run();
 
-    const extractorGate = {
-      planDreamProjectRebuild: vi.fn().mockResolvedValue(projectPlan),
-      rewriteDreamGlobalProfile: vi.fn().mockResolvedValue({
-        profileText: "Too weak",
-        sourceL1Ids: [],
-        conflictWithExisting: false,
-      }),
-    } as never;
-    const runnerGate = new DreamRewriteRunner({
-      listAllL1: () => [createL1(), createSecondL1()],
-      listAllL2Projects: () => [createProject()],
-      getGlobalProfileRecord: () => createProfile(),
-      getL0ByL1Ids: () => [createL0()],
-      applyDreamRewrite,
-    }, extractorGate);
-
-    await expect(runnerGate.run()).rejects.toThrow("source support gate");
-    expect(applyDreamRewrite).not.toHaveBeenCalled();
+    const projectIds = store.listProjectIds().filter((projectId) => projectId !== "_tmp");
+    expect(projectIds).toHaveLength(1);
+    expect(store.listTmpEntries()).toHaveLength(0);
+    expect(result.rewrittenProjects).toBe(1);
+    expect(result.summary).toContain("Promoted 1 temporary project memories into 1 formal projects");
+    repository.close();
   });
 
-  it("fails closed when the project rebuild result is empty", async () => {
-    const applyDreamRewrite = vi.fn();
-    const extractor = {
-      planDreamProjectRebuild: vi.fn().mockResolvedValue({
-        summary: "empty",
-        duplicateTopicCount: 0,
-        conflictTopicCount: 0,
-        projects: [],
-        deletedProjectKeys: [],
-        l1Issues: [],
-      }),
-      rewriteDreamGlobalProfile: vi.fn(),
-    } as never;
-    const runner = new DreamRewriteRunner({
-      listAllL1: () => [createL1(), createSecondL1()],
-      listAllL2Projects: () => [createProject()],
-      getGlobalProfileRecord: () => createProfile(),
-      getL0ByL1Ids: () => [createL0()],
-      applyDreamRewrite,
-    }, extractor);
+  it("uses session and time proximity to attach tmp feedback to the right tmp project", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "clawxmemory-dream-"));
+    cleanupPaths.push(dir);
+    const repository = new MemoryRepository(join(dir, "memory.sqlite"), {
+      memoryDir: join(dir, "memory"),
+    });
+    const store = repository.getFileMemoryStore();
 
-    await expect(runner.run()).rejects.toThrow("no valid projects");
-    expect(applyDreamRewrite).not.toHaveBeenCalled();
-  });
+    store.upsertCandidate({
+      type: "project",
+      scope: "project",
+      name: "Aster",
+      description: "OpenClaw memory migration",
+      capturedAt: "2026-04-09T09:25:00.000Z",
+      sourceSessionKey: "session-aster",
+      stage: "Move the memory system to markdown files.",
+    });
+    store.upsertCandidate({
+      type: "feedback",
+      scope: "project",
+      name: "collaboration-rule",
+      description: "同步进展时要非常工程化。",
+      capturedAt: "2026-04-09T09:26:00.000Z",
+      sourceSessionKey: "session-aster",
+      rule: "先说完成了什么，再说风险，不要写成泛泛总结。",
+      why: "This guidance belongs to the same active project discussion.",
+      howToApply: "Use engineering-style status updates.",
+    });
 
-  it("fails closed when the rebuild plan does not explain current project rows", async () => {
-    const applyDreamRewrite = vi.fn();
-    const extractor = {
-      planDreamProjectRebuild: vi.fn().mockResolvedValue({
-        summary: "missing explanation",
-        duplicateTopicCount: 0,
-        conflictTopicCount: 0,
-        projects: [
-          {
-            projectKey: "dream-review",
-            projectName: "Dream Review",
-            currentStatus: "in_progress",
-            summary: "Only kept one project",
-            latestProgress: "No deletion explanation",
-            retainedL1Ids: ["l1-1", "l1-2"],
-          },
-        ],
-        deletedProjectKeys: [],
-        l1Issues: [],
-      }),
-      rewriteDreamGlobalProfile: vi.fn(),
-    } as never;
-    const runner = new DreamRewriteRunner({
-      listAllL1: () => [createL1(), createSecondL1()],
-      listAllL2Projects: () => [createProject(), {
-        ...createProject(),
-        l2IndexId: "l2-project-old",
-        projectKey: "old-dream-review",
-        projectName: "Old Dream Review",
-      }],
-      getGlobalProfileRecord: () => createProfile(),
-      getL0ByL1Ids: () => [createL0()],
-      applyDreamRewrite,
-    }, extractor);
+    const runner = new DreamRewriteRunner(repository, {} as never as LlmMemoryExtractor);
+    const result = await runner.run();
 
-    await expect(runner.run()).rejects.toThrow("did not explain current projects");
-    expect(applyDreamRewrite).not.toHaveBeenCalled();
+    const projectIds = store.listProjectIds().filter((projectId) => projectId !== "_tmp");
+    expect(projectIds).toHaveLength(1);
+    const projectId = projectIds[0]!;
+    const entries = store.listMemoryEntries({ scope: "project", projectId, limit: 20 });
+    expect(entries.map((entry) => entry.type).sort()).toEqual(["feedback", "project"]);
+    expect(store.listTmpEntries()).toHaveLength(0);
+    expect(result.rewrittenProjects).toBe(1);
+    repository.close();
   });
 });

@@ -10,7 +10,10 @@ import type {
   L1WindowRecord,
   L2ProjectIndexRecord,
   L2TimeIndexRecord,
+  MemoryCandidate,
+  MemoryManifestEntry,
   MemoryMessage,
+  MemoryRoute,
   ProjectDetail,
   ProjectStatus,
   RetrievalResult,
@@ -1820,13 +1823,99 @@ function normalizeStringArray(items: unknown, maxItems: number): string[] {
     .slice(0, maxItems);
 }
 
+function uniqueStrings(items: readonly string[], maxItems: number): string[] {
+  return Array.from(new Set(
+    items
+      .map((item) => item.trim())
+      .filter(Boolean),
+  )).slice(0, maxItems);
+}
+
+function splitPreferenceHints(text: string): string[] {
+  const normalized = text
+    .replace(/\r/g, "\n")
+    .replace(/[：:]/g, "\n")
+    .replace(/[；;]/g, "\n")
+    .split("\n")
+    .map((line) => normalizeWhitespace(line))
+    .filter(Boolean);
+  return Array.from(new Set(
+    normalized
+      .map((line) => line.replace(/^(记住(?:两件事)?|帮我记住|请记住|另外记住)\s*/i, "").trim())
+      .filter(Boolean)
+      .filter((line) => line.length >= 4),
+  )).slice(0, 10);
+}
+
+function looksLikeCollaborationRuleText(text: string): boolean {
+  return /(以后回答|回答时|回复时|同步进展|代码示例|先给结论|先说完成了什么|不要写成|怎么和我协作|请你|汇报|review|评审|写法|格式|风格)/i
+    .test(normalizeWhitespace(text));
+}
+
+function looksLikeDurableUserProfileText(text: string): boolean {
+  return /(我是|我来自|我住在|我长期|我平时|我一般|我更喜欢|我偏好|我习惯|我常用|我的身份|我的专业|我在做)/i
+    .test(normalizeWhitespace(text));
+}
+
+function looksLikeConcreteProjectMemoryText(text: string): boolean {
+  return /(目标是|当前卡点|里程碑|要出可演示版本|要给团队试用|阶段|进展|deadline|blocker|next step|版本|试用|发布)/i
+    .test(normalizeWhitespace(text));
+}
+
+function extractProjectNameHint(text: string): string {
+  const patterns = [
+    /(?:先叫它|叫它|叫做|项目名(?:字)?(?:先)?叫(?:做)?)\s*([A-Za-z0-9][A-Za-z0-9 _-]{1,40})/i,
+    /项目[，, ]*(?:先)?叫(?:做)?\s*([A-Za-z0-9][A-Za-z0-9 _-]{1,40})/i,
+  ];
+  for (const pattern of patterns) {
+    const match = pattern.exec(text);
+    const value = match?.[1] ? normalizeWhitespace(match[1]) : "";
+    if (value) return truncate(value, 80);
+  }
+  return "";
+}
+
+function extractTimelineHints(text: string): string[] {
+  const lines = text
+    .replace(/\r/g, "\n")
+    .split(/\n|(?<=[。！？!?])/)
+    .map((line) => normalizeWhitespace(line))
+    .filter(Boolean);
+  return Array.from(new Set(lines.filter((line) => /\b20\d{2}-\d{2}-\d{2}\b/.test(line)))).slice(0, 10);
+}
+
+function extractSingleHint(text: string, pattern: RegExp): string {
+  const match = pattern.exec(text);
+  return match?.[1] ? truncateForPrompt(match[1], 220) : "";
+}
+
+function mergeMemoryCandidates(primary: MemoryCandidate[], supplement: MemoryCandidate[]): MemoryCandidate[] {
+  const merged: MemoryCandidate[] = [];
+  const seen = new Set<string>();
+  for (const candidate of [...primary, ...supplement]) {
+    const key = `${candidate.type}:${candidate.projectId ?? "global"}:${candidate.name.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(candidate);
+  }
+  return merged;
+}
+
 function normalizeIntent(value: unknown): IntentType {
   if (value === "time" || value === "project" || value === "fact" || value === "general") return value;
+  if (value === "none" || value === "user" || value === "feedback" || value === "mixed") return value;
   return "general";
 }
 
 function normalizeEnoughAt(value: unknown): RetrievalResult["enoughAt"] {
-  if (value === "l2" || value === "l1" || value === "l0" || value === "none") return value;
+  if (value === "l2" || value === "l1" || value === "l0" || value === "manifest" || value === "file" || value === "none") return value;
+  return "none";
+}
+
+function normalizeMemoryRoute(value: unknown): MemoryRoute {
+  if (value === "user" || value === "feedback" || value === "project" || value === "mixed" || value === "none") {
+    return value;
+  }
   return "none";
 }
 
@@ -2852,5 +2941,335 @@ export class LlmMemoryExtractor {
       l1Ids: normalizeStringArray(parsed.l1_ids, input.limits.l1),
       l0Ids: normalizeStringArray(parsed.l0_ids, input.limits.l0),
     };
+  }
+
+  async decideFileMemoryRoute(input: {
+    query: string;
+    recentMessages?: MemoryMessage[];
+    agentId?: string;
+    timeoutMs?: number;
+  }): Promise<MemoryRoute> {
+    const fallback = (() => {
+      const text = [input.query, ...(input.recentMessages ?? []).map((item) => item.content)].join(" ").toLowerCase();
+      const userHit = /(偏好|喜欢|习惯|我是谁|记得我|记住我|prefer|preference|about me)/.test(text);
+      const feedbackHit = /(怎么和我协作|以后|不要|别再|写作风格|沟通方式|how to work with me|feedback|collabor)/.test(text);
+      const projectHit = /(项目|进展|推进|deadline|里程碑|现在到哪|project|status|progress|blocker|next step)/.test(text);
+      if (userHit && (feedbackHit || projectHit)) return "mixed";
+      if (feedbackHit && projectHit) return "mixed";
+      if (feedbackHit) return "feedback";
+      if (projectHit) return "project";
+      if (userHit) return "user";
+      return "none";
+    })();
+
+    try {
+      const raw = await this.callStructuredJson({
+        systemPrompt: [
+          "You decide whether the current query should trigger long-term memory recall.",
+          "Return JSON only with a single field route.",
+          "Valid route values: none, user, feedback, project, mixed.",
+          "Use none unless the query clearly needs long-term memory.",
+        ].join("\n"),
+        userPrompt: JSON.stringify({
+          query: input.query,
+          recent_messages: (input.recentMessages ?? []).slice(-4).map((message) => ({
+            role: message.role,
+            content: truncateForPrompt(message.content, 220),
+          })),
+        }, null, 2),
+        requestLabel: "File memory gate",
+        timeoutMs: input.timeoutMs ?? 4_000,
+        ...(input.agentId ? { agentId: input.agentId } : {}),
+      });
+      const parsed = JSON.parse(extractFirstJsonObject(raw)) as { route?: unknown };
+      const resolved = normalizeMemoryRoute(parsed.route) || fallback;
+      if (fallback === "mixed" && resolved !== "none") return "mixed";
+      return resolved;
+    } catch (error) {
+      this.logger?.warn?.(`[clawxmemory] file memory gate fallback: ${String(error)}`);
+      return fallback;
+    }
+  }
+
+  async selectFileManifestEntries(input: {
+    query: string;
+    route: MemoryRoute;
+    manifest: MemoryManifestEntry[];
+    limit?: number;
+    agentId?: string;
+    timeoutMs?: number;
+  }): Promise<string[]> {
+    const fallback = input.manifest
+      .map((entry) => {
+        const haystack = [
+          entry.name,
+          entry.description,
+          entry.relativePath,
+          entry.projectId ?? "",
+          entry.type,
+        ].join(" ").toLowerCase();
+        const tokens = input.query.toLowerCase().split(/\s+/).filter(Boolean);
+        const score = tokens.reduce((total, token) => total + (haystack.includes(token) ? 1 : 0), 0);
+        return { id: entry.relativePath, updatedAt: entry.updatedAt, score };
+      })
+      .sort((left, right) => right.score - left.score || right.updatedAt.localeCompare(left.updatedAt))
+      .slice(0, Math.max(1, Math.min(5, input.limit ?? 5)))
+      .map((item) => item.id);
+
+    try {
+      const raw = await this.callStructuredJson({
+        systemPrompt: [
+          "You select a small number of memory files from a compact manifest.",
+          "Return JSON only with selected_ids.",
+          "Select at most 5 ids and prefer recent items that are directly useful for the query.",
+        ].join("\n"),
+        userPrompt: JSON.stringify({
+          query: input.query,
+          route: input.route,
+          manifest: input.manifest.slice(0, 200).map((entry) => ({
+            id: entry.relativePath,
+            type: entry.type,
+            scope: entry.scope,
+            project_id: entry.projectId ?? null,
+            updated_at: entry.updatedAt,
+            description: truncateForPrompt(entry.description, 200),
+          })),
+          limit: Math.max(1, Math.min(5, input.limit ?? 5)),
+        }, null, 2),
+        requestLabel: "File memory selection",
+        timeoutMs: input.timeoutMs ?? 5_000,
+        ...(input.agentId ? { agentId: input.agentId } : {}),
+      });
+      const parsed = JSON.parse(extractFirstJsonObject(raw)) as { selected_ids?: unknown };
+      const selected = normalizeStringArray(parsed.selected_ids, Math.max(1, Math.min(5, input.limit ?? 5)));
+      return selected.length > 0 ? selected : fallback;
+    } catch (error) {
+      this.logger?.warn?.(`[clawxmemory] file memory selection fallback: ${String(error)}`);
+      return fallback;
+    }
+  }
+
+  async extractFileMemoryCandidates(input: {
+    timestamp: string;
+    sessionKey?: string;
+    messages: MemoryMessage[];
+    explicitRemember?: boolean;
+    agentId?: string;
+    timeoutMs?: number;
+  }): Promise<MemoryCandidate[]> {
+    const lastUser = [...input.messages].reverse().find((message) => message.role === "user")?.content ?? "";
+    const heuristicProject = /(项目|deadline|进展|blocker|next step|里程碑|发布)/i.test(lastUser);
+    const heuristicFeedback = looksLikeCollaborationRuleText(lastUser);
+    const heuristicUser = /(喜欢|偏好|习惯|我是|我会|记住我)/i.test(lastUser);
+    const explicitText = input.messages
+      .filter((message) => message.role === "user")
+      .map((message) => message.content)
+      .join("\n");
+    const explicitProjectContext = /(项目|目标|里程碑|试用|版本|当前卡点|deadline|blocker|next step|进展)/i.test(explicitText);
+    const explicitProjectName = extractProjectNameHint(explicitText);
+    const explicitTimeline = extractTimelineHints(explicitText);
+    const explicitGoal = extractSingleHint(explicitText, /目标是([^。；;\n]+)/i);
+    const explicitBlocker = extractSingleHint(explicitText, /当前卡点(?:是|为)?([^。；;\n]+)/i);
+    const explicitRule = extractSingleHint(
+      explicitText,
+      /(?:另外记住|在这个项目里)[，,:：]?\s*([^。]+(?:先说完成了什么[^。]*)?)/i,
+    ) || truncateForPrompt(lastUser, 220);
+    const explicitPreferences = splitPreferenceHints(explicitText);
+    const concreteProjectSignal = Boolean(
+      explicitProjectName
+      || explicitGoal
+      || explicitBlocker
+      || explicitTimeline.length > 0
+      || looksLikeConcreteProjectMemoryText(explicitText),
+    );
+
+    const fallback: MemoryCandidate[] = [];
+    if (input.explicitRemember) {
+      if (concreteProjectSignal || (heuristicProject && !heuristicFeedback)) {
+        fallback.push({
+          type: "project",
+          scope: "project",
+          name: explicitProjectName || "overview",
+          description: truncateForPrompt(explicitGoal || explicitBlocker || lastUser, 120),
+          ...(input.sessionKey ? { sourceSessionKey: input.sessionKey } : {}),
+          capturedAt: input.timestamp,
+          stage: truncateForPrompt(explicitGoal || lastUser, 220),
+          ...(explicitBlocker ? { blockers: [explicitBlocker] } : {}),
+          ...(explicitTimeline.length > 0 ? { timeline: explicitTimeline } : {}),
+          notes: ["Captured from an explicit remember request."],
+        });
+      }
+      if ((explicitProjectContext || heuristicProject || looksLikeCollaborationRuleText(explicitText)) && heuristicFeedback) {
+        fallback.push({
+          type: "feedback",
+          scope: "project",
+          name: "collaboration-rule",
+          description: truncateForPrompt(explicitRule || lastUser, 120),
+          ...(input.sessionKey ? { sourceSessionKey: input.sessionKey } : {}),
+          capturedAt: input.timestamp,
+          rule: truncateForPrompt(explicitRule || lastUser, 220),
+          why: "Explicit project collaboration preference captured from the user.",
+          howToApply: explicitRule.includes("：")
+            ? truncateForPrompt(explicitRule.split("：").slice(1).join("：") || explicitRule, 280)
+            : "Follow this collaboration rule in future project replies unless the user overrides it.",
+          notes: ["Captured from an explicit remember request."],
+        });
+      }
+      if (fallback.length === 0 && heuristicFeedback && !looksLikeDurableUserProfileText(explicitText)) {
+        fallback.push({
+          type: "feedback",
+          scope: "project",
+          name: "collaboration-rule",
+          description: truncateForPrompt(lastUser, 120),
+          ...(input.sessionKey ? { sourceSessionKey: input.sessionKey } : {}),
+          capturedAt: input.timestamp,
+          rule: truncateForPrompt(lastUser, 220),
+          why: "Project anchor is not formalized yet; keep this collaboration rule in temporary project memory until Dream can resolve it.",
+          howToApply: "Apply this rule only after Dream attaches it to a formal project context.",
+          notes: ["Captured from an explicit remember request without a formal project id."],
+        });
+      }
+      if (fallback.length === 0 && (heuristicUser || input.explicitRemember)) {
+        fallback.push({
+          type: "user",
+          scope: "global",
+          name: "user-profile",
+          description: truncateForPrompt(lastUser, 120),
+          ...(input.sessionKey ? { sourceSessionKey: input.sessionKey } : {}),
+          capturedAt: input.timestamp,
+          summary: truncateForPrompt(lastUser, 220),
+          ...(explicitPreferences.length > 0 ? { preferences: explicitPreferences } : {}),
+          notes: ["Captured from an explicit remember request."],
+        });
+      }
+    }
+
+    try {
+      const raw = await this.callStructuredJson({
+        systemPrompt: [
+          "You extract long-term memory candidates from a finished conversation segment.",
+          "Return JSON only with an items array.",
+          "Allowed item.type values: user, feedback, project.",
+          "Discard anything that is too transient or not useful across future sessions.",
+          "For user items only keep stable identity, preferences, constraints, or durable relationships. Never place project state or task details inside user memory.",
+          "For feedback items always provide rule, why, and how_to_apply. Feedback belongs to a project workflow; if project_id is unclear you may omit it so the system can stage it in temporary project memory.",
+          "For project items provide stage, decisions, constraints, next_steps, blockers, and absolute-date timeline entries when dates are mentioned. You may omit project_id when the project identity is still unclear.",
+          "If no durable memory should be saved, return {\"items\":[]}.",
+        ].join("\n"),
+        userPrompt: JSON.stringify({
+          timestamp: input.timestamp,
+          explicit_remember: Boolean(input.explicitRemember),
+          transcript: input.messages.map((message) => ({
+            role: message.role,
+            content: truncateForPrompt(message.content, 500),
+          })),
+        }, null, 2),
+        requestLabel: "File memory extraction",
+        timeoutMs: input.timeoutMs ?? 12_000,
+        ...(input.agentId ? { agentId: input.agentId } : {}),
+      });
+      const parsed = JSON.parse(extractFirstJsonObject(raw)) as { items?: unknown[] };
+      if (!Array.isArray(parsed.items)) return fallback;
+      const items = parsed.items
+        .filter(isRecord)
+        .map((item): MemoryCandidate | null => {
+          const type = item.type === "feedback" || item.type === "project" ? item.type : item.type === "user" ? "user" : null;
+          if (!type) return null;
+          const name = typeof item.name === "string" ? truncateForPrompt(item.name, 80) : "";
+          const description = typeof item.description === "string" ? truncateForPrompt(item.description, 180) : "";
+          if (!name || !description) return null;
+          return {
+            type,
+            scope: type === "user" ? "global" : "project",
+            ...((type === "project" || type === "feedback") && typeof item.project_id === "string" && item.project_id.trim()
+              ? { projectId: slugifyKeyPart(item.project_id) }
+              : {}),
+            name,
+            description,
+            ...(input.sessionKey ? { sourceSessionKey: input.sessionKey } : {}),
+            capturedAt: input.timestamp,
+            ...(typeof item.summary === "string" ? { summary: truncateForPrompt(item.summary, 280) } : {}),
+            preferences: normalizeStringArray(item.preferences, 10),
+            constraints: normalizeStringArray(item.constraints, 10),
+            relationships: normalizeStringArray(item.relationships, 10),
+            ...(typeof item.rule === "string" ? { rule: truncateForPrompt(item.rule, 220) } : {}),
+            ...(typeof item.why === "string" ? { why: truncateForPrompt(item.why, 280) } : {}),
+            ...(typeof item.how_to_apply === "string" ? { howToApply: truncateForPrompt(item.how_to_apply, 280) } : {}),
+            ...(typeof item.stage === "string" ? { stage: truncateForPrompt(item.stage, 220) } : {}),
+            decisions: normalizeStringArray(item.decisions, 10),
+            nextSteps: normalizeStringArray(item.next_steps, 10),
+            blockers: normalizeStringArray(item.blockers, 10),
+            timeline: normalizeStringArray(item.timeline, 10),
+            notes: normalizeStringArray(item.notes, 10),
+          };
+        })
+        .filter((item): item is MemoryCandidate => Boolean(item));
+      const normalizedItems = items.map((item) => {
+        const text = [
+          item.description,
+          item.summary ?? "",
+          item.rule ?? "",
+          item.stage ?? "",
+          ...(item.preferences ?? []),
+          ...(item.notes ?? []),
+          ...(item.nextSteps ?? []),
+          ...(item.blockers ?? []),
+          ...(item.timeline ?? []),
+        ].join(" ");
+        if (
+          item.type === "user"
+          && looksLikeCollaborationRuleText(text)
+          && !looksLikeDurableUserProfileText(text)
+        ) {
+          return {
+            type: "feedback",
+            scope: "project",
+            name: "collaboration-rule",
+            description: item.description,
+            ...(item.sourceSessionKey ? { sourceSessionKey: item.sourceSessionKey } : {}),
+            ...(item.capturedAt ? { capturedAt: item.capturedAt } : {}),
+            rule: truncateForPrompt(item.summary || item.description, 220),
+            why: "This looks like a project-local collaboration instruction without a formal project id yet.",
+            howToApply: "Keep it in temporary project memory until Dream can attach it to the right project.",
+            notes: uniqueStrings([
+              ...(item.preferences ?? []),
+              ...(item.notes ?? []),
+              "Converted from a misclassified user-memory candidate.",
+            ], 10),
+          } satisfies MemoryCandidate;
+        }
+        if (
+          item.type === "project"
+          && looksLikeCollaborationRuleText(text)
+          && !looksLikeConcreteProjectMemoryText(text)
+          && !(item.timeline?.length)
+          && !(item.nextSteps?.length)
+          && !(item.blockers?.length)
+          && !(item.decisions?.length)
+        ) {
+          return {
+            type: "feedback",
+            scope: "project",
+            name: "collaboration-rule",
+            description: item.description,
+            ...(item.sourceSessionKey ? { sourceSessionKey: item.sourceSessionKey } : {}),
+            ...(item.capturedAt ? { capturedAt: item.capturedAt } : {}),
+            rule: truncateForPrompt(item.stage || item.summary || item.description, 220),
+            why: "This looked like a project-local collaboration rule rather than a standalone project memory.",
+            howToApply: "Keep it in temporary project memory until Dream attaches it to the right project.",
+            notes: uniqueStrings([
+              ...(item.notes ?? []),
+              "Converted from a misclassified project-memory candidate.",
+            ], 10),
+          } satisfies MemoryCandidate;
+        }
+        return item;
+      });
+      const merged = mergeMemoryCandidates(normalizedItems, fallback);
+      return merged.length > 0 ? merged : fallback;
+    } catch (error) {
+      this.logger?.warn?.(`[clawxmemory] file memory extraction fallback: ${String(error)}`);
+      return fallback;
+    }
   }
 }

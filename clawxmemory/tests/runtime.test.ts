@@ -132,7 +132,7 @@ describe("MemoryPluginRuntime", () => {
       },
     });
     expect(result.config.tools).toMatchObject({
-      alsoAllow: ["custom_tool", "memory_list", "memory_overview", "memory_flush"],
+      alsoAllow: ["custom_tool", "memory_list", "memory_overview", "memory_flush", "memory_dream"],
     });
     expect(source).toMatchObject({
       plugins: {
@@ -679,7 +679,7 @@ describe("MemoryPluginRuntime", () => {
       "Current git branch: main",
       "Git status summary: clean working tree",
       "",
-      "我昨天晚上lol手游上宗师了",
+      "我昨天把排位打上新段位了",
     ].join("\n");
 
     runtime.handleInternalMessageReceived({
@@ -717,13 +717,13 @@ describe("MemoryPluginRuntime", () => {
     }).listRecentCaseTraces(10);
     expect(records).toHaveLength(1);
     expect(records[0]).toMatchObject({
-      query: "我昨天晚上lol手游上宗师了",
+      query: "我昨天把排位打上新段位了",
     });
     expect(runtime.repository.listRecentL0(10)).toMatchObject([
       {
         sessionKey: "session-noise-filter",
         messages: [
-          { role: "user", content: "我昨天晚上lol手游上宗师了" },
+          { role: "user", content: "我昨天把排位打上新段位了" },
           { role: "assistant", content: "这确实值得记下来，后面再复盘你的上分节奏。" },
         ],
       },
@@ -808,7 +808,7 @@ describe("MemoryPluginRuntime", () => {
         messages: [
           {
             role: "user",
-            content: "帮我记一下我昨晚上 lol 手游上宗师了",
+            content: "帮我记一下我昨晚把排位打上新段位了",
           },
           {
             role: "assistant",
@@ -827,7 +827,7 @@ describe("MemoryPluginRuntime", () => {
 
     const record = runtime.repository.listRecentL0(1)[0];
     expect(record?.messages).toEqual([
-      { role: "user", content: "帮我记一下我昨晚上 lol 手游上宗师了" },
+      { role: "user", content: "帮我记一下我昨晚把排位打上新段位了" },
     ]);
 
     runtime.stop();
@@ -1118,7 +1118,7 @@ describe("MemoryPluginRuntime", () => {
         },
         {
           role: "assistant",
-          content: "📊 **Session Status** - **Agent:** main - **Host:** Ms's MacBook Air - **Workspace:** /Users/meisen/openclaw/workspace - **OS:** Darwin 25.4.0 - **Node:** v22.18.0",
+          content: "📊 **Session Status** - **Agent:** main - **Host:** Example Laptop - **Workspace:** /Users/example/openclaw/workspace - **OS:** Darwin 25.4.0 - **Node:** v22.18.0",
         },
       ],
     });
@@ -1314,7 +1314,7 @@ describe("MemoryPluginRuntime", () => {
       },
     });
     expect(writeConfigFile.mock.calls[0]?.[0]?.tools).toMatchObject({
-      alsoAllow: ["custom_tool", "memory_overview", "memory_list", "memory_flush"],
+      alsoAllow: ["custom_tool", "memory_overview", "memory_list", "memory_flush", "memory_dream"],
     });
 
     const overview = (runtime as never as {
@@ -1794,7 +1794,7 @@ describe("MemoryPluginRuntime", () => {
     expect(indexSpy).toHaveBeenCalledWith("scheduled");
   });
 
-  it("skips scheduled Dream when new L1 count is below the configured threshold", async () => {
+  it("runs the first scheduled Dream before a successful cutoff exists", async () => {
     const dir = await mkdtemp(join(tmpdir(), "clawxmemory-runtime-"));
     cleanupPaths.push(dir);
 
@@ -1820,6 +1820,14 @@ describe("MemoryPluginRuntime", () => {
     vi.spyOn(runtime as never as {
       flushAllNow: (reason: string, options?: { allowWhileDream?: boolean }) => Promise<typeof prepFlush>;
     }, "flushAllNow").mockResolvedValue(prepFlush);
+    const indexer = (runtime as never as {
+      indexer: { getSettings: () => Record<string, unknown> };
+    }).indexer;
+    const currentSettings = indexer.getSettings();
+    vi.spyOn(indexer, "getSettings").mockReturnValue({
+      ...currentSettings,
+      autoDreamMinNewL1: 10,
+    });
     const dreamSpy = vi.spyOn((runtime as never as {
       dreamRewriter: { run: () => Promise<unknown> };
     }).dreamRewriter, "run").mockResolvedValue({
@@ -1838,16 +1846,16 @@ describe("MemoryPluginRuntime", () => {
       runDreamNow: (trigger: "scheduled") => Promise<Record<string, unknown>>;
     }).runDreamNow("scheduled");
 
-    expect(dreamSpy).not.toHaveBeenCalled();
+    expect(dreamSpy).toHaveBeenCalledTimes(1);
     expect(result).toMatchObject({
-      status: "skipped",
-      skipReason: "new_l1_below_threshold",
+      status: "success",
+      trigger: "scheduled",
       prepFlush,
     });
-    expect(runtime.repository.getPipelineState("lastDreamStatus")).toBe("skipped");
+    expect(runtime.repository.getPipelineState("lastDreamStatus")).toBe("success");
   });
 
-  it("runs scheduled Dream after 10 new L1 windows and records the latest successful cutoff", async () => {
+  it("runs scheduled Dream after 10 changed memory files and records the latest successful cutoff", async () => {
     const dir = await mkdtemp(join(tmpdir(), "clawxmemory-runtime-"));
     cleanupPaths.push(dir);
 
@@ -1862,21 +1870,16 @@ describe("MemoryPluginRuntime", () => {
     });
     runtimes.push(runtime);
 
+    const store = runtime.repository.getFileMemoryStore();
     for (let index = 0; index < 10; index += 1) {
-      const minutes = String(index).padStart(2, "0");
-      runtime.repository.insertL1Window({
-        l1IndexId: `l1-${index}`,
-        sessionKey: `session-${index}`,
-        timePeriod: `2026-04-01 ${minutes}:00`,
-        startedAt: `2026-04-01T00:${minutes}:00.000Z`,
-        endedAt: `2026-04-01T00:${minutes}:30.000Z`,
-        summary: `summary-${index}`,
-        facts: [],
-        situationTimeInfo: "",
-        projectTags: [],
-        projectDetails: [],
-        l0Source: [],
-        createdAt: `2026-04-01T00:${minutes}:30.000Z`,
+      store.upsertCandidate({
+        type: "feedback",
+        scope: "project",
+        name: `rule-${index}`,
+        description: `rule-${index}`,
+        rule: `rule-${index}`,
+        why: "test",
+        howToApply: "test",
       });
     }
 
@@ -1917,7 +1920,7 @@ describe("MemoryPluginRuntime", () => {
       rewrittenProjects: 2,
     });
     expect(runtime.repository.getPipelineState("lastDreamStatus")).toBe("success");
-    expect(runtime.repository.getPipelineState("lastDreamL1EndedAt")).toBe("2026-04-01T00:09:30.000Z");
+    expect(runtime.repository.getPipelineState("lastDreamL1EndedAt")).toBeTruthy();
   });
 
   it("does not apply the auto Dream threshold to manual Dream runs", async () => {

@@ -8,9 +8,12 @@ import {
   type DreamRunResult,
   type HeartbeatStats,
   type IndexingSettings,
+  type MemoryManifestEntry,
   MemoryRepository,
   MemoryBundleValidationError,
+  type ProjectMetaRecord,
   ReasoningRetriever,
+  type MemoryImportableBundle,
   type MemoryExportBundle,
   type MemoryImportResult,
   type MemoryUiSnapshot,
@@ -34,7 +37,7 @@ export interface UiServerControls {
   runIndexNow: () => Promise<HeartbeatStats>;
   runDreamNow: () => Promise<DreamRunResult>;
   exportMemoryBundle: () => MemoryExportBundle;
-  importMemoryBundle: (bundle: MemoryExportBundle) => Promise<MemoryImportResult>;
+  importMemoryBundle: (bundle: MemoryImportableBundle) => Promise<MemoryImportResult>;
   getRuntimeOverview: () => Pick<
     DashboardOverview,
     | "queuedSessions"
@@ -59,6 +62,19 @@ export interface UiServerControls {
   getStartupRepairSnapshot: (limit: number) => MemoryUiSnapshot | undefined;
   listCaseTraces: (limit: number) => CaseTraceRecord[];
   getCaseTrace: (caseId: string) => CaseTraceRecord | undefined;
+}
+
+interface UiProjectGroup {
+  projectId: string;
+  projectName: string;
+  description: string;
+  aliases: string[];
+  status: string;
+  updatedAt: string;
+  projectEntries: MemoryManifestEntry[];
+  feedbackEntries: MemoryManifestEntry[];
+  projectCount: number;
+  feedbackCount: number;
 }
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -147,10 +163,71 @@ function parseLimit(value: string | null, fallback: number): number {
   return Math.max(1, Math.min(200, parsed));
 }
 
+function parseMemoryKind(value: string | null): "user" | "feedback" | "project" | "all" {
+  if (value === "user" || value === "feedback" || value === "project") return value;
+  return "all";
+}
+
 function parsePath(pathname: string, prefix: string): string {
   if (!pathname.startsWith(prefix)) return "";
   const raw = pathname.slice(prefix.length);
   return raw.startsWith("/") ? raw : `/${raw}`;
+}
+
+function normalizeSearchText(value: string): string {
+  return value.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function latestUpdatedAt(meta: ProjectMetaRecord, entries: MemoryManifestEntry[]): string {
+  return [meta.updatedAt, ...entries.map((entry) => entry.updatedAt)]
+    .filter(Boolean)
+    .sort((left, right) => right.localeCompare(left))[0] || "";
+}
+
+function buildProjectGroups(repository: MemoryRepository, options: {
+  query?: string;
+  limit?: number;
+  offset?: number;
+} = {}): UiProjectGroup[] {
+  const store = repository.getFileMemoryStore();
+  const query = normalizeSearchText(options.query || "");
+  const groups = store.listProjectMetas().map((meta) => {
+    const entries = repository.listMemoryEntries({
+      scope: "project",
+      projectId: meta.projectId,
+      limit: 500,
+    });
+    const projectEntries = entries.filter((entry) => entry.type === "project");
+    const feedbackEntries = entries.filter((entry) => entry.type === "feedback");
+    return {
+      projectId: meta.projectId,
+      projectName: meta.projectName,
+      description: meta.description,
+      aliases: [...meta.aliases],
+      status: meta.status,
+      updatedAt: latestUpdatedAt(meta, entries),
+      projectEntries,
+      feedbackEntries,
+      projectCount: projectEntries.length,
+      feedbackCount: feedbackEntries.length,
+    } satisfies UiProjectGroup;
+  });
+
+  const filtered = !query
+    ? groups
+    : groups.filter((group) => normalizeSearchText([
+      group.projectName,
+      group.description,
+      ...group.aliases,
+      ...group.projectEntries.flatMap((entry) => [entry.name, entry.description, entry.relativePath]),
+      ...group.feedbackEntries.flatMap((entry) => [entry.name, entry.description, entry.relativePath]),
+    ].join(" ")).includes(query));
+
+  const offset = Math.max(0, options.offset ?? 0);
+  const limit = Math.max(1, Math.min(200, options.limit ?? 50));
+  return filtered
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+    .slice(offset, offset + limit);
 }
 
 function mergeOverview(
@@ -293,7 +370,7 @@ export class LocalUiServer {
         return sendBadRequest(res, error instanceof Error ? error.message : "Invalid JSON body");
       }
       try {
-        return sendJson(res, await this.controls.importMemoryBundle(body as unknown as MemoryExportBundle));
+        return sendJson(res, await this.controls.importMemoryBundle(body as unknown as MemoryImportableBundle));
       } catch (error) {
         if (error instanceof MemoryBundleValidationError) {
           return sendBadRequest(res, error.message);
@@ -334,6 +411,35 @@ export class LocalUiServer {
         overview: overview(),
         settings: this.controls.getSettings(),
       });
+    }
+    if (relativePath === "/api/memory/list") {
+      if (upperMethod !== "GET") return sendMethodNotAllowed(res, "GET");
+      const kind = parseMemoryKind(url.searchParams.get("kind"));
+      const projectId = url.searchParams.get("projectId")?.trim() ?? "";
+      return sendJson(
+        res,
+        this.repository.listMemoryEntries({
+          ...(kind !== "all" ? { kinds: [kind] } : {}),
+          ...(query ? { query } : {}),
+          ...(projectId ? { projectId } : {}),
+          limit,
+          offset,
+        }),
+      );
+    }
+    if (relativePath === "/api/memory/get") {
+      if (upperMethod !== "GET") return sendMethodNotAllowed(res, "GET");
+      const ids = (url.searchParams.get("ids") ?? "").split(",").map((value) => value.trim()).filter(Boolean);
+      if (ids.length === 0) return sendBadRequest(res, "ids query parameter is required");
+      return sendJson(res, this.repository.getMemoryRecordsByIds(ids, 5000));
+    }
+    if (relativePath === "/api/memory/user-summary") {
+      if (upperMethod !== "GET") return sendMethodNotAllowed(res, "GET");
+      return sendJson(res, this.repository.getFileMemoryStore().getUserSummary());
+    }
+    if (relativePath === "/api/projects") {
+      if (upperMethod !== "GET") return sendMethodNotAllowed(res, "GET");
+      return sendJson(res, buildProjectGroups(this.repository, { query, limit, offset }));
     }
     if (relativePath === "/api/l2/time") {
       if (!query.trim()) return sendJson(res, this.repository.listRecentL2Time(limit, offset));

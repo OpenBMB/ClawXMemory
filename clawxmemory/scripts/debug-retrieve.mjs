@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { LlmMemoryExtractor, MemoryRepository, ReasoningRetriever, loadSkillsRuntime } from "../dist/core/index.js";
 
 function parseArg(name, fallback = "") {
@@ -17,6 +17,7 @@ function toLimit(value, fallback) {
 }
 
 const dbPath = resolve(parseArg("--db", join(homedir(), ".openclaw", "clawxmemory", "memory.sqlite")));
+const memoryDir = resolve(parseArg("--memory-dir", join(dirname(dbPath), "memory")));
 const query = parseArg("--query", "");
 const limit = toLimit(parseArg("--limit", "6"), 6);
 const skillsDirRaw = parseArg("--skills-dir", "");
@@ -28,7 +29,7 @@ if (!query.trim()) {
   process.exit(1);
 }
 
-const repository = new MemoryRepository(dbPath);
+const repository = new MemoryRepository(dbPath, { memoryDir });
 try {
   const openclawConfig = JSON.parse(readFileSync(openclawConfigPath, "utf-8"));
   const silentLogger = {
@@ -53,6 +54,7 @@ try {
         ok: true,
         source: "ts-plugin-debug",
         dbPath,
+        memoryDir,
         query,
         limit,
         includeFacts,

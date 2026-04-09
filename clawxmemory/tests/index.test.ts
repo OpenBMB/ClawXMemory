@@ -104,6 +104,7 @@ describe("plugin entry", () => {
       "memory_list",
       "memory_get",
       "memory_flush",
+      "memory_dream",
     ]);
   });
 });

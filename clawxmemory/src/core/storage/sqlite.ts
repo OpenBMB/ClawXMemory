@@ -5,26 +5,34 @@ import type {
   ActiveTopicBufferRecord,
   CaseTraceRecord,
   DashboardOverview,
+  DreamPipelineStatus,
   FactCandidate,
   GlobalProfileRecord,
   IndexingSettings,
   IndexLinkRecord,
+  LegacyMemoryExportBundle,
   L0SessionRecord,
   L1SearchResult,
   L1WindowRecord,
   L2ProjectIndexRecord,
   L2SearchResult,
   L2TimeIndexRecord,
+  MemoryFileExportRecord,
   MemoryMessage,
   MemoryExportBundle,
+  MemoryImportableBundle,
+  MemoryFileRecord,
+  MemoryManifestEntry,
   MemoryImportResult,
+  ProjectMetaExportRecord,
   MemoryTransferCounts,
   MemoryUiSnapshot,
   ProjectStatus,
 } from "../types.js";
-import { MEMORY_EXPORT_FORMAT_VERSION } from "../types.js";
-import { buildLinkId, nowIso } from "../utils/id.js";
-import { safeJsonParse, scoreMatch } from "../utils/text.js";
+import { LEGACY_MEMORY_EXPORT_FORMAT_VERSION, MEMORY_EXPORT_FORMAT_VERSION } from "../types.js";
+import { FileMemoryStore } from "../file-memory.js";
+import { buildLinkId, hashText, nowIso } from "../utils/id.js";
+import { safeJsonParse, scoreMatch, truncate } from "../utils/text.js";
 
 type DbRow = Record<string, unknown>;
 type SearchIdHit = { id: string; score: number };
@@ -270,9 +278,85 @@ function normalizeIndexLink(value: unknown, index: number): IndexLinkRecord {
   };
 }
 
-function normalizeMemoryExportBundle(value: unknown): MemoryExportBundle {
+function normalizeDreamPipelineStatus(value: unknown, field: string): DreamPipelineStatus {
+  if (value === "running" || value === "success" || value === "skipped" || value === "failed") {
+    return value;
+  }
+  throw new MemoryBundleValidationError(`Invalid ${field}`);
+}
+
+function normalizeMemoryFileExportRecord(value: unknown, index: number): MemoryFileExportRecord {
+  if (!isRecord(value)) throw new MemoryBundleValidationError(`Invalid memoryFiles[${index}]`);
+  const type = requireString(value.type, `memoryFiles[${index}].type`);
+  const scope = requireString(value.scope, `memoryFiles[${index}].scope`);
+  if (type !== "user" && type !== "feedback" && type !== "project") {
+    throw new MemoryBundleValidationError(`Invalid memoryFiles[${index}].type`);
+  }
+  if (scope !== "global" && scope !== "project") {
+    throw new MemoryBundleValidationError(`Invalid memoryFiles[${index}].scope`);
+  }
+  if (type === "user" && scope !== "global") {
+    throw new MemoryBundleValidationError(`Invalid memoryFiles[${index}] user scope`);
+  }
+  if ((type === "feedback" || type === "project") && scope !== "project") {
+    throw new MemoryBundleValidationError(`Invalid memoryFiles[${index}] project scope`);
+  }
+  return {
+    name: requireString(value.name, `memoryFiles[${index}].name`),
+    description: readString(value.description ?? "", `memoryFiles[${index}].description`),
+    type,
+    scope,
+    ...(typeof value.projectId === "string" && value.projectId.trim() ? { projectId: value.projectId.trim() } : {}),
+    updatedAt: requireString(value.updatedAt, `memoryFiles[${index}].updatedAt`),
+    ...(Boolean(value.deprecated) ? { deprecated: true } : {}),
+    ...(typeof value.dreamAttempts === "number" && Number.isFinite(value.dreamAttempts) && value.dreamAttempts > 0
+      ? { dreamAttempts: value.dreamAttempts }
+      : {}),
+    file: requireString(value.file, `memoryFiles[${index}].file`),
+    relativePath: requireString(value.relativePath, `memoryFiles[${index}].relativePath`),
+    content: readString(value.content ?? "", `memoryFiles[${index}].content`),
+  };
+}
+
+function normalizeProjectMetaExportRecord(value: unknown, index: number): ProjectMetaExportRecord {
+  if (!isRecord(value)) throw new MemoryBundleValidationError(`Invalid projectMetas[${index}]`);
+  return {
+    projectId: requireString(value.projectId, `projectMetas[${index}].projectId`),
+    projectName: requireString(value.projectName, `projectMetas[${index}].projectName`),
+    description: readString(value.description ?? "", `projectMetas[${index}].description`),
+    aliases: normalizeStringArray(value.aliases ?? [], `projectMetas[${index}].aliases`),
+    status: readString(value.status ?? "active", `projectMetas[${index}].status`),
+    createdAt: requireString(value.createdAt, `projectMetas[${index}].createdAt`),
+    updatedAt: requireString(value.updatedAt, `projectMetas[${index}].updatedAt`),
+    relativePath: requireString(value.relativePath, `projectMetas[${index}].relativePath`),
+  };
+}
+
+function normalizeFileMemoryExportBundle(value: unknown): MemoryExportBundle {
   if (!isRecord(value)) throw new MemoryBundleValidationError("Invalid memory bundle");
   if (value.formatVersion !== MEMORY_EXPORT_FORMAT_VERSION) {
+    throw new MemoryBundleValidationError("Unsupported memory bundle formatVersion");
+  }
+  if (!Array.isArray(value.projectMetas) || !Array.isArray(value.memoryFiles)) {
+    throw new MemoryBundleValidationError("Invalid file memory bundle collections");
+  }
+  return {
+    formatVersion: MEMORY_EXPORT_FORMAT_VERSION,
+    exportedAt: requireString(value.exportedAt, "exportedAt"),
+    ...(typeof value.lastIndexedAt === "string" && value.lastIndexedAt.trim() ? { lastIndexedAt: value.lastIndexedAt } : {}),
+    ...(typeof value.lastDreamAt === "string" && value.lastDreamAt.trim() ? { lastDreamAt: value.lastDreamAt } : {}),
+    ...(typeof value.lastDreamStatus === "string"
+      ? { lastDreamStatus: normalizeDreamPipelineStatus(value.lastDreamStatus, "lastDreamStatus") }
+      : {}),
+    ...(typeof value.lastDreamSummary === "string" ? { lastDreamSummary: value.lastDreamSummary } : {}),
+    projectMetas: value.projectMetas.map((item, index) => normalizeProjectMetaExportRecord(item, index)),
+    memoryFiles: value.memoryFiles.map((item, index) => normalizeMemoryFileExportRecord(item, index)),
+  };
+}
+
+function normalizeLegacyMemoryExportBundle(value: unknown): LegacyMemoryExportBundle {
+  if (!isRecord(value)) throw new MemoryBundleValidationError("Invalid memory bundle");
+  if (value.formatVersion !== LEGACY_MEMORY_EXPORT_FORMAT_VERSION) {
     throw new MemoryBundleValidationError("Unsupported memory bundle formatVersion");
   }
   if (!Array.isArray(value.l0Sessions) || !Array.isArray(value.l1Windows) || !Array.isArray(value.l2TimeIndexes)
@@ -280,7 +364,7 @@ function normalizeMemoryExportBundle(value: unknown): MemoryExportBundle {
     throw new MemoryBundleValidationError("Invalid memory bundle collections");
   }
   return {
-    formatVersion: MEMORY_EXPORT_FORMAT_VERSION,
+    formatVersion: LEGACY_MEMORY_EXPORT_FORMAT_VERSION,
     exportedAt: requireString(value.exportedAt, "exportedAt"),
     ...(typeof value.lastIndexedAt === "string" && value.lastIndexedAt.trim() ? { lastIndexedAt: value.lastIndexedAt } : {}),
     l0Sessions: value.l0Sessions.map((item, index) => normalizeL0Record(item, index)),
@@ -290,6 +374,19 @@ function normalizeMemoryExportBundle(value: unknown): MemoryExportBundle {
     globalProfile: normalizeGlobalProfile(value.globalProfile),
     indexLinks: value.indexLinks.map((item, index) => normalizeIndexLink(item, index)),
   };
+}
+
+function normalizeImportableBundle(value: unknown): MemoryImportableBundle {
+  if (!isRecord(value) || typeof value.formatVersion !== "string") {
+    throw new MemoryBundleValidationError("Invalid memory bundle");
+  }
+  if (value.formatVersion === MEMORY_EXPORT_FORMAT_VERSION) {
+    return normalizeFileMemoryExportBundle(value);
+  }
+  if (value.formatVersion === LEGACY_MEMORY_EXPORT_FORMAT_VERSION) {
+    return normalizeLegacyMemoryExportBundle(value);
+  }
+  throw new MemoryBundleValidationError("Unsupported memory bundle formatVersion");
 }
 
 function parseL0Row(row: DbRow): L0SessionRecord {
@@ -483,11 +580,16 @@ function normalizeIndexingSettings(
 
 export class MemoryRepository {
   private readonly db: DatabaseSync;
+  private readonly fileMemory: FileMemoryStore;
   private ftsEnabled = false;
 
-  constructor(private readonly dbPath: string) {
+  constructor(
+    private readonly dbPath: string,
+    options: { memoryDir?: string } = {},
+  ) {
     mkdirSync(dirname(dbPath), { recursive: true });
     this.db = new DatabaseSync(dbPath);
+    this.fileMemory = new FileMemoryStore(options.memoryDir ?? dirname(dbPath));
     this.db.exec("PRAGMA journal_mode = WAL;");
     this.db.exec("PRAGMA synchronous = NORMAL;");
     this.db.exec("PRAGMA temp_store = MEMORY;");
@@ -496,6 +598,126 @@ export class MemoryRepository {
 
   close(): void {
     this.db.close();
+  }
+
+  getFileMemoryStore(): FileMemoryStore {
+    return this.fileMemory;
+  }
+
+  private buildFileTransferCounts(
+    memoryFiles: readonly Pick<MemoryFileExportRecord, "type" | "projectId">[],
+    projectMetas: readonly ProjectMetaExportRecord[],
+    legacy: Partial<MemoryTransferCounts> = {},
+  ): MemoryTransferCounts {
+    return {
+      memoryFiles: memoryFiles.length,
+      project: memoryFiles.filter((record) => record.type === "project" && record.projectId !== "_tmp").length,
+      feedback: memoryFiles.filter((record) => record.type === "feedback" && record.projectId !== "_tmp").length,
+      user: memoryFiles.filter((record) => record.type === "user").length,
+      tmp: memoryFiles.filter((record) => record.projectId === "_tmp").length,
+      projectMetas: projectMetas.length,
+      ...legacy,
+    };
+  }
+
+  private resetDatabaseForFileImport(state: {
+    lastIndexedAt?: string;
+    lastDreamAt?: string;
+    lastDreamStatus?: DreamPipelineStatus;
+    lastDreamSummary?: string;
+  }): void {
+    const indexingSettings = this.getPipelineState(INDEXING_SETTINGS_STATE_KEY);
+    this.db.exec("BEGIN");
+    try {
+      this.db.exec(`
+        DELETE FROM active_topic_buffers;
+        DELETE FROM index_links;
+        DELETE FROM l2_project_indexes;
+        DELETE FROM l2_time_indexes;
+        DELETE FROM l1_windows;
+        DELETE FROM l0_sessions;
+        DELETE FROM global_profile_record;
+        DELETE FROM pipeline_state;
+      `);
+      const resetAt = nowIso();
+      this.saveGlobalProfileRecord({
+        recordId: GLOBAL_PROFILE_RECORD_ID,
+        profileText: "",
+        sourceL1Ids: [],
+        createdAt: resetAt,
+        updatedAt: resetAt,
+      });
+      if (indexingSettings) {
+        this.setPipelineState(INDEXING_SETTINGS_STATE_KEY, indexingSettings);
+      }
+      if (state.lastIndexedAt) {
+        this.setPipelineState(LAST_INDEXED_AT_STATE_KEY, state.lastIndexedAt);
+      }
+      if (state.lastDreamAt) {
+        this.setPipelineState(LAST_DREAM_AT_STATE_KEY, state.lastDreamAt);
+      }
+      if (state.lastDreamStatus) {
+        this.setPipelineState(LAST_DREAM_STATUS_STATE_KEY, state.lastDreamStatus);
+      }
+      if (typeof state.lastDreamSummary === "string") {
+        this.setPipelineState(LAST_DREAM_SUMMARY_STATE_KEY, state.lastDreamSummary);
+      }
+      this.db.exec("COMMIT");
+      this.rebuildSearchIndexes();
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  private buildLegacyProjectId(projectIndex: L2ProjectIndexRecord): string {
+    return `legacy_${hashText(`${projectIndex.projectKey}:${projectIndex.projectName}`)}`;
+  }
+
+  private importLegacyBundleIntoFileMemory(bundle: LegacyMemoryExportBundle): MemoryTransferCounts {
+    this.fileMemory.clearAllData();
+
+    if (bundle.globalProfile.profileText.trim()) {
+      this.fileMemory.upsertCandidate({
+        type: "user",
+        scope: "global",
+        name: "user-profile",
+        description: truncate(bundle.globalProfile.profileText, 120),
+        summary: bundle.globalProfile.profileText,
+      });
+    }
+
+    for (const projectIndex of bundle.l2ProjectIndexes) {
+      const projectId = this.buildLegacyProjectId(projectIndex);
+      this.fileMemory.upsertProjectMeta({
+        projectId,
+        projectName: projectIndex.projectName || projectIndex.projectKey,
+        description: projectIndex.summary || projectIndex.latestProgress || projectIndex.projectName || projectId,
+        aliases: [projectIndex.projectKey, projectIndex.projectName].filter(Boolean) as string[],
+        status: projectIndex.currentStatus,
+      });
+      this.fileMemory.upsertCandidate({
+        type: "project",
+        scope: "project",
+        projectId,
+        name: projectIndex.projectName || projectIndex.projectKey || projectId,
+        description: projectIndex.summary || projectIndex.latestProgress || projectIndex.projectName || projectId,
+        stage: projectIndex.latestProgress || projectIndex.summary || projectIndex.projectName || projectId,
+        notes: projectIndex.summary && projectIndex.latestProgress && projectIndex.summary !== projectIndex.latestProgress
+          ? [projectIndex.summary]
+          : [],
+      });
+    }
+
+    const exported = this.fileMemory.exportBundleRecords({ includeTmp: true });
+    return this.buildFileTransferCounts(exported.memoryFiles, exported.projectMetas, {
+      legacyL0: bundle.l0Sessions.length,
+      legacyL1: bundle.l1Windows.length,
+      legacyL2Time: bundle.l2TimeIndexes.length,
+      legacyL2Project: bundle.l2ProjectIndexes.length,
+      legacyProfile: bundle.globalProfile.profileText.trim() ? 1 : 0,
+      legacyLinks: bundle.indexLinks.length,
+    });
   }
 
   private hasColumn(tableName: string, columnName: string): boolean {
@@ -1398,6 +1620,10 @@ export class MemoryRepository {
       totalL2Time: overview.totalL2Time,
       totalL2Project: overview.totalL2Project,
       totalProfiles: overview.totalProfiles,
+      totalMemoryFiles: overview.totalMemoryFiles ?? 0,
+      totalUserMemories: overview.totalUserMemories ?? 0,
+      totalFeedbackMemories: overview.totalFeedbackMemories ?? 0,
+      totalProjectMemories: overview.totalProjectMemories ?? 0,
     });
   }
 
@@ -1428,6 +1654,8 @@ export class MemoryRepository {
       return typeof row?.state_value === "string" && row.state_value.trim() ? row.state_value : undefined;
     };
     const profile = this.getGlobalProfileRecord();
+    const lastDreamAt = readState(LAST_DREAM_AT_STATE_KEY);
+    const fileOverview = this.fileMemory.getOverview(lastDreamAt);
     const overview: DashboardOverview = {
       totalL0: count("l0_sessions"),
       pendingL0: (() => {
@@ -1440,13 +1668,17 @@ export class MemoryRepository {
       totalL2Time: count("l2_time_indexes"),
       totalL2Project: count("l2_project_indexes"),
       totalProfiles: profile.profileText.trim() ? 1 : 0,
+      totalMemoryFiles: fileOverview.totalMemoryFiles,
+      totalUserMemories: fileOverview.totalUserMemories,
+      totalFeedbackMemories: fileOverview.totalFeedbackMemories,
+      totalProjectMemories: fileOverview.totalProjectMemories,
       queuedSessions: 0,
       lastRecallMs: 0,
       recallTimeouts: 0,
       lastRecallMode: "none",
+      changedFilesSinceLastDream: fileOverview.changedFilesSinceLastDream,
     };
     const lastIndexedAt = readState(LAST_INDEXED_AT_STATE_KEY);
-    const lastDreamAt = readState(LAST_DREAM_AT_STATE_KEY);
     const lastDreamStatus = readState(LAST_DREAM_STATUS_STATE_KEY);
     const lastDreamSummary = readState(LAST_DREAM_SUMMARY_STATE_KEY);
     const lastDreamL1EndedAt = readState(LAST_DREAM_L1_ENDED_AT_STATE_KEY);
@@ -1524,30 +1756,70 @@ export class MemoryRepository {
 
   exportMemoryBundle(): MemoryExportBundle {
     const lastIndexedAt = this.getPipelineState(LAST_INDEXED_AT_STATE_KEY);
+    const lastDreamAt = this.getPipelineState(LAST_DREAM_AT_STATE_KEY);
+    const lastDreamStatus = this.getPipelineState(LAST_DREAM_STATUS_STATE_KEY);
+    const lastDreamSummary = this.getPipelineState(LAST_DREAM_SUMMARY_STATE_KEY);
+    const exported = this.fileMemory.exportBundleRecords({ includeTmp: true });
     return {
       formatVersion: MEMORY_EXPORT_FORMAT_VERSION,
       exportedAt: nowIso(),
       ...(lastIndexedAt ? { lastIndexedAt } : {}),
-      l0Sessions: this.listAllL0(),
-      l1Windows: this.listAllL1(),
-      l2TimeIndexes: this.listAllL2Time(),
-      l2ProjectIndexes: this.listAllL2Projects(),
-      globalProfile: this.getGlobalProfileRecord(),
-      indexLinks: this.listAllIndexLinks(),
+      ...(lastDreamAt ? { lastDreamAt } : {}),
+      ...(lastDreamStatus ? { lastDreamStatus: lastDreamStatus as DreamPipelineStatus } : {}),
+      ...(typeof lastDreamSummary === "string" ? { lastDreamSummary } : {}),
+      projectMetas: exported.projectMetas,
+      memoryFiles: exported.memoryFiles,
     };
   }
 
   importMemoryBundle(bundleLike: unknown): MemoryImportResult {
-    const bundle = normalizeMemoryExportBundle(bundleLike);
+    const bundle = normalizeImportableBundle(bundleLike);
     const importedAt = nowIso();
-    const imported: MemoryTransferCounts = {
-      l0: bundle.l0Sessions.length,
-      l1: bundle.l1Windows.length,
-      l2Time: bundle.l2TimeIndexes.length,
-      l2Project: bundle.l2ProjectIndexes.length,
-      profile: bundle.globalProfile.profileText.trim() ? 1 : 0,
-      links: bundle.indexLinks.length,
-    };
+
+    if (bundle.formatVersion === MEMORY_EXPORT_FORMAT_VERSION) {
+      const restored = this.fileMemory.replaceFromBundle({
+        projectMetas: bundle.projectMetas,
+        memoryFiles: bundle.memoryFiles,
+      });
+      const restoredProjectMetas: ProjectMetaExportRecord[] = restored.projectMetas.map((meta) => ({
+        projectId: meta.projectId,
+        projectName: meta.projectName,
+        description: meta.description,
+        aliases: meta.aliases,
+        status: meta.status,
+        createdAt: meta.createdAt,
+        updatedAt: meta.updatedAt,
+        relativePath: meta.relativePath,
+      }));
+      const restoredMemoryFiles: MemoryFileExportRecord[] = restored.memoryFiles.map((record) => ({
+        name: record.name,
+        description: record.description,
+        type: record.type,
+        scope: record.scope,
+        ...(record.projectId ? { projectId: record.projectId } : {}),
+        updatedAt: record.updatedAt,
+        ...(record.deprecated ? { deprecated: true } : {}),
+        ...(typeof record.dreamAttempts === "number" ? { dreamAttempts: record.dreamAttempts } : {}),
+        file: record.file,
+        relativePath: record.relativePath,
+        content: record.content,
+      }));
+      this.resetDatabaseForFileImport({
+        ...(bundle.lastIndexedAt ? { lastIndexedAt: bundle.lastIndexedAt } : {}),
+        ...(bundle.lastDreamAt ? { lastDreamAt: bundle.lastDreamAt } : {}),
+        ...(bundle.lastDreamStatus ? { lastDreamStatus: bundle.lastDreamStatus } : {}),
+        ...(typeof bundle.lastDreamSummary === "string" ? { lastDreamSummary: bundle.lastDreamSummary } : {}),
+      });
+      return {
+        formatVersion: MEMORY_EXPORT_FORMAT_VERSION,
+        imported: this.buildFileTransferCounts(restoredMemoryFiles, restoredProjectMetas),
+        importedAt,
+        ...(bundle.lastIndexedAt ? { lastIndexedAt: bundle.lastIndexedAt } : {}),
+        ...(bundle.lastDreamAt ? { lastDreamAt: bundle.lastDreamAt } : {}),
+        ...(bundle.lastDreamStatus ? { lastDreamStatus: bundle.lastDreamStatus } : {}),
+        ...(typeof bundle.lastDreamSummary === "string" ? { lastDreamSummary: bundle.lastDreamSummary } : {}),
+      };
+    }
 
     this.db.exec("BEGIN");
     try {
@@ -1560,6 +1832,12 @@ export class MemoryRepository {
         DELETE FROM l0_sessions;
         DELETE FROM global_profile_record;
       `);
+      const clearStateStmt = this.db.prepare(`DELETE FROM pipeline_state WHERE state_key = ?`);
+      clearStateStmt.run(LAST_DREAM_AT_STATE_KEY);
+      clearStateStmt.run(LAST_DREAM_STATUS_STATE_KEY);
+      clearStateStmt.run(LAST_DREAM_SUMMARY_STATE_KEY);
+      clearStateStmt.run(LAST_DREAM_L1_ENDED_AT_STATE_KEY);
+      clearStateStmt.run(RECENT_CASE_TRACES_STATE_KEY);
 
       const insertL0Stmt = this.db.prepare(`
         INSERT INTO l0_sessions (
@@ -1654,8 +1932,9 @@ export class MemoryRepository {
 
       this.db.exec("COMMIT");
       this.rebuildSearchIndexes();
+      const imported = this.importLegacyBundleIntoFileMemory(bundle);
       return {
-        formatVersion: MEMORY_EXPORT_FORMAT_VERSION,
+        formatVersion: LEGACY_MEMORY_EXPORT_FORMAT_VERSION,
         imported,
         importedAt,
         ...(bundle.lastIndexedAt ? { lastIndexedAt: bundle.lastIndexedAt } : {}),
@@ -1805,6 +2084,7 @@ export class MemoryRepository {
         this.setPipelineState(INDEXING_SETTINGS_STATE_KEY, indexingSettings);
       }
       this.db.exec("COMMIT");
+      this.fileMemory.clearAllData();
       this.rebuildSearchIndexes();
       return {
         cleared,
@@ -1832,6 +2112,23 @@ export class MemoryRepository {
       recentL1Windows: this.listRecentL1(limit),
       recentSessions: this.listRecentL0(limit),
       globalProfile: this.getGlobalProfileRecord(),
+      recentMemoryFiles: this.fileMemory.listMemoryEntries({ limit }),
     };
+  }
+
+  listMemoryEntries(options: {
+    kinds?: Array<"user" | "feedback" | "project">;
+    query?: string;
+    limit?: number;
+    offset?: number;
+    scope?: "global" | "project";
+    projectId?: string;
+    includeTmp?: boolean;
+  } = {}): MemoryManifestEntry[] {
+    return this.fileMemory.listMemoryEntries(options);
+  }
+
+  getMemoryRecordsByIds(ids: string[], maxLines = 80): MemoryFileRecord[] {
+    return this.fileMemory.getMemoryRecordsByIds(ids, maxLines);
   }
 }

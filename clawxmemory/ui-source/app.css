@@ -1640,6 +1640,58 @@ body[data-nav="open"] .app-scrim {
   color: var(--text-3);
 }
 
+/* ─── Main detail pages ────────────────────────────────── */
+
+.page-shell {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-raised);
+  padding: 16px;
+}
+
+.page-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.page-head-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.page-head-copy h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.page-subtitle {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-2);
+  line-height: 1.5;
+}
+
+.page-back-btn {
+  flex-shrink: 0;
+}
+
+.page-detail-body {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow: auto;
+}
+
 /* ─── Side drawers ──────────────────────────────────────── */
 
 .side-drawer {
@@ -1798,6 +1850,17 @@ body[data-panel="retrieve"] #retrievePanel {
   flex-shrink: 0;
 }
 
+.detail-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.detail-back-btn {
+  padding-inline: 10px;
+}
+
 .detail-meta,
 .detail-body {
   min-height: 0;
@@ -1851,6 +1914,10 @@ body[data-panel="retrieve"] #retrievePanel {
   margin: 0;
   font-size: 13px;
   line-height: 1.6;
+}
+
+.detail-file-list {
+  gap: 6px;
 }
 
 /* ─── Tags ──────────────────────────────────────────────── */
@@ -2214,10 +2281,6 @@ body[data-panel="retrieve"] #retrievePanel {
   color: var(--color-text-secondary);
 }
 
-/* ═══════════════════════════════════════════════════════════
-   View Mode Switching
-   ═══════════════════════════════════════════════════════════ */
-
 .command-center {
   flex: 1;
   min-height: 0;
@@ -2226,16 +2289,6 @@ body[data-panel="retrieve"] #retrievePanel {
   gap: 16px;
   overflow: hidden;
 }
-
-.workspace[data-view="list"] > .command-center { display: none; }
-.workspace[data-view="command_center"] > .stream-panel { display: none; }
-
-/* ─── View-based sidebar nav switching ─────────────────── */
-
-.app-shell[data-view="list"] #boardNavTabs { display: none !important; }
-.app-shell[data-view="list"] #levelTabs { display: flex !important; }
-.app-shell[data-view="command_center"] #boardNavTabs { display: flex !important; }
-.app-shell[data-view="command_center"] #levelTabs { display: none !important; }
 
 /* ═══════════════════════════════════════════════════════════
    Board Tabs

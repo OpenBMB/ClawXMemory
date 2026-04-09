@@ -10,6 +10,7 @@ export const SESSION_START_PREFIX = "A new session was started via /new or /rese
 const SLUG_PROMPT_PREFIX = "Based on this conversation, generate a short 1-2 word filename slug";
 const MAX_CONTENT_EXTRACTION_DEPTH = 5;
 const SESSION_START_SEQUENCE_PATTERN = /\b(?:Run|Execute) your Session Startup sequence\b/i;
+const EXPLICIT_REMEMBER_PATTERN = /(请记住|帮我记住|另外记住|记住(?!了没|了吗)|记一下|记下来|remember\s+(?:this|that|these|it)|keep in mind)/i;
 const KNOWN_SLASH_COMMANDS = new Set([
   "help",
   "commands",
@@ -196,6 +197,22 @@ function compactWhitespace(text: string): string {
     previousEmpty = empty;
   }
   return compact.join("\n").trim();
+}
+
+export function hasExplicitRememberIntentText(text: string): boolean {
+  const normalized = text.trim();
+  if (/^(?:你|你还|还)\s*(?:记住|记得).*[吗？?]\s*$/i.test(normalized)) {
+    return false;
+  }
+  return EXPLICIT_REMEMBER_PATTERN.test(normalized);
+}
+
+export function hasExplicitRememberIntent(messages: readonly MemoryMessage[]): boolean {
+  const text = messages
+    .filter((message) => message.role === "user")
+    .map((message) => message.content)
+    .join(" ");
+  return hasExplicitRememberIntentText(text);
 }
 
 function normalizePluginNoiseProbe(text: string): string {

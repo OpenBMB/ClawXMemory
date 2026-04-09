@@ -11,4 +11,5 @@ export * from "./indexers/l2-builder.js";
 export * from "./review/dream-review.js";
 export * from "./pipeline/heartbeat.js";
 export * from "./retrieval/reasoning-loop.js";
+export * from "./file-memory.js";
 export * from "./storage/sqlite.js";

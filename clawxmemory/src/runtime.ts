@@ -11,6 +11,7 @@ import {
   type DreamRunResult,
   type HeartbeatStats,
   type IndexingSettings,
+  type MemoryImportableBundle,
   type MemoryMessage,
   type MemoryExportBundle,
   type MemoryImportResult,
@@ -37,7 +38,7 @@ import type {
   PluginHookToolContext,
 } from "openclaw/plugin-sdk/plugin-runtime";
 import { buildPluginConfig, type PluginRuntimeConfig } from "./config.js";
-import { inspectTranscriptMessage, isCommandOnlyUserText, isSessionBoundaryMarkerMessage, isSessionStartupMarkerText, normalizeMessages, normalizeTranscriptMessage } from "./message-utils.js";
+import { hasExplicitRememberIntent, inspectTranscriptMessage, isCommandOnlyUserText, isSessionBoundaryMarkerMessage, isSessionStartupMarkerText, normalizeMessages, normalizeTranscriptMessage } from "./message-utils.js";
 import { buildPluginTools } from "./tools.js";
 import { LocalUiServer } from "./ui-server.js";
 import { existsSync } from "node:fs";
@@ -52,7 +53,7 @@ const LAST_DREAM_AT_STATE_KEY = "lastDreamAt";
 const LAST_DREAM_STATUS_STATE_KEY = "lastDreamStatus";
 const LAST_DREAM_SUMMARY_STATE_KEY = "lastDreamSummary";
 const LAST_DREAM_L1_ENDED_AT_STATE_KEY = "lastDreamL1EndedAt";
-const CHAT_FACING_MEMORY_TOOLS = ["memory_overview", "memory_list", "memory_flush"] as const;
+const CHAT_FACING_MEMORY_TOOLS = ["memory_overview", "memory_list", "memory_flush", "memory_dream"] as const;
 const MANAGED_BOUNDARY_RESTART_TIMEOUT_MS = process.platform === "win32" ? 15_000 : 8_000;
 const RECENT_INBOUND_TTL_MS = 30_000;
 const COMMAND_REPLY_TTL_MS = 10_000;
@@ -357,13 +358,47 @@ function deriveCasePathSummary(
   enoughAt: RetrievalResult["enoughAt"] | undefined,
 ): string {
   if (enoughAt === "profile") return "profile";
+  if (enoughAt === "file") return "manifest->files";
+  if (enoughAt === "manifest") return "manifest";
   if (!trace?.steps?.length) return enoughAt ?? "none";
   const stepKinds = new Set(trace.steps.map((step) => step.kind));
+  if (stepKinds.has("files_loaded")) return "manifest->files";
+  if (stepKinds.has("manifest_selected") || stepKinds.has("manifest_built")) return "manifest";
   if (stepKinds.has("hop4_decision") || stepKinds.has("l0_candidates")) return "l2->l1->l0";
   if (stepKinds.has("hop3_decision") || stepKinds.has("l1_candidates")) return "l2->l1";
   if (stepKinds.has("hop2_decision") || stepKinds.has("l2_candidates")) return "l2";
   if (stepKinds.has("recall_skipped")) return "none";
   return enoughAt ?? "none";
+}
+
+function isNoiseCaseQuery(query: string): boolean {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) return true;
+  return normalized.startsWith("run: openclaw doctor")
+    || normalized.includes("heartbeat.md")
+    || normalized.startsWith("notice-")
+    || normalized.startsWith("请直接回复一句")
+    || normalized.startsWith("请简短回复")
+    || normalized.startsWith("请用两句话回复");
+}
+
+function shouldHideCaseTrace(record: CaseTraceRecord | undefined): boolean {
+  if (!record) return true;
+  const sessionKey = record.sessionKey.trim().toLowerCase();
+  const query = record.query.trim().toLowerCase();
+  return isNoiseCaseQuery(record.query)
+    || sessionKey.startsWith("notice-")
+    || sessionKey.startsWith("notice_")
+    || query.startsWith("reply only")
+    || query.includes("overflow-check segment")
+    || query.includes("workspace context")
+    || query.includes("do not infer or repeat old tasks")
+    || query.includes("clawxcontext-smoke")
+    || query.includes(".openclaw/workspace")
+    || query.includes("then reply only")
+    || query.includes("no prose")
+    || query.includes("use context_suggest exactly once")
+    || query.includes("use the read tool exactly once");
 }
 
 function extractAssistantReply(messages: MemoryMessage[]): string {
@@ -486,6 +521,7 @@ function sliceUiSnapshot(snapshot: MemoryUiSnapshot, limit: number): MemoryUiSna
     recentL1Windows: snapshot.recentL1Windows.slice(0, limit),
     recentSessions: snapshot.recentSessions.slice(0, limit),
     globalProfile: { ...snapshot.globalProfile },
+    ...(snapshot.recentMemoryFiles ? { recentMemoryFiles: snapshot.recentMemoryFiles.slice(0, limit) } : {}),
   };
 }
 
@@ -577,7 +613,7 @@ export class MemoryPluginRuntime {
     const skills = this.config.skillsDir
       ? loadSkillsRuntime({ skillsDir: this.config.skillsDir, logger: this.logger })
       : loadSkillsRuntime({ logger: this.logger });
-    this.repository = new MemoryRepository(this.config.dbPath);
+    this.repository = new MemoryRepository(this.config.dbPath, { memoryDir: this.config.memoryDir });
     const persistedSettings = this.repository.getIndexingSettings(this.config.defaultIndexingSettings);
     const migratedSettings = this.maybeUpgradeIndexingSettings(persistedSettings);
     const extractor = new LlmMemoryExtractor(
@@ -663,11 +699,14 @@ export class MemoryPluginRuntime {
   }
 
   private listRecentCaseTraces(limit: number): CaseTraceRecord[] {
-    return this.repository.listRecentCaseTraces(limit);
+    return this.repository.listRecentCaseTraces(Math.max(limit * 4, limit))
+      .filter((record) => !shouldHideCaseTrace(record))
+      .slice(0, limit);
   }
 
   private getCaseTrace(caseId: string): CaseTraceRecord | undefined {
-    return this.repository.getCaseTrace(caseId);
+    const record = this.repository.getCaseTrace(caseId);
+    return shouldHideCaseTrace(record) ? undefined : record;
   }
 
   private trimCaseBuffer(): void {
@@ -830,7 +869,7 @@ export class MemoryPluginRuntime {
     this.retriever.resetTransientState();
   }
 
-  async replaceMemoryBundle(bundle: MemoryExportBundle): Promise<MemoryImportResult> {
+  async replaceMemoryBundle(bundle: MemoryImportableBundle): Promise<MemoryImportResult> {
     this.setStartupRepairState("idle");
     this.clearEphemeralMemoryState();
     if (this.queuePromise) {
@@ -851,6 +890,7 @@ export class MemoryPluginRuntime {
         ...this.getRuntimeOverview(),
       }),
       flushAll: () => this.flushAllNow("manual"),
+      runDream: () => this.runDreamNow("manual"),
     });
   }
 
@@ -1130,6 +1170,7 @@ export class MemoryPluginRuntime {
         l0Limit: recallTopK,
         includeFacts: true,
         recentMessages,
+        workspaceHint: this.resolveWorkspaceDir(),
       });
       const elapsedMs = Date.now() - startedAt;
       const injected = Boolean(retrieved.context?.trim());
@@ -1347,7 +1388,13 @@ export class MemoryPluginRuntime {
         this.logger.info?.(
           `[clawxmemory] captured l0 session=${sessionKey} indexed=pending trigger=idle|timer|session_boundary|manual`,
         );
-        this.scheduleIdleIndex(sessionKey);
+        if (hasExplicitRememberIntent(messages)) {
+          void this.flushSessionNow(sessionKey, "explicit_remember").catch((error) => {
+            this.logger.warn?.(`[clawxmemory] explicit_remember flush failed session=${sessionKey}: ${String(error)}`);
+          });
+        } else {
+          this.scheduleIdleIndex(sessionKey);
+        }
       }
     } finally {
       this.clearNonMemoryTurn(rawSessionKey);
@@ -1547,21 +1594,19 @@ export class MemoryPluginRuntime {
   }
 
   private getLatestL1EndedAt(): string | undefined {
-    const windows = this.repository.listAllL1();
-    if (windows.length === 0) return undefined;
-    return windows[windows.length - 1]?.endedAt || undefined;
+    return this.repository.getFileMemoryStore().listMemoryEntries({ limit: 1, includeTmp: true })[0]?.updatedAt;
   }
 
   private getNewL1CountSinceLastSuccessfulDream(): { count: number; latestEndedAt?: string } {
     const cutoff = this.repository.getPipelineState(LAST_DREAM_L1_ENDED_AT_STATE_KEY)?.trim() || "";
-    const windows = this.repository.listAllL1();
+    const entries = this.repository.getFileMemoryStore().listMemoryEntries({ limit: 500, includeTmp: true });
     let latestEndedAt: string | undefined;
     let count = 0;
-    for (const window of windows) {
-      if (!latestEndedAt || window.endedAt > latestEndedAt) {
-        latestEndedAt = window.endedAt;
+    for (const entry of entries) {
+      if (!latestEndedAt || entry.updatedAt > latestEndedAt) {
+        latestEndedAt = entry.updatedAt;
       }
-      if (!cutoff || window.endedAt > cutoff) {
+      if (!cutoff || entry.updatedAt > cutoff) {
         count += 1;
       }
     }
@@ -1660,11 +1705,17 @@ export class MemoryPluginRuntime {
       const prepFlush = await this.flushAllNow("dream_prep", { allowWhileDream: true });
       if (trigger === "scheduled") {
         const settings = this.indexer.getSettings();
-        const { count: newL1Count } = this.getNewL1CountSinceLastSuccessfulDream();
-        if (newL1Count < settings.autoDreamMinNewL1) {
-          const summary = `Skipped automatic Dream: ${newL1Count} new L1 windows since the last successful Dream, below threshold ${settings.autoDreamMinNewL1}.`;
-          this.recordDreamLifecycle("skipped", summary, { completedAt: nowIso() });
-          return this.buildSkippedDreamResult(trigger, prepFlush, summary, "new_l1_below_threshold");
+        const threshold = Number.isFinite(settings.autoDreamMinNewL1)
+          ? Math.max(0, Math.floor(settings.autoDreamMinNewL1))
+          : Math.max(0, Math.floor(this.config.autoDreamMinNewL1));
+        const lastSuccessfulCutoff = this.repository.getPipelineState(LAST_DREAM_L1_ENDED_AT_STATE_KEY)?.trim() || "";
+        if (lastSuccessfulCutoff) {
+          const { count: newL1Count } = this.getNewL1CountSinceLastSuccessfulDream();
+          if (newL1Count < threshold) {
+            const summary = `Skipped automatic Dream: ${newL1Count} changed memory files since the last successful Dream, below threshold ${threshold}.`;
+            this.recordDreamLifecycle("skipped", summary, { completedAt: nowIso() });
+            return this.buildSkippedDreamResult(trigger, prepFlush, summary, "new_l1_below_threshold");
+          }
         }
       }
       const outcome = await this.dreamRewriter.run();

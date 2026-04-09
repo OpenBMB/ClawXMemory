@@ -6,6 +6,78 @@ export interface MemoryMessage {
   content: string;
 }
 
+export type MemoryRoute = "none" | "user" | "feedback" | "project" | "mixed";
+export type MemoryRecordType = "user" | "feedback" | "project";
+export type MemoryScope = "global" | "project";
+
+export interface MemoryFileFrontmatter {
+  name: string;
+  description: string;
+  type: MemoryRecordType;
+  scope: MemoryScope;
+  projectId?: string;
+  updatedAt: string;
+  capturedAt?: string;
+  sourceSessionKey?: string;
+  deprecated?: boolean;
+  dreamAttempts?: number;
+}
+
+export interface MemoryManifestEntry extends MemoryFileFrontmatter {
+  file: string;
+  relativePath: string;
+  absolutePath: string;
+}
+
+export interface MemoryFileRecord extends MemoryManifestEntry {
+  content: string;
+  preview: string;
+}
+
+export interface MemoryUserSummary {
+  summary: string;
+  preferences: string[];
+  constraints: string[];
+  relationships: string[];
+  notes: string[];
+  files: MemoryManifestEntry[];
+}
+
+export interface MemoryCandidate {
+  type: MemoryRecordType;
+  scope: MemoryScope;
+  projectId?: string;
+  name: string;
+  description: string;
+  capturedAt?: string;
+  sourceSessionKey?: string;
+  summary?: string;
+  preferences?: string[];
+  constraints?: string[];
+  relationships?: string[];
+  rule?: string;
+  why?: string;
+  howToApply?: string;
+  stage?: string;
+  decisions?: string[];
+  nextSteps?: string[];
+  blockers?: string[];
+  timeline?: string[];
+  notes?: string[];
+}
+
+export interface ProjectMetaRecord {
+  projectId: string;
+  projectName: string;
+  description: string;
+  aliases: string[];
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  relativePath: string;
+  absolutePath: string;
+}
+
 export interface L0SessionRecord {
   l0IndexId: string;
   sessionKey: string;
@@ -108,10 +180,39 @@ export interface IndexLinkRecord {
   createdAt: string;
 }
 
-export const MEMORY_EXPORT_FORMAT_VERSION = "clawxmemory-memory-bundle.v1" as const;
+export const LEGACY_MEMORY_EXPORT_FORMAT_VERSION = "clawxmemory-memory-bundle.v1" as const;
+export const MEMORY_EXPORT_FORMAT_VERSION = "clawxmemory-file-memory-bundle.v2" as const;
+
+export interface MemoryFileExportRecord extends MemoryFileFrontmatter {
+  file: string;
+  relativePath: string;
+  content: string;
+}
+
+export interface ProjectMetaExportRecord {
+  projectId: string;
+  projectName: string;
+  description: string;
+  aliases: string[];
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  relativePath: string;
+}
 
 export interface MemoryExportBundle {
   formatVersion: typeof MEMORY_EXPORT_FORMAT_VERSION;
+  exportedAt: string;
+  lastIndexedAt?: string;
+  lastDreamAt?: string;
+  lastDreamStatus?: DreamPipelineStatus;
+  lastDreamSummary?: string;
+  projectMetas: ProjectMetaExportRecord[];
+  memoryFiles: MemoryFileExportRecord[];
+}
+
+export interface LegacyMemoryExportBundle {
+  formatVersion: typeof LEGACY_MEMORY_EXPORT_FORMAT_VERSION;
   exportedAt: string;
   lastIndexedAt?: string;
   l0Sessions: L0SessionRecord[];
@@ -122,23 +223,34 @@ export interface MemoryExportBundle {
   indexLinks: IndexLinkRecord[];
 }
 
+export type MemoryImportableBundle = MemoryExportBundle | LegacyMemoryExportBundle;
+
 export interface MemoryTransferCounts {
-  l0: number;
-  l1: number;
-  l2Time: number;
-  l2Project: number;
-  profile: number;
-  links: number;
+  memoryFiles: number;
+  project: number;
+  feedback: number;
+  user: number;
+  tmp: number;
+  projectMetas: number;
+  legacyL0?: number;
+  legacyL1?: number;
+  legacyL2Time?: number;
+  legacyL2Project?: number;
+  legacyProfile?: number;
+  legacyLinks?: number;
 }
 
 export interface MemoryImportResult {
-  formatVersion: typeof MEMORY_EXPORT_FORMAT_VERSION;
+  formatVersion: typeof MEMORY_EXPORT_FORMAT_VERSION | typeof LEGACY_MEMORY_EXPORT_FORMAT_VERSION;
   imported: MemoryTransferCounts;
   importedAt: string;
   lastIndexedAt?: string;
+  lastDreamAt?: string;
+  lastDreamStatus?: DreamPipelineStatus;
+  lastDreamSummary?: string;
 }
 
-export type IntentType = "time" | "project" | "fact" | "general";
+export type IntentType = "time" | "project" | "fact" | "general" | MemoryRoute;
 
 export type L2SearchResult =
   | {
@@ -214,6 +326,12 @@ export type RetrievalTraceStepKind =
   | "hop3_decision"
   | "l0_candidates"
   | "hop4_decision"
+  | "memory_gate"
+  | "user_base_loaded"
+  | "project_resolved"
+  | "manifest_built"
+  | "manifest_selected"
+  | "files_loaded"
   | "context_rendered"
   | "fallback_applied"
   | "recall_skipped";
@@ -276,7 +394,7 @@ export interface CaseTraceRecord {
 export interface RetrievalResult {
   query: string;
   intent: IntentType;
-  enoughAt: "profile" | "l2" | "l1" | "l0" | "none";
+  enoughAt: "profile" | "l2" | "l1" | "l0" | "manifest" | "file" | "none";
   profile: GlobalProfileRecord | null;
   evidenceNote: string;
   l2Results: L2SearchResult[];
@@ -289,6 +407,7 @@ export interface RetrievalResult {
     elapsedMs: number;
     cacheHit: boolean;
     path?: "auto" | "explicit" | "shadow";
+    resolvedProjectId?: string;
     budgetLimited?: boolean;
     shadowDeepQueued?: boolean;
     hop1QueryScope?: "standalone" | "continuation";
@@ -305,6 +424,9 @@ export interface RetrievalResult {
     hop4SelectedL0Ids?: string[];
     catalogTruncated?: boolean;
     corrections?: string[];
+    route?: MemoryRoute;
+    manifestCount?: number;
+    selectedFileIds?: string[];
   };
 }
 
@@ -319,6 +441,10 @@ export interface DashboardOverview {
   totalL2Time: number;
   totalL2Project: number;
   totalProfiles: number;
+  totalMemoryFiles?: number;
+  totalUserMemories?: number;
+  totalFeedbackMemories?: number;
+  totalProjectMemories?: number;
   queuedSessions: number;
   lastRecallMs: number;
   recallTimeouts: number;
@@ -340,6 +466,7 @@ export interface DashboardOverview {
   lastDreamStatus?: DreamPipelineStatus;
   lastDreamSummary?: string;
   lastDreamL1EndedAt?: string;
+  changedFilesSinceLastDream?: number;
   startupRepairStatus?: StartupRepairStatus;
   startupRepairMessage?: string;
 }
@@ -352,6 +479,7 @@ export interface MemoryUiSnapshot {
   recentL1Windows: L1WindowRecord[];
   recentSessions: L0SessionRecord[];
   globalProfile: GlobalProfileRecord;
+  recentMemoryFiles?: MemoryManifestEntry[];
 }
 
 export type DreamReviewFocus = "all" | "projects" | "profile";

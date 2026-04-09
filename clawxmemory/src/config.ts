@@ -1,10 +1,11 @@
 import type { IndexingSettings } from "./core/types.js";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 export interface PluginRuntimeConfig {
   dataDir: string;
   dbPath: string;
+  memoryDir: string;
   skillsDir?: string;
   captureStrategy: "last_turn" | "full_session";
   includeAssistant: boolean;
@@ -35,6 +36,10 @@ export const pluginConfigJsonSchema = {
     dbPath: {
       type: "string",
       description: "Absolute path to sqlite file. Overrides dataDir.",
+    },
+    memoryDir: {
+      type: "string",
+      description: "Absolute path to the file-based memory directory. Defaults to <dataDir>/memory.",
     },
     skillsDir: {
       type: "string",
@@ -134,13 +139,17 @@ export const pluginConfigUiHints = {
     label: "SQLite Path",
     placeholder: "~/.openclaw/clawxmemory/memory.sqlite",
   },
+  memoryDir: {
+    label: "Memory Directory",
+    placeholder: "~/.openclaw/clawxmemory/memory",
+  },
   skillsDir: {
     label: "Skills Directory",
     placeholder: "~/.openclaw/clawxmemory/skills",
   },
   captureStrategy: {
     label: "Capture Strategy",
-    help: "full_session is retained as a fallback source, but indexing now closes L1 on topic shift instead of time/count windows.",
+    help: "full_session remains available as a fallback source for background extraction.",
   },
   autoIndexIntervalMinutes: {
     label: "Auto Index Interval",
@@ -151,17 +160,17 @@ export const pluginConfigUiHints = {
     placeholder: "360",
   },
   autoDreamMinNewL1: {
-    label: "Auto Dream L1 Threshold",
+    label: "Auto Dream Changed File Threshold",
     placeholder: "10",
   },
   dreamProjectRebuildTimeoutMs: {
-    label: "Dream Rebuild Timeout (ms)",
+    label: "Dream Organize Timeout (ms)",
     placeholder: "180000",
-    help: "Default is 180000ms. Set to 0 to disable the timeout for Dream project rebuild requests.",
+    help: "Default is 180000ms. Set to 0 to disable the timeout for Dream organize requests.",
   },
   reasoningMode: {
-    label: "Reasoning Mode",
-    help: "answer_first stops at L2 evidence notes; accuracy_first can continue down to L1 and L0.",
+    label: "Legacy Reasoning Mode",
+    help: "Legacy compatibility setting retained for older runtime state. The file-memory retriever no longer uses the old L2/L1/L0 hop chain.",
   },
   recallTopK: {
     label: "Recall Top K",
@@ -216,12 +225,15 @@ function toNonNegativeInteger(value: unknown, fallback: number): number {
 
 export function buildPluginConfig(raw: unknown): PluginRuntimeConfig {
   const cfg = (raw ?? {}) as Record<string, unknown>;
-  const dataDir = typeof cfg.dataDir === "string" && cfg.dataDir.trim()
-    ? cfg.dataDir
-    : join(homedir(), ".openclaw", "clawxmemory");
-  const dbPath = typeof cfg.dbPath === "string" && cfg.dbPath.trim()
-    ? cfg.dbPath
-    : join(dataDir, "memory.sqlite");
+  const explicitDataDir = typeof cfg.dataDir === "string" && cfg.dataDir.trim() ? cfg.dataDir : "";
+  const explicitDbPath = typeof cfg.dbPath === "string" && cfg.dbPath.trim() ? cfg.dbPath : "";
+  const dataDir = explicitDataDir || join(homedir(), ".openclaw", "clawxmemory");
+  const dbPath = explicitDbPath || join(dataDir, "memory.sqlite");
+  const memoryDir = typeof cfg.memoryDir === "string" && cfg.memoryDir.trim()
+    ? cfg.memoryDir
+    : explicitDbPath && !explicitDataDir
+      ? join(dirname(explicitDbPath), "memory")
+      : join(dataDir, "memory");
   const skillsDir = typeof cfg.skillsDir === "string" && cfg.skillsDir.trim() ? cfg.skillsDir : undefined;
 
   const configuredRecallTopK = typeof cfg.recallTopK === "number" && Number.isFinite(cfg.recallTopK)
@@ -233,6 +245,7 @@ export function buildPluginConfig(raw: unknown): PluginRuntimeConfig {
   const runtime: PluginRuntimeConfig = {
     dataDir,
     dbPath,
+    memoryDir,
     captureStrategy,
     includeAssistant: toBoolean(cfg.includeAssistant, true),
     maxMessageChars: toInteger(cfg.maxMessageChars, 6000),

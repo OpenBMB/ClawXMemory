@@ -4,9 +4,120 @@ import { LocalUiServer } from "../src/ui-server.js";
 
 const activeServers: LocalUiServer[] = [];
 
-async function startUiServer(controls: Record<string, unknown> = {}): Promise<string> {
+function createDefaultRepository() {
+  return {
+    getOverview: () => ({
+      totalL0: 0,
+      pendingL0: 0,
+      openTopics: 0,
+      totalL1: 0,
+      totalL2Time: 0,
+      totalL2Project: 0,
+      totalProfiles: 0,
+      totalMemoryFiles: 3,
+      totalProjectMemories: 1,
+      totalFeedbackMemories: 1,
+      totalUserMemories: 1,
+      changedFilesSinceLastDream: 2,
+      queuedSessions: 0,
+      lastRecallMs: 0,
+      recallTimeouts: 0,
+      lastRecallMode: "none",
+    }),
+    getUiSnapshot: () => ({
+      overview: {
+        totalL0: 0,
+        pendingL0: 0,
+        openTopics: 0,
+        totalL1: 0,
+        totalL2Time: 0,
+        totalL2Project: 0,
+        totalProfiles: 0,
+        totalMemoryFiles: 3,
+        totalProjectMemories: 1,
+        totalFeedbackMemories: 1,
+        totalUserMemories: 1,
+        changedFilesSinceLastDream: 2,
+        queuedSessions: 0,
+        lastRecallMs: 0,
+        recallTimeouts: 0,
+        lastRecallMode: "none",
+      },
+      settings: {
+        reasoningMode: "answer_first",
+        recallTopK: 10,
+        autoIndexIntervalMinutes: 60,
+        autoDreamIntervalMinutes: 360,
+        autoDreamMinNewL1: 10,
+        dreamProjectRebuildTimeoutMs: 180_000,
+      },
+      recentTimeIndexes: [],
+      recentProjectIndexes: [],
+      recentL1Windows: [],
+      recentSessions: [],
+      globalProfile: {
+        recordId: "global_profile_record",
+        profileText: "",
+        sourceL1Ids: [],
+        createdAt: "2026-04-01T00:00:00.000Z",
+        updatedAt: "2026-04-01T00:00:00.000Z",
+      },
+      recentMemoryFiles: [
+        {
+          name: "overview",
+          description: "Project memory",
+          type: "project",
+          scope: "project",
+          projectId: "proj-a",
+          updatedAt: "2026-04-01T00:00:00.000Z",
+          file: "overview.md",
+          relativePath: "projects/proj-a/Project/overview.md",
+          absolutePath: "/tmp/projects/proj-a/Project/overview.md",
+        },
+      ],
+    }),
+    listMemoryEntries: () => [],
+    getMemoryRecordsByIds: () => [],
+    getFileMemoryStore: () => ({
+      getUserSummary: () => ({
+        summary: "User summary",
+        preferences: ["TypeScript"],
+        constraints: [],
+        relationships: [],
+        notes: [],
+        files: [],
+      }),
+      listProjectMetas: () => [
+        {
+          projectId: "proj-a",
+          projectName: "Project A",
+          description: "Project A description",
+          aliases: ["A"],
+          status: "active",
+          createdAt: "2026-04-01T00:00:00.000Z",
+          updatedAt: "2026-04-01T00:00:00.000Z",
+          relativePath: "projects/proj-a/project.meta.md",
+          absolutePath: "/tmp/projects/proj-a/project.meta.md",
+        },
+      ],
+    }),
+  };
+}
+
+async function startUiServer(
+  {
+    controls = {},
+    repository = {},
+  }: {
+    controls?: Record<string, unknown>;
+    repository?: Record<string, unknown>;
+  } = {},
+): Promise<string> {
   const uiServer = new LocalUiServer(
-    {} as never,
+    {
+      ...createDefaultRepository(),
+      ...repository,
+    } as never,
     {} as never,
     { host: "127.0.0.1", port: 0, prefix: "/clawxmemory" },
     {
@@ -95,16 +206,24 @@ describe("LocalUiServer static assets", () => {
     const html = await response.text();
     expect(html).toContain('rel="icon"');
     expect(html).toContain("./assets/brand/logo.png");
-    expect(html).toContain('data-board="memory_trace"');
+    expect(html).toContain('data-page="memory_trace"');
     expect(html).toContain('id="memoryTraceBoard"');
-    expect(html).toContain('data-level="memory_trace"');
     expect(html).toContain('id="dreamRunBtn"');
     expect(html).toContain('id="autoIndexIntervalHoursInput"');
     expect(html).toContain('id="autoDreamIntervalHoursInput"');
     expect(html).toContain('id="autoDreamMinL1Input"');
     expect(html).toContain('id="dreamRebuildTimeoutSecondsInput"');
-    expect(html.indexOf('data-board="profile"')).toBeLessThan(html.indexOf('data-board="memory_trace"'));
-    expect(html.indexOf('data-level="profile"')).toBeLessThan(html.indexOf('data-level="memory_trace"'));
+    expect(html).toContain('data-page="project"');
+    expect(html).toContain('data-page="user"');
+    expect(html).toContain('id="projectDetailBoard"');
+    expect(html).toContain('id="fileDetailBoard"');
+    expect(html).toContain('id="projectDetailBackBtn"');
+    expect(html).toContain('id="fileDetailBackBtn"');
+    expect(html).not.toContain('id="viewToggleBtn"');
+    expect(html).not.toContain('data-page="feedback"');
+    expect(html).not.toContain('id="feedbackBoard"');
+    expect(html).not.toContain('id="detailPanel"');
+    expect(html).not.toContain('id="reasoningModeToggle"');
     expect(html).not.toContain('id="retrievePanel"');
     expect(html).not.toContain(">CX<");
     expect(html).not.toContain(">Memory<");
@@ -173,8 +292,10 @@ describe("LocalUiServer static assets", () => {
       },
     };
     const baseUrl = await startUiServer({
-      listCaseTraces: () => [caseRecord],
-      getCaseTrace: (caseId: string) => (caseId === "case-1" ? caseRecord : undefined),
+      controls: {
+        listCaseTraces: () => [caseRecord],
+        getCaseTrace: (caseId: string) => (caseId === "case-1" ? caseRecord : undefined),
+      },
     });
 
     const listResponse = await fetch(`${baseUrl}/api/cases`);
@@ -202,7 +323,7 @@ describe("LocalUiServer static assets", () => {
       prunedProfileL1Refs: 2,
       summary: "Dream finished",
     });
-    const baseUrl = await startUiServer({ runDreamNow });
+    const baseUrl = await startUiServer({ controls: { runDreamNow } });
 
     const postResponse = await fetch(`${baseUrl}/api/dream/run`, { method: "POST" });
     expect(postResponse.status).toBe(200);
@@ -218,6 +339,125 @@ describe("LocalUiServer static assets", () => {
     expect(getResponse.status).toBe(405);
   });
 
+  it("serves file-memory list/get/user-summary APIs", async () => {
+    const projectEntry = {
+      name: "overview",
+      description: "Current stage and blockers",
+      type: "project",
+      scope: "project",
+      projectId: "proj-a",
+      updatedAt: "2026-04-01T00:00:00.000Z",
+      file: "overview.md",
+      relativePath: "projects/proj-a/Project/overview.md",
+      absolutePath: "/tmp/projects/proj-a/Project/overview.md",
+    };
+    const projectRecord = {
+      ...projectEntry,
+      content: "## Current Stage\nshipping v1",
+      preview: "shipping v1",
+    };
+    const userSummary = {
+      summary: "Prefers concise technical writing.",
+      preferences: ["TypeScript"],
+      constraints: ["Avoid fluff"],
+      relationships: [],
+      notes: ["Works on memory systems"],
+      files: [],
+    };
+
+    const baseUrl = await startUiServer({
+      repository: {
+        listMemoryEntries: vi.fn().mockReturnValue([projectEntry]),
+        getMemoryRecordsByIds: vi.fn().mockReturnValue([projectRecord]),
+        getFileMemoryStore: () => ({
+          getUserSummary: () => userSummary,
+        }),
+      },
+    });
+
+    const listResponse = await fetch(`${baseUrl}/api/memory/list?kind=project&q=shipping&projectId=proj-a`);
+    expect(listResponse.status).toBe(200);
+    await expect(listResponse.json()).resolves.toEqual([projectEntry]);
+
+    const getResponse = await fetch(`${baseUrl}/api/memory/get?ids=${encodeURIComponent(projectEntry.relativePath)}`);
+    expect(getResponse.status).toBe(200);
+    await expect(getResponse.json()).resolves.toEqual([projectRecord]);
+
+    const summaryResponse = await fetch(`${baseUrl}/api/memory/user-summary`);
+    expect(summaryResponse.status).toBe(200);
+    await expect(summaryResponse.json()).resolves.toEqual(userSummary);
+  });
+
+  it("serves project-centric grouped memory for the dashboard", async () => {
+    const projectEntry = {
+      name: "Aster",
+      description: "Move OpenClaw memory to markdown files",
+      type: "project",
+      scope: "project",
+      projectId: "proj-aster",
+      updatedAt: "2026-04-09T11:13:53.477Z",
+      file: "aster.md",
+      relativePath: "projects/proj-aster/Project/aster.md",
+      absolutePath: "/tmp/projects/proj-aster/Project/aster.md",
+    };
+    const feedbackEntry = {
+      name: "collaboration-rule",
+      description: "Status updates should lead with completed work and then risks.",
+      type: "feedback",
+      scope: "project",
+      projectId: "proj-aster",
+      updatedAt: "2026-04-09T11:13:53.480Z",
+      file: "collaboration-rule.md",
+      relativePath: "projects/proj-aster/Feedback/collaboration-rule.md",
+      absolutePath: "/tmp/projects/proj-aster/Feedback/collaboration-rule.md",
+    };
+
+    const baseUrl = await startUiServer({
+      repository: {
+        listMemoryEntries: vi.fn().mockImplementation((options: Record<string, unknown>) => {
+          if (options.projectId === "proj-aster") return [feedbackEntry, projectEntry];
+          return [];
+        }),
+        getFileMemoryStore: () => ({
+          getUserSummary: () => ({
+            summary: "",
+            preferences: [],
+            constraints: [],
+            relationships: [],
+            notes: [],
+            files: [],
+          }),
+          listProjectMetas: () => [
+            {
+              projectId: "proj-aster",
+              projectName: "Aster",
+              description: "Move OpenClaw memory to markdown files",
+              aliases: ["Aster"],
+              status: "active",
+              createdAt: "2026-04-09T11:13:53.470Z",
+              updatedAt: "2026-04-09T11:13:53.477Z",
+              relativePath: "projects/proj-aster/project.meta.md",
+              absolutePath: "/tmp/projects/proj-aster/project.meta.md",
+            },
+          ],
+        }),
+      },
+    });
+
+    const response = await fetch(`${baseUrl}/api/projects`);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual([
+      expect.objectContaining({
+        projectId: "proj-aster",
+        projectName: "Aster",
+        projectCount: 1,
+        feedbackCount: 1,
+        projectEntries: [projectEntry],
+        feedbackEntries: [feedbackEntry],
+      }),
+    ]);
+  });
+
   it("round-trips expanded indexing settings through /api/settings", async () => {
     const saveSettings = vi.fn().mockImplementation((partial: Record<string, unknown>) => ({
       reasoningMode: partial.reasoningMode ?? "accuracy_first",
@@ -228,15 +468,17 @@ describe("LocalUiServer static assets", () => {
       dreamProjectRebuildTimeoutMs: partial.dreamProjectRebuildTimeoutMs ?? 240_000,
     }));
     const baseUrl = await startUiServer({
-      getSettings: () => ({
-        reasoningMode: "answer_first",
-        recallTopK: 10,
-        autoIndexIntervalMinutes: 60,
-        autoDreamIntervalMinutes: 360,
-        autoDreamMinNewL1: 10,
-        dreamProjectRebuildTimeoutMs: 180_000,
-      }),
-      saveSettings,
+      controls: {
+        getSettings: () => ({
+          reasoningMode: "answer_first",
+          recallTopK: 10,
+          autoIndexIntervalMinutes: 60,
+          autoDreamIntervalMinutes: 360,
+          autoDreamMinNewL1: 10,
+          dreamProjectRebuildTimeoutMs: 180_000,
+        }),
+        saveSettings,
+      },
     });
 
     const getResponse = await fetch(`${baseUrl}/api/settings`);
