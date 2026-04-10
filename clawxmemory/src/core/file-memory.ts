@@ -219,6 +219,16 @@ function renderTextSection(title: string, value: string | undefined): string {
   return [`## ${title}`, normalized, ""].join("\n");
 }
 
+function renderFixedTextSection(title: string, value: string | undefined): string {
+  const normalized = normalizeWhitespace(value ?? "");
+  return [`## ${title}`, normalized, ""].join("\n");
+}
+
+function renderFixedListSection(title: string, items: readonly string[] | undefined): string {
+  const normalized = uniqueItems(items, 50);
+  return [`## ${title}`, ...normalized.map((item) => `- ${item}`), ""].join("\n");
+}
+
 function selectTypeDirectory(type: MemoryRecordType): string {
   if (type === "user") return USER_DIR;
   if (type === "feedback") return FEEDBACK_DIR;
@@ -546,21 +556,19 @@ export class FileMemoryStore {
     const record = this.getMemoryRecord(relativePath, 5000);
     if (!record) {
       return {
-        summary: "",
+        profile: "",
         preferences: [],
         constraints: [],
         relationships: [],
-        notes: [],
         files: [],
       };
     }
     const sections = parseSections(record.content);
     return {
-      summary: normalizeTextSection(sections.get("Summary")) || record.description || record.preview,
+      profile: normalizeTextSection(sections.get("Profile")) || normalizeTextSection(sections.get("Summary")) || record.description || record.preview,
       preferences: normalizeListSection(sections.get("Preferences")),
       constraints: normalizeListSection(sections.get("Constraints")),
       relationships: normalizeListSection(sections.get("Relationships")),
-      notes: normalizeListSection(sections.get("Notes")),
       files: [{
         name: record.name,
         description: record.description,
@@ -834,18 +842,19 @@ export class FileMemoryStore {
   private renderCandidateBody(candidate: MemoryCandidate, existing?: MemoryFileRecord): string {
     const sections = existing ? parseSections(existing.content) : new Map<string, string[]>();
     if (candidate.type === "user") {
-      const existingSummary = truncate((sections.get("Summary") ?? []).join("\n"), 400);
+      const existingProfile = truncate(
+        normalizeTextSection(sections.get("Profile")) || normalizeTextSection(sections.get("Summary")),
+        400,
+      );
       const existingPreferences = (sections.get("Preferences") ?? []).map((line) => line.replace(/^- /, "").trim());
       const existingConstraints = (sections.get("Constraints") ?? []).map((line) => line.replace(/^- /, "").trim());
       const existingRelationships = (sections.get("Relationships") ?? []).map((line) => line.replace(/^- /, "").trim());
-      const existingNotes = (sections.get("Notes") ?? []).map((line) => line.replace(/^- /, "").trim());
       return [
-        renderTextSection("Summary", truncate(pickLongest(existingSummary, candidate.summary ?? ""), 400)),
-        renderListSection("Preferences", uniqueItems([...existingPreferences, ...(candidate.preferences ?? [])], 20)),
-        renderListSection("Constraints", uniqueItems([...existingConstraints, ...(candidate.constraints ?? [])], 20)),
-        renderListSection("Relationships", uniqueItems([...existingRelationships, ...(candidate.relationships ?? [])], 20)),
-        renderListSection("Notes", uniqueItems([...existingNotes, ...(candidate.notes ?? [])], 20)),
-      ].filter(Boolean).join("\n").trim();
+        renderFixedTextSection("Profile", truncate(pickLongest(existingProfile, candidate.profile ?? candidate.summary ?? ""), 400)),
+        renderFixedListSection("Preferences", uniqueItems([...existingPreferences, ...(candidate.preferences ?? [])], 20)),
+        renderFixedListSection("Constraints", uniqueItems([...existingConstraints, ...(candidate.constraints ?? [])], 20)),
+        renderFixedListSection("Relationships", uniqueItems([...existingRelationships, ...(candidate.relationships ?? [])], 20)),
+      ].join("\n").trim();
     }
     if (candidate.type === "feedback") {
       const existingRule = (sections.get("Rule") ?? []).join("\n");
@@ -890,7 +899,7 @@ export class FileMemoryStore {
         absolutePath,
         frontmatter: {
           name: "user-profile",
-          description: normalizeWhitespace(candidate.description || candidate.summary || "User profile"),
+          description: normalizeWhitespace(candidate.description || candidate.profile || candidate.summary || "User profile"),
           type: "user",
           scope: "global",
           updatedAt: nowIso(),
@@ -982,11 +991,10 @@ export class FileMemoryStore {
         description: record.description,
         ...(record.capturedAt ? { capturedAt: record.capturedAt } : {}),
         ...(record.sourceSessionKey ? { sourceSessionKey: record.sourceSessionKey } : {}),
-        summary: normalizeTextSection(sections.get("Summary")) || record.description,
+        profile: normalizeTextSection(sections.get("Profile")) || normalizeTextSection(sections.get("Summary")) || record.description,
         preferences: normalizeListSection(sections.get("Preferences")),
         constraints: normalizeListSection(sections.get("Constraints")),
         relationships: normalizeListSection(sections.get("Relationships")),
-        notes: normalizeListSection(sections.get("Notes")),
       };
     }
     if (record.type === "feedback") {

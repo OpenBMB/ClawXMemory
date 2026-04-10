@@ -23,7 +23,7 @@ async function seedFileMemory(repository: MemoryRepository): Promise<void> {
     scope: "global",
     name: "user-profile",
     description: "Prefers concise updates",
-    summary: "Prefers concise updates and TypeScript-first examples.",
+    profile: "Prefers concise updates and TypeScript-first examples.",
     preferences: ["TypeScript", "Lead with the outcome"],
   });
   store.upsertCandidate({
@@ -113,7 +113,7 @@ describe("memory bundle import/export", () => {
     expect(target.listAllL0()).toHaveLength(0);
 
     const userSummary = target.getFileMemoryStore().getUserSummary();
-    expect(userSummary.summary).toContain("Prefers concise updates");
+    expect(userSummary.profile).toContain("Prefers concise updates");
     const projectEntries = target.listMemoryEntries({
       scope: "project",
       projectId: "project_alpha",

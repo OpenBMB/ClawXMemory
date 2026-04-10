@@ -56,6 +56,9 @@ export interface UiServerControls {
     | "workspaceBootstrapPresent"
     | "memoryRuntimeHealthy"
     | "runtimeIssues"
+    | "managedWorkspaceFiles"
+    | "boundaryStatus"
+    | "lastBoundaryAction"
     | "startupRepairStatus"
     | "startupRepairMessage"
   >;

@@ -84,11 +84,10 @@ function kvDetail(
 
 function hasUserSummary(userSummary: MemoryUserSummary): boolean {
   return Boolean(
-    userSummary.summary
+    userSummary.profile
       || userSummary.preferences.length
       || userSummary.constraints.length
-      || userSummary.relationships.length
-      || userSummary.notes.length,
+      || userSummary.relationships.length,
   );
 }
 
@@ -97,8 +96,8 @@ function renderUserSummaryBlock(userSummary: MemoryUserSummary): string[] {
   const updatedAt = userSummary.files[0]?.updatedAt ?? "";
   const lines = [
     `### [user] global/User/user-profile.md${updatedAt ? ` (${updatedAt})` : ""}`,
-    "## Summary",
-    userSummary.summary || "No stable user summary yet.",
+    "## Profile",
+    userSummary.profile || "No stable user profile yet.",
     "",
   ];
   if (userSummary.preferences.length > 0) {
@@ -109,9 +108,6 @@ function renderUserSummaryBlock(userSummary: MemoryUserSummary): string[] {
   }
   if (userSummary.relationships.length > 0) {
     lines.push("## Relationships", ...userSummary.relationships.map((item) => `- ${item}`), "");
-  }
-  if (userSummary.notes.length > 0) {
-    lines.push("## Notes", ...userSummary.notes.map((item) => `- ${item}`), "");
   }
   return lines;
 }
@@ -435,11 +431,11 @@ export class ReasoningRetriever {
       kind: "user_base_loaded",
       title: "User Base Loaded",
       status: hasUserSummary(userSummary) ? "success" : "warning",
-      inputSummary: "global user summary",
-      outputSummary: hasUserSummary(userSummary) ? "Attached compact global user summary." : "No compact global user summary is available yet.",
+      inputSummary: "global user profile",
+      outputSummary: hasUserSummary(userSummary) ? "Attached compact global user profile." : "No compact global user profile is available yet.",
       details: [
-        kvDetail("user-summary", "User Summary", [
-          { label: "summary", value: userSummary.summary ? "present" : "missing" },
+        kvDetail("user-summary", "User Profile", [
+          { label: "profile", value: userSummary.profile ? "present" : "missing" },
           { label: "preferences", value: userSummary.preferences.length },
           { label: "constraints", value: userSummary.constraints.length },
           { label: "relationships", value: userSummary.relationships.length },
@@ -546,11 +542,11 @@ export class ReasoningRetriever {
       enoughAt: records.length > 0 ? "file" : manifest.length > 0 ? "manifest" : hasUserSummary(userSummary) ? "profile" : "none",
       profile: null,
       evidenceNote: records.length > 0
-        ? `Attached global user summary and selected ${records.length} memory files from ${manifest.length} manifest entries${resolvedProjectId ? ` for project ${resolvedProjectId}` : ""}.`
+        ? `Attached global user profile and selected ${records.length} memory files from ${manifest.length} manifest entries${resolvedProjectId ? ` for project ${resolvedProjectId}` : ""}.`
         : manifest.length > 0
-          ? "Attached global user summary. The project manifest contained entries, but none were loaded."
+          ? "Attached global user profile. The project manifest contained entries, but none were loaded."
           : hasUserSummary(userSummary)
-            ? "Attached global user summary only."
+            ? "Attached global user profile only."
             : "",
       l2Results: [],
       l1Results: [],

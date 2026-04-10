@@ -58,11 +58,10 @@ function createRepository(overrides: Record<string, unknown> = {}) {
     getMemoryRecordsByIds: vi.fn().mockReturnValue([]),
     getFileMemoryStore: vi.fn().mockReturnValue({
       getUserSummary: vi.fn().mockReturnValue({
-        summary: "The user prefers concise Chinese answers.",
+        profile: "The user prefers concise Chinese answers.",
         preferences: ["中文", "先结论后展开"],
         constraints: [],
         relationships: [],
-        notes: [],
         files: [],
       }),
       listProjectMetas: vi.fn().mockReturnValue([{
@@ -163,6 +162,8 @@ describe("ReasoningRetriever", () => {
     expect(result.intent).toBe("project");
     expect(result.enoughAt).toBe("file");
     expect(result.context).toContain("global/User/user-profile.md");
+    expect(result.context).toContain("## Profile");
+    expect(result.context).not.toContain("## Notes");
     expect(result.context).toContain("projects/project_clawxmemory/Project/overview.md");
     expect(result.debug).toMatchObject({
       route: "project",

@@ -80,11 +80,10 @@ function createDefaultRepository() {
     getMemoryRecordsByIds: () => [],
     getFileMemoryStore: () => ({
       getUserSummary: () => ({
-        summary: "User summary",
+        profile: "User profile",
         preferences: ["TypeScript"],
         constraints: [],
         relationships: [],
-        notes: [],
         files: [],
       }),
       listProjectMetas: () => [
@@ -152,7 +151,16 @@ async function startUiServer(
       }),
       exportMemoryBundle: () => ({ exportedAt: "2026-04-01T00:00:00.000Z" }),
       importMemoryBundle: async () => ({ imported: {} }),
-      getRuntimeOverview: () => ({ queuedSessions: 0, lastRecallMs: 0, recallTimeouts: 0, lastRecallMode: "none", currentReasoningMode: "answer_first" }),
+      getRuntimeOverview: () => ({
+        queuedSessions: 0,
+        lastRecallMs: 0,
+        recallTimeouts: 0,
+        lastRecallMode: "none",
+        currentReasoningMode: "answer_first",
+        managedWorkspaceFiles: [],
+        boundaryStatus: "ready",
+        lastBoundaryAction: "none",
+      }),
       getStartupRepairSnapshot: () => undefined,
       listCaseTraces: () => [],
       getCaseTrace: () => undefined,
@@ -357,11 +365,10 @@ describe("LocalUiServer static assets", () => {
       preview: "shipping v1",
     };
     const userSummary = {
-      summary: "Prefers concise technical writing.",
+      profile: "Prefers concise technical writing.",
       preferences: ["TypeScript"],
       constraints: ["Avoid fluff"],
       relationships: [],
-      notes: ["Works on memory systems"],
       files: [],
     };
 
@@ -420,11 +427,10 @@ describe("LocalUiServer static assets", () => {
         }),
         getFileMemoryStore: () => ({
           getUserSummary: () => ({
-            summary: "",
+            profile: "",
             preferences: [],
             constraints: [],
             relationships: [],
-            notes: [],
             files: [],
           }),
           listProjectMetas: () => [

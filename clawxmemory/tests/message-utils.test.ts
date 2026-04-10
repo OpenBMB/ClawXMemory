@@ -158,6 +158,7 @@ describe("hasExplicitRememberIntentText", () => {
   it("recognizes natural explicit remember phrasing used in chat", () => {
     expect(hasExplicitRememberIntentText("记住两件事：以后回答我时先给结论再展开；代码示例优先 TypeScript。")).toBe(true);
     expect(hasExplicitRememberIntentText("另外记住，在这个项目里同步进展时先说完成了什么，再说风险。")).toBe(true);
+    expect(hasExplicitRememberIntentText("再记一个长期信息：我现在常用 TypeScript 和 Node.js。")).toBe(true);
   });
 
   it("does not treat ordinary recall questions as explicit save requests", () => {

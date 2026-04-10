@@ -35,13 +35,36 @@ export interface MemoryFileRecord extends MemoryManifestEntry {
 }
 
 export interface MemoryUserSummary {
-  summary: string;
+  profile: string;
   preferences: string[];
   constraints: string[];
   relationships: string[];
-  notes: string[];
   files: MemoryManifestEntry[];
 }
+
+export type ManagedWorkspaceFileName = "USER.md" | "MEMORY.md";
+export type ManagedWorkspaceFileStateStatus = "isolated" | "restored" | "conflict";
+
+export interface ManagedWorkspaceFileState {
+  name: ManagedWorkspaceFileName;
+  originalPath: string;
+  managedPath: string;
+  hash: string;
+  isolatedAt: string;
+  status: ManagedWorkspaceFileStateStatus;
+  restoredAt?: string;
+  conflictPath?: string;
+}
+
+export interface ManagedWorkspaceBoundaryState {
+  version: 1;
+  workspaceDir: string;
+  updatedAt: string;
+  lastAction: string;
+  files: ManagedWorkspaceFileState[];
+}
+
+export type ManagedBoundaryStatus = "ready" | "isolated" | "conflict" | "warning";
 
 export interface MemoryCandidate {
   type: MemoryRecordType;
@@ -51,6 +74,7 @@ export interface MemoryCandidate {
   description: string;
   capturedAt?: string;
   sourceSessionKey?: string;
+  profile?: string;
   summary?: string;
   preferences?: string[];
   constraints?: string[];
@@ -461,6 +485,9 @@ export interface DashboardOverview {
   workspaceBootstrapPresent?: boolean;
   memoryRuntimeHealthy?: boolean;
   runtimeIssues?: string[];
+  managedWorkspaceFiles?: ManagedWorkspaceFileState[];
+  boundaryStatus?: ManagedBoundaryStatus;
+  lastBoundaryAction?: string;
   lastIndexedAt?: string;
   lastDreamAt?: string;
   lastDreamStatus?: DreamPipelineStatus;

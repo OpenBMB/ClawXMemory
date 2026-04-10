@@ -23,7 +23,7 @@ const LOCALES = {
     "stream.items": "{0} 条",
     "detail.title": "记录详情",
     "detail.empty": "选择一条记忆查看详情",
-    "detail.summary": "Summary",
+    "detail.profile": "Profile",
     "detail.preferences": "Preferences",
     "detail.constraints": "Constraints",
     "detail.relationships": "Relationships",
@@ -82,6 +82,9 @@ const LOCALES = {
     "overview.lastDreamSummary": "Dream 摘要",
     "overview.runtimeHealth": "运行时健康",
     "overview.runtimeIssues": "运行时问题",
+    "overview.boundaryStatus": "边界状态",
+    "overview.managedFiles": "托管文件",
+    "overview.lastBoundaryAction": "最近边界动作",
     "overview.startupRepair": "启动修复",
     "overview.slotOwner": "Memory Slot",
     "confirm.sync.title": "索引同步",
@@ -192,6 +195,10 @@ const LOCALES = {
     "startup.failed": "失败",
     "runtime.healthy": "正常",
     "runtime.unhealthy": "异常",
+    "boundary.ready": "正常",
+    "boundary.isolated": "已隔离",
+    "boundary.conflict": "冲突",
+    "boundary.warning": "告警",
     "enough.none": "无",
     "enough.manifest": "Manifest",
     "enough.file": "File",
@@ -236,7 +243,7 @@ const LOCALES = {
     "stream.items": "{0} items",
     "detail.title": "Record Detail",
     "detail.empty": "Select a memory to inspect",
-    "detail.summary": "Summary",
+    "detail.profile": "Profile",
     "detail.preferences": "Preferences",
     "detail.constraints": "Constraints",
     "detail.relationships": "Relationships",
@@ -295,6 +302,9 @@ const LOCALES = {
     "overview.lastDreamSummary": "Dream Summary",
     "overview.runtimeHealth": "Runtime Health",
     "overview.runtimeIssues": "Runtime Issues",
+    "overview.boundaryStatus": "Boundary Status",
+    "overview.managedFiles": "Managed Files",
+    "overview.lastBoundaryAction": "Last Boundary Action",
     "overview.startupRepair": "Startup Repair",
     "overview.slotOwner": "Memory Slot",
     "confirm.sync.title": "Index Sync",
@@ -405,6 +415,10 @@ const LOCALES = {
     "startup.failed": "Failed",
     "runtime.healthy": "Healthy",
     "runtime.unhealthy": "Issues",
+    "boundary.ready": "Ready",
+    "boundary.isolated": "Isolated",
+    "boundary.conflict": "Conflict",
+    "boundary.warning": "Warning",
     "enough.none": "None",
     "enough.manifest": "Manifest",
     "enough.file": "File",
@@ -672,6 +686,25 @@ function formatStartupRepair(value) {
 
 function formatRuntimeHealth(value) {
   return value ? t("runtime.healthy") : t("runtime.unhealthy");
+}
+
+function formatBoundaryStatus(value) {
+  if (!value) return t("common.none");
+  const key = `boundary.${value}`;
+  return LOCALES[state.locale][key] || LOCALES.en[key] ? t(key) : String(value);
+}
+
+function formatManagedWorkspaceFiles(files) {
+  const items = safeArray(files)
+    .map((file) => {
+      const name = normalizeText(file?.name);
+      const status = normalizeText(file?.status);
+      if (!name) return "";
+      if (!status) return name;
+      return `${name} (${formatBoundaryStatus(status)})`;
+    })
+    .filter(Boolean);
+  return items.length ? items.join(", ") : t("common.none");
 }
 
 function inferProjectStatus(entry, record) {
@@ -1010,25 +1043,33 @@ function createMetaChip(label, value) {
   return chip;
 }
 
-function appendTextSection(container, label, text) {
+function appendTextSection(container, label, text, options = {}) {
+  const showEmpty = Boolean(options.showEmpty);
+  const emptyText = normalizeText(options.emptyText) || t("common.none");
   const value = normalizeText(text);
-  if (!value) return;
+  if (!value && !showEmpty) return;
   const section = el("section", "detail-section");
   section.append(el("h4", "", label));
-  section.append(el("p", "", value));
+  section.append(el("p", "", value || emptyText));
   container.append(section);
 }
 
-function appendListSection(container, label, items) {
+function appendListSection(container, label, items, options = {}) {
+  const showEmpty = Boolean(options.showEmpty);
+  const emptyText = normalizeText(options.emptyText) || t("common.none");
   const values = safeArray(items).map((item) => normalizeText(item)).filter(Boolean);
-  if (values.length === 0) return;
+  if (values.length === 0 && !showEmpty) return;
   const section = el("section", "detail-section");
   section.append(el("h4", "", label));
-  const list = el("ul");
-  values.forEach((item) => {
-    list.append(el("li", "", item));
-  });
-  section.append(list);
+  if (values.length === 0) {
+    section.append(el("p", "", emptyText));
+  } else {
+    const list = el("ul");
+    values.forEach((item) => {
+      list.append(el("li", "", item));
+    });
+    section.append(list);
+  }
   container.append(section);
 }
 
@@ -1145,6 +1186,7 @@ function renderOverview() {
   );
 
   const issueCount = safeArray(overview.runtimeIssues).length;
+  const managedFiles = safeArray(overview.managedWorkspaceFiles);
   const healthGroup = createOverviewGroup(
     t("overview.group.health"),
     createMetricGrid([
@@ -1157,6 +1199,26 @@ function renderOverview() {
         label: t("overview.runtimeIssues"),
         value: issueCount ? String(issueCount) : t("common.none"),
         tone: issueCount ? "warning" : "success",
+      },
+      {
+        label: t("overview.boundaryStatus"),
+        value: formatBoundaryStatus(overview.boundaryStatus),
+        tone: overview.boundaryStatus === "conflict"
+          ? "danger"
+          : overview.boundaryStatus === "warning"
+            ? "warning"
+            : overview.boundaryStatus === "isolated"
+              ? "success"
+              : "neutral",
+      },
+      {
+        label: t("overview.managedFiles"),
+        value: formatManagedWorkspaceFiles(managedFiles),
+        tone: managedFiles.length ? "warning" : "neutral",
+      },
+      {
+        label: t("overview.lastBoundaryAction"),
+        value: normalizeText(overview.lastBoundaryAction) || t("common.none"),
       },
       { label: t("overview.startupRepair"), value: formatStartupRepair(overview.startupRepairStatus) },
       { label: t("overview.slotOwner"), value: normalizeText(overview.slotOwner) || t("common.none") },
@@ -1181,11 +1243,15 @@ function fillRecordDetail(metaNode, bodyNode, record) {
   clearNode(bodyNode);
 
   if (record.type === "user") {
-    appendTextSection(bodyNode, t("detail.summary"), readTextFromSection(sections.get("Summary")) || record.description);
-    appendListSection(bodyNode, t("detail.preferences"), readListFromSection(sections.get("Preferences")));
-    appendListSection(bodyNode, t("detail.constraints"), readListFromSection(sections.get("Constraints")));
-    appendListSection(bodyNode, t("detail.relationships"), readListFromSection(sections.get("Relationships")));
-    appendListSection(bodyNode, t("detail.notes"), readListFromSection(sections.get("Notes")));
+    appendTextSection(
+      bodyNode,
+      t("detail.profile"),
+      readTextFromSection(sections.get("Profile")) || readTextFromSection(sections.get("Summary")) || record.description,
+      { showEmpty: true },
+    );
+    appendListSection(bodyNode, t("detail.preferences"), readListFromSection(sections.get("Preferences")), { showEmpty: true });
+    appendListSection(bodyNode, t("detail.constraints"), readListFromSection(sections.get("Constraints")), { showEmpty: true });
+    appendListSection(bodyNode, t("detail.relationships"), readListFromSection(sections.get("Relationships")), { showEmpty: true });
   } else if (record.type === "feedback") {
     appendTextSection(bodyNode, t("detail.rule"), readTextFromSection(sections.get("Rule")) || record.description);
     appendTextSection(bodyNode, t("detail.why"), readTextFromSection(sections.get("Why")));
@@ -1366,7 +1432,16 @@ function renderProjectListView() {
 function renderUserBoard() {
   const summary = state.userSummary;
   clearNode(userBoard);
-  if (!summary || (!normalizeText(summary.summary) && !safeArray(summary.files).length)) {
+  if (
+    !summary
+    || (
+      !normalizeText(summary.profile)
+      && !safeArray(summary.preferences).length
+      && !safeArray(summary.constraints).length
+      && !safeArray(summary.relationships).length
+      && !safeArray(summary.files).length
+    )
+  ) {
     userBoard.append(createEmptyState(t("board.user.empty")));
     return;
   }
@@ -1374,8 +1449,11 @@ function renderUserBoard() {
   const card = el("section", "profile-board-card");
   const addSummaryText = (label, text) => {
     const value = normalizeText(text);
-    if (!value) return;
     card.append(el("div", "profile-section-title", label));
+    if (!value) {
+      card.append(el("p", "profile-para", t("common.none")));
+      return;
+    }
     value.split(/\n+/).forEach((line) => {
       if (!normalizeText(line)) return;
       card.append(el("p", "profile-para", normalizeText(line)));
@@ -1383,8 +1461,11 @@ function renderUserBoard() {
   };
   const addSummaryList = (label, items) => {
     const values = safeArray(items).map((item) => normalizeText(item)).filter(Boolean);
-    if (!values.length) return;
     card.append(el("div", "profile-section-title", label));
+    if (!values.length) {
+      card.append(el("p", "profile-para", t("common.none")));
+      return;
+    }
     const list = el("div", "profile-topic-list");
     values.forEach((item) => {
       list.append(el("span", "profile-topic-chip", item));
@@ -1392,11 +1473,10 @@ function renderUserBoard() {
     card.append(list);
   };
 
-  addSummaryText(t("detail.summary"), summary.summary);
+  addSummaryText(t("detail.profile"), summary.profile);
   addSummaryList(t("detail.preferences"), summary.preferences);
   addSummaryList(t("detail.constraints"), summary.constraints);
   addSummaryList(t("detail.relationships"), summary.relationships);
-  addSummaryList(t("detail.notes"), summary.notes);
 
   const files = safeArray(summary.files);
   if (files.length) {

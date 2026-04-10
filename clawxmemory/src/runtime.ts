@@ -5,6 +5,10 @@ import {
   DreamRewriteRunner,
   HeartbeatIndexer,
   LlmMemoryExtractor,
+  type ManagedBoundaryStatus,
+  type ManagedWorkspaceBoundaryState,
+  type ManagedWorkspaceFileName,
+  type ManagedWorkspaceFileState,
   MemoryRepository,
   ReasoningRetriever,
   loadSkillsRuntime,
@@ -41,9 +45,9 @@ import { buildPluginConfig, type PluginRuntimeConfig } from "./config.js";
 import { hasExplicitRememberIntent, inspectTranscriptMessage, isCommandOnlyUserText, isSessionBoundaryMarkerMessage, isSessionStartupMarkerText, normalizeMessages, normalizeTranscriptMessage } from "./message-utils.js";
 import { buildPluginTools } from "./tools.js";
 import { LocalUiServer } from "./ui-server.js";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 const MEMORY_REPAIR_VERSION = "2026-04-03-strict-user-io-cleanup-v16";
 const INDEXING_SETTINGS_MIGRATION_VERSION = "2026-04-02-auto-dream-settings-v3";
@@ -62,6 +66,12 @@ const STARTUP_REPAIR_SNAPSHOT_LIMIT = 200;
 const RECENT_CASE_LIMIT = 30;
 const STARTUP_FALLBACK_GREETING = "I'm ready. What would you like to do?";
 const STARTUP_BOUNDARY_RUNNING_MESSAGE = "Applying managed OpenClaw memory config and requesting a gateway restart.";
+const MANAGED_BOUNDARY_STATE_VERSION = 1 as const;
+const MANAGED_BOUNDARY_DIRNAME = "managed-boundary";
+const MANAGED_BOUNDARY_STATE_FILENAME = "workspace-memory-boundary.json";
+const MANAGED_WORKSPACE_FILES = ["USER.md", "MEMORY.md"] as const satisfies readonly ManagedWorkspaceFileName[];
+
+type ManagedBoundaryAction = "none" | "isolated" | "restored" | "conflict";
 
 interface MemoryBoundaryDiagnostics {
   slotOwner: string;
@@ -70,6 +80,9 @@ interface MemoryBoundaryDiagnostics {
   memoryRuntimeHealthy: boolean;
   runtimeIssues: string[];
   managedConfigIssues: string[];
+  managedWorkspaceFiles: ManagedWorkspaceFileState[];
+  boundaryStatus: ManagedBoundaryStatus;
+  lastBoundaryAction: string;
 }
 
 export interface ManagedMemoryBoundaryApplyResult {
@@ -230,6 +243,29 @@ export function applyManagedMemoryBoundaryConfig(
   };
 }
 
+function resolveOpenClawConfigPath(): string {
+  if (typeof process.env.OPENCLAW_CONFIG_PATH === "string" && process.env.OPENCLAW_CONFIG_PATH.trim()) {
+    return resolve(process.env.OPENCLAW_CONFIG_PATH.trim());
+  }
+  return join(homedir(), ".openclaw", "openclaw.json");
+}
+
+function readOpenClawConfigFromDisk(): Record<string, unknown> | undefined {
+  try {
+    const raw = readFileSync(resolveOpenClawConfigPath(), "utf-8");
+    const parsed = JSON.parse(raw);
+    return asObject(parsed);
+  } catch {
+    return undefined;
+  }
+}
+
+function safeManagedActionLabel(action: ManagedBoundaryAction, files: ManagedWorkspaceFileState[]): string {
+  if (action === "none") return "none";
+  const names = files.map((file) => file.name).join(", ") || "none";
+  return `${action}:${names}`;
+}
+
 function getConfigValue(root: Record<string, unknown> | undefined, path: string[]): unknown {
   let current: unknown = root;
   for (const part of path) {
@@ -305,6 +341,9 @@ function buildToolEventId(sessionKey: string, toolName: string, occurredAt: stri
 function buildRecallSkippedTrace(query: string, reason: string): RetrievalTrace {
   const startedAt = nowIso();
   const traceId = `trace_${hashText(`${reason}:${query}:${startedAt}`)}`;
+  const outputSummary = reason === "memory_write_turn"
+    ? "Automatic recall did not run because this turn is a memory write request."
+    : `Automatic recall did not run because ${reason}.`;
   return {
     traceId,
     query,
@@ -336,7 +375,7 @@ function buildRecallSkippedTrace(query: string, reason: string): RetrievalTrace 
         title: "Recall Skipped",
         status: "skipped",
         inputSummary: `reason=${reason}`,
-        outputSummary: `Automatic recall did not run because ${reason}.`,
+        outputSummary,
         refs: { reason },
         details: [
           {
@@ -929,6 +968,14 @@ export class MemoryPluginRuntime {
     if (this.stopped) return;
     this.stopped = true;
     this.started = false;
+    try {
+      const boundaryAction = this.restoreManagedWorkspaceBoundaryIfInactive();
+      if (boundaryAction !== "none") {
+        this.logger.info?.(`[clawxmemory] managed workspace boundary ${boundaryAction} during plugin stop.`);
+      }
+    } catch (error) {
+      this.logger.warn?.(`[clawxmemory] managed workspace boundary restore failed during stop: ${String(error)}`);
+    }
     this.clearBackgroundTimers();
     for (const sessionKey of Array.from(this.idleIndexTimers.keys())) {
       this.clearIdleTimer(sessionKey);
@@ -1143,6 +1190,10 @@ export class MemoryPluginRuntime {
       ? ctx.sessionKey.trim()
       : resolveSessionKey(ctx as Record<string, unknown>);
     if (!normalizedPrompt || isSessionStartupMarkerText(normalizedPrompt) || isControlCommandText(normalizedPrompt)) {
+      return;
+    }
+    if (hasExplicitRememberIntent([{ role: "user", content: normalizedPrompt }])) {
+      this.updateCaseRecallSkipped(rawSessionKey, normalizedPrompt, "memory_write_turn");
       return;
     }
     if (!this.config.recallEnabled) {
@@ -1457,6 +1508,9 @@ export class MemoryPluginRuntime {
     | "workspaceBootstrapPresent"
     | "memoryRuntimeHealthy"
     | "runtimeIssues"
+    | "managedWorkspaceFiles"
+    | "boundaryStatus"
+    | "lastBoundaryAction"
     | "startupRepairStatus"
     | "startupRepairMessage"
   > {
@@ -1482,6 +1536,9 @@ export class MemoryPluginRuntime {
       workspaceBootstrapPresent: diagnostics.workspaceBootstrapPresent,
       memoryRuntimeHealthy: diagnostics.memoryRuntimeHealthy,
       runtimeIssues: diagnostics.runtimeIssues,
+      managedWorkspaceFiles: diagnostics.managedWorkspaceFiles,
+      boundaryStatus: diagnostics.boundaryStatus,
+      lastBoundaryAction: diagnostics.lastBoundaryAction,
       startupRepairStatus: this.startupRepairStatus,
       ...(this.startupRepairMessage ? { startupRepairMessage: this.startupRepairMessage } : {}),
     };
@@ -1799,9 +1856,192 @@ export class MemoryPluginRuntime {
     return resolve(configured || join(homedir(), ".openclaw", "workspace"));
   }
 
+  private resolveManagedBoundaryDir(workspaceDir = this.resolveWorkspaceDir()): string {
+    return join(this.config.dataDir, MANAGED_BOUNDARY_DIRNAME, hashText(workspaceDir).slice(0, 12));
+  }
+
+  private resolveManagedBoundaryStatePath(workspaceDir = this.resolveWorkspaceDir()): string {
+    return join(this.resolveManagedBoundaryDir(workspaceDir), MANAGED_BOUNDARY_STATE_FILENAME);
+  }
+
+  private readManagedBoundaryState(workspaceDir = this.resolveWorkspaceDir()): ManagedWorkspaceBoundaryState | undefined {
+    const statePath = this.resolveManagedBoundaryStatePath(workspaceDir);
+    if (!existsSync(statePath)) return undefined;
+    try {
+      const parsed = JSON.parse(readFileSync(statePath, "utf-8"));
+      const root = asObject(parsed);
+      if (!root) return undefined;
+      const files = Array.isArray(root.files)
+        ? root.files
+            .map((item): ManagedWorkspaceFileState | null => {
+              const value = asObject(item);
+              if (!value) return null;
+              const name = value.name === "USER.md" || value.name === "MEMORY.md" ? value.name : null;
+              const status = value.status === "isolated" || value.status === "restored" || value.status === "conflict"
+                ? value.status
+                : null;
+              const originalPath = typeof value.originalPath === "string" ? value.originalPath : "";
+              const managedPath = typeof value.managedPath === "string" ? value.managedPath : "";
+              const hash = typeof value.hash === "string" ? value.hash : "";
+              const isolatedAt = typeof value.isolatedAt === "string" ? value.isolatedAt : "";
+              if (!name || !status || !originalPath || !managedPath || !hash || !isolatedAt) return null;
+              return {
+                name,
+                originalPath,
+                managedPath,
+                hash,
+                isolatedAt,
+                status,
+                ...(typeof value.restoredAt === "string" && value.restoredAt ? { restoredAt: value.restoredAt } : {}),
+                ...(typeof value.conflictPath === "string" && value.conflictPath ? { conflictPath: value.conflictPath } : {}),
+              };
+            })
+            .filter((item): item is ManagedWorkspaceFileState => Boolean(item))
+        : [];
+      const state: ManagedWorkspaceBoundaryState = {
+        version: MANAGED_BOUNDARY_STATE_VERSION,
+        workspaceDir,
+        updatedAt: typeof root.updatedAt === "string" && root.updatedAt ? root.updatedAt : nowIso(),
+        lastAction: typeof root.lastAction === "string" && root.lastAction ? root.lastAction : "none",
+        files,
+      };
+      return state;
+    } catch (error) {
+      this.logger.warn?.(`[clawxmemory] failed to read managed workspace boundary state: ${String(error)}`);
+      return undefined;
+    }
+  }
+
+  private writeManagedBoundaryState(
+    state: ManagedWorkspaceBoundaryState | undefined,
+    workspaceDir = this.resolveWorkspaceDir(),
+  ): void {
+    const statePath = this.resolveManagedBoundaryStatePath(workspaceDir);
+    const stateDir = this.resolveManagedBoundaryDir(workspaceDir);
+    if (!state || state.files.length === 0) {
+      rmSync(statePath, { force: true });
+      try {
+        rmSync(stateDir, { recursive: true, force: true });
+      } catch {
+        // Best-effort cleanup.
+      }
+      return;
+    }
+    mkdirSync(stateDir, { recursive: true });
+    writeFileSync(`${statePath}.tmp`, `${JSON.stringify(state, null, 2)}\n`, "utf-8");
+    renameSync(`${statePath}.tmp`, statePath);
+  }
+
+  private reconcileManagedWorkspaceBoundary(): ManagedBoundaryAction {
+    const workspaceDir = this.resolveWorkspaceDir();
+    const state = this.readManagedBoundaryState(workspaceDir) ?? {
+      version: MANAGED_BOUNDARY_STATE_VERSION,
+      workspaceDir,
+      updatedAt: nowIso(),
+      lastAction: "none",
+      files: [],
+    } satisfies ManagedWorkspaceBoundaryState;
+    const nextFiles = state.files.filter((file) => file.status === "conflict" || existsSync(file.managedPath));
+    let action: ManagedBoundaryAction = "none";
+
+    for (const name of MANAGED_WORKSPACE_FILES) {
+      const originalPath = join(workspaceDir, name);
+      if (!existsSync(originalPath)) continue;
+      if (nextFiles.some((file) => file.name === name && file.status === "isolated" && existsSync(file.managedPath))) {
+        continue;
+      }
+      const managedDir = this.resolveManagedBoundaryDir(workspaceDir);
+      mkdirSync(managedDir, { recursive: true });
+      const managedPath = join(managedDir, `${name}.${Date.now().toString(36)}.managed.md`);
+      renameSync(originalPath, managedPath);
+      const hash = hashText(readFileSync(managedPath, "utf-8"));
+      const nextFile: ManagedWorkspaceFileState = {
+        name,
+        originalPath,
+        managedPath,
+        hash,
+        isolatedAt: nowIso(),
+        status: "isolated",
+      };
+      const existingIndex = nextFiles.findIndex((file) => file.name === name);
+      if (existingIndex >= 0) nextFiles.splice(existingIndex, 1, nextFile);
+      else nextFiles.push(nextFile);
+      action = "isolated";
+      this.logger.info?.(`[clawxmemory] isolated workspace ${name} from OpenClaw bootstrap memory.`);
+    }
+
+    const nextState: ManagedWorkspaceBoundaryState = {
+      version: MANAGED_BOUNDARY_STATE_VERSION,
+      workspaceDir,
+      updatedAt: nowIso(),
+      lastAction: action === "none" ? state.lastAction : safeManagedActionLabel(action, nextFiles),
+      files: nextFiles,
+    };
+    this.writeManagedBoundaryState(nextState, workspaceDir);
+    return action;
+  }
+
+  private restoreManagedWorkspaceBoundaryIfInactive(): ManagedBoundaryAction {
+    const config = readOpenClawConfigFromDisk();
+    const slotOwner = getConfigString(config, ["plugins", "slots", "memory"]);
+    const pluginEnabled = getConfigBoolean(config, ["plugins", "entries", PLUGIN_ID, "enabled"]) !== false;
+    if (slotOwner === PLUGIN_ID && pluginEnabled) return "none";
+
+    const workspaceDir = resolve(getConfigString(config, ["agents", "defaults", "workspace"]) || join(homedir(), ".openclaw", "workspace"));
+    const state = this.readManagedBoundaryState(workspaceDir);
+    if (!state || state.files.length === 0) return "none";
+
+    let action: ManagedBoundaryAction = "none";
+    const nextFiles: ManagedWorkspaceFileState[] = [];
+    for (const file of state.files) {
+      if (!existsSync(file.managedPath)) continue;
+      const originalExists = existsSync(file.originalPath);
+      if (!originalExists) {
+        mkdirSync(dirname(file.originalPath), { recursive: true });
+        renameSync(file.managedPath, file.originalPath);
+        action = "restored";
+        continue;
+      }
+      const originalHash = hashText(readFileSync(file.originalPath, "utf-8"));
+      if (originalHash === file.hash) {
+        rmSync(file.managedPath, { force: true });
+        action = action === "conflict" ? action : "restored";
+        continue;
+      }
+      const conflictPath = join(workspaceDir, `${file.name.replace(/\.md$/i, "")}.clawxmemory-conflict-${Date.now().toString(36)}.md`);
+      renameSync(file.managedPath, conflictPath);
+      nextFiles.push({
+        ...file,
+        status: "conflict",
+        restoredAt: nowIso(),
+        conflictPath,
+      });
+      action = "conflict";
+    }
+
+    if (nextFiles.length === 0) {
+      this.writeManagedBoundaryState(undefined, workspaceDir);
+    } else {
+      this.writeManagedBoundaryState({
+        ...state,
+        updatedAt: nowIso(),
+        lastAction: safeManagedActionLabel(action, nextFiles),
+        files: nextFiles,
+      }, workspaceDir);
+    }
+    return action;
+  }
+
   private async runStartupInitialization(): Promise<void> {
     const boundaryState = await this.reconcileManagedMemoryBoundary();
     if (this.stopped) return;
+    if (boundaryState === "ready") {
+      try {
+        this.reconcileManagedWorkspaceBoundary();
+      } catch (error) {
+        this.logger.warn?.(`[clawxmemory] managed workspace boundary reconcile failed: ${String(error)}`);
+      }
+    }
     this.logMemoryBoundaryDiagnostics();
     if (boundaryState !== "ready" || this.stopped) return;
     this.startBackgroundRepair();
@@ -1891,6 +2131,11 @@ export class MemoryPluginRuntime {
     }
 
     const workspaceDir = this.resolveWorkspaceDir();
+    const managedBoundaryState = this.readManagedBoundaryState(workspaceDir);
+    const managedWorkspaceFiles = managedBoundaryState?.files
+      .filter((file) => file.status === "conflict" || existsSync(file.managedPath))
+      .sort((left, right) => left.name.localeCompare(right.name))
+      ?? [];
     const workspaceBootstrapPresent = [
       "AGENTS.md",
       "SOUL.md",
@@ -1902,6 +2147,23 @@ export class MemoryPluginRuntime {
       "MEMORY.md",
     ].some((name) => existsSync(join(workspaceDir, name)));
 
+    if (slotOwner === PLUGIN_ID) {
+      for (const name of MANAGED_WORKSPACE_FILES) {
+        const originalPath = join(workspaceDir, name);
+        if (existsSync(originalPath)) {
+          runtimeIssues.push(`workspace ${name} should be isolated from OpenClaw bootstrap memory`);
+        }
+      }
+    }
+
+    const boundaryStatus: ManagedBoundaryStatus = managedWorkspaceFiles.some((file) => file.status === "conflict")
+      ? "conflict"
+      : managedWorkspaceFiles.length > 0
+        ? "isolated"
+        : runtimeIssues.some((issue) => issue.includes("workspace USER.md") || issue.includes("workspace MEMORY.md"))
+          ? "warning"
+          : "ready";
+
     return {
       slotOwner,
       dynamicMemoryRuntime: slotOwner === PLUGIN_ID ? "ClawXMemory" : slotOwner || "unbound",
@@ -1909,6 +2171,9 @@ export class MemoryPluginRuntime {
       memoryRuntimeHealthy: runtimeIssues.length === 0,
       runtimeIssues,
       managedConfigIssues,
+      managedWorkspaceFiles,
+      boundaryStatus,
+      lastBoundaryAction: managedBoundaryState?.lastAction || "none",
     };
   }
 

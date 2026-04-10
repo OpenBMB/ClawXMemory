@@ -14,6 +14,7 @@ import type {
   MemoryManifestEntry,
   MemoryMessage,
   MemoryRoute,
+  MemoryUserSummary,
   ProjectDetail,
   ProjectStatus,
   RetrievalResult,
@@ -91,6 +92,13 @@ interface RawDailySummaryPayload {
 
 interface RawProfilePayload {
   profile_text?: unknown;
+}
+
+interface RawUserProfilePayload {
+  profile?: unknown;
+  preferences?: unknown;
+  constraints?: unknown;
+  relationships?: unknown;
 }
 
 interface RawDreamFindingPayload {
@@ -534,6 +542,30 @@ Use this exact JSON shape:
       "canonical_name": "project name users would recognize"
     }
   ]
+}
+`.trim();
+
+const USER_PROFILE_REWRITE_SYSTEM_PROMPT = `
+You rewrite a global user profile for a conversational memory system.
+
+Rules:
+- Return JSON only.
+- Keep only durable user information that should persist across future sessions.
+- Preserve durable incoming facts. Do not drop a newly supplied stable preference, constraint, relationship, or identity detail unless it clearly conflicts with an older fact.
+- "profile" should be a compact paragraph about the user's stable identity/background.
+- "preferences" should contain long-lived personal preferences.
+- "constraints" should contain durable personal boundaries, objective limits, or stable context.
+- "relationships" should contain stable people/team relationships that matter later.
+- Do not include project progress, project-specific collaboration rules, deadlines, blockers, or temporary tasks.
+- If a field has no durable content, return an empty string or empty array.
+- Keep the language aligned with the user's language in the incoming content.
+
+Use this exact JSON shape:
+{
+  "profile": "compact user profile paragraph",
+  "preferences": ["..."],
+  "constraints": ["..."],
+  "relationships": ["..."]
 }
 `.trim();
 
@@ -1232,6 +1264,31 @@ function buildGlobalProfilePrompt(input: LlmGlobalProfileInput): string {
   }, null, 2);
 }
 
+function buildUserProfileRewritePrompt(input: {
+  existingProfile: MemoryUserSummary | null;
+  candidates: MemoryCandidate[];
+}): string {
+  return JSON.stringify({
+    existing_user_profile: input.existingProfile
+      ? {
+          profile: truncateForPrompt(input.existingProfile.profile, 320),
+          preferences: input.existingProfile.preferences.map((item) => truncateForPrompt(item, 120)).slice(0, 20),
+          constraints: input.existingProfile.constraints.map((item) => truncateForPrompt(item, 120)).slice(0, 20),
+          relationships: input.existingProfile.relationships.map((item) => truncateForPrompt(item, 120)).slice(0, 20),
+        }
+      : null,
+    incoming_user_candidates: input.candidates.map((candidate) => ({
+      description: truncateForPrompt(candidate.description, 180),
+      profile: truncateForPrompt(candidate.profile || candidate.summary || candidate.description, 260),
+      preferences: (candidate.preferences ?? []).map((item) => truncateForPrompt(item, 120)).slice(0, 10),
+      constraints: (candidate.constraints ?? []).map((item) => truncateForPrompt(item, 120)).slice(0, 10),
+      relationships: (candidate.relationships ?? []).map((item) => truncateForPrompt(item, 120)).slice(0, 10),
+      captured_at: candidate.capturedAt ?? "",
+      source_session_key: candidate.sourceSessionKey ?? "",
+    })),
+  }, null, 2);
+}
+
 function buildDreamReviewPrompt(input: LlmDreamReviewInput): string {
   return JSON.stringify({
     review_focus: input.focus,
@@ -1831,6 +1888,21 @@ function uniqueStrings(items: readonly string[], maxItems: number): string[] {
   )).slice(0, maxItems);
 }
 
+function pickLongest(left: string, right: string): string {
+  const a = normalizeWhitespace(left);
+  const b = normalizeWhitespace(right);
+  if (!a) return b;
+  if (!b) return a;
+  return b.length >= a.length ? b : a;
+}
+
+function stripExplicitRememberLead(text: string): string {
+  return normalizeWhitespace(text).replace(
+    /^(?:记住(?:这些长期信息|这个长期信息|这件事|一下)?|帮我记住|请记住|另外记住|再记一个长期信息|再记一条长期信息|补充一个长期信息|补充一条长期信息)[，,:：]?\s*/i,
+    "",
+  ).trim();
+}
+
 function splitPreferenceHints(text: string): string[] {
   const normalized = text
     .replace(/\r/g, "\n")
@@ -1841,7 +1913,7 @@ function splitPreferenceHints(text: string): string[] {
     .filter(Boolean);
   return Array.from(new Set(
     normalized
-      .map((line) => line.replace(/^(记住(?:两件事)?|帮我记住|请记住|另外记住)\s*/i, "").trim())
+      .map((line) => stripExplicitRememberLead(line))
       .filter(Boolean)
       .filter((line) => line.length >= 4),
   )).slice(0, 10);
@@ -1853,7 +1925,7 @@ function looksLikeCollaborationRuleText(text: string): boolean {
 }
 
 function looksLikeDurableUserProfileText(text: string): boolean {
-  return /(我是|我来自|我住在|我长期|我平时|我一般|我更喜欢|我偏好|我习惯|我常用|我的身份|我的专业|我在做)/i
+  return /(我是|我来自|我住在|我长期|我平时|我一般|我更喜欢|我偏好|我习惯|我(?:现在)?常用|我的身份|我的专业|我在做|我的技术栈|长期使用)/i
     .test(normalizeWhitespace(text));
 }
 
@@ -2553,6 +2625,111 @@ export class LlmMemoryExtractor {
     return truncate(input.existingProfile || fallbackFacts || input.l1.summary, 420);
   }
 
+  async rewriteUserProfile(input: {
+    existingProfile: MemoryUserSummary | null;
+    candidates: MemoryCandidate[];
+    agentId?: string;
+    timeoutMs?: number;
+  }): Promise<MemoryCandidate | null> {
+    const userCandidates = input.candidates.filter((candidate) => candidate.type === "user");
+    if (userCandidates.length === 0) return null;
+
+    const latestCandidate = userCandidates[userCandidates.length - 1];
+    const fallbackProfile = truncate(
+      pickLongest(
+        input.existingProfile?.profile ?? "",
+        uniqueStrings(
+          userCandidates.map((candidate) => candidate.profile || candidate.summary || candidate.description),
+          6,
+        ).join("；"),
+      ),
+      400,
+    );
+    const fallbackPreferences = uniqueStrings([
+      ...(input.existingProfile?.preferences ?? []),
+      ...userCandidates.flatMap((candidate) => candidate.preferences ?? []),
+    ], 20);
+    const fallbackConstraints = uniqueStrings([
+      ...(input.existingProfile?.constraints ?? []),
+      ...userCandidates.flatMap((candidate) => candidate.constraints ?? []),
+    ], 20);
+    const fallbackRelationships = uniqueStrings([
+      ...(input.existingProfile?.relationships ?? []),
+      ...userCandidates.flatMap((candidate) => candidate.relationships ?? []),
+    ], 20);
+
+    const buildCandidate = (next: {
+      profile: string;
+      preferences: string[];
+      constraints: string[];
+      relationships: string[];
+    }): MemoryCandidate | null => {
+      const profile = normalizeWhitespace(next.profile);
+      const preferences = uniqueStrings(next.preferences, 20);
+      const constraints = uniqueStrings(next.constraints, 20);
+      const relationships = uniqueStrings(next.relationships, 20);
+      if (!profile && preferences.length === 0 && constraints.length === 0 && relationships.length === 0) {
+        return null;
+      }
+      return {
+        type: "user",
+        scope: "global",
+        name: "user-profile",
+        description: truncateForPrompt(profile || preferences[0] || constraints[0] || relationships[0] || "User profile", 120),
+        ...(latestCandidate?.capturedAt ? { capturedAt: latestCandidate.capturedAt } : {}),
+        ...(latestCandidate?.sourceSessionKey ? { sourceSessionKey: latestCandidate.sourceSessionKey } : {}),
+        profile,
+        preferences,
+        constraints,
+      relationships,
+      };
+    };
+
+    const mergeWithFallback = (next: {
+      profile: string;
+      preferences: string[];
+      constraints: string[];
+      relationships: string[];
+    }): {
+      profile: string;
+      preferences: string[];
+      constraints: string[];
+      relationships: string[];
+    } => ({
+      profile: normalizeWhitespace(next.profile) || fallbackProfile,
+      preferences: uniqueStrings([...next.preferences, ...fallbackPreferences], 20),
+      constraints: uniqueStrings([...next.constraints, ...fallbackConstraints], 20),
+      relationships: uniqueStrings([...next.relationships, ...fallbackRelationships], 20),
+    });
+
+    try {
+      const raw = await this.callStructuredJson({
+        systemPrompt: USER_PROFILE_REWRITE_SYSTEM_PROMPT,
+        userPrompt: buildUserProfileRewritePrompt(input),
+        requestLabel: "User profile rewrite",
+        timeoutMs: input.timeoutMs ?? 12_000,
+        ...(input.agentId ? { agentId: input.agentId } : {}),
+      });
+      const parsed = JSON.parse(extractFirstJsonObject(raw)) as RawUserProfilePayload;
+      const rewritten = buildCandidate(mergeWithFallback({
+        profile: typeof parsed.profile === "string" ? truncateForPrompt(parsed.profile, 400) : "",
+        preferences: normalizeStringArray(parsed.preferences, 20),
+        constraints: normalizeStringArray(parsed.constraints, 20),
+        relationships: normalizeStringArray(parsed.relationships, 20),
+      }));
+      if (rewritten) return rewritten;
+    } catch (error) {
+      this.logger?.warn?.(`[clawxmemory] user profile rewrite fallback: ${String(error)}`);
+    }
+
+    return buildCandidate(mergeWithFallback({
+      profile: fallbackProfile,
+      preferences: fallbackPreferences,
+      constraints: fallbackConstraints,
+      relationships: fallbackRelationships,
+    }));
+  }
+
   async reviewDream(input: LlmDreamReviewInput): Promise<LlmDreamReviewResult> {
     const emptySummary = input.evidenceRefs.length === 0
       ? "Not enough indexed memory evidence to run Dream review yet."
@@ -2950,7 +3127,7 @@ export class LlmMemoryExtractor {
     timeoutMs?: number;
   }): Promise<MemoryRoute> {
     const fallback = (() => {
-      const text = [input.query, ...(input.recentMessages ?? []).map((item) => item.content)].join(" ").toLowerCase();
+      const text = input.query.toLowerCase();
       const userHit = /(偏好|喜欢|习惯|我是谁|记得我|记住我|prefer|preference|about me)/.test(text);
       const feedbackHit = /(怎么和我协作|以后|不要|别再|写作风格|沟通方式|how to work with me|feedback|collabor)/.test(text);
       const projectHit = /(项目|进展|推进|deadline|里程碑|现在到哪|project|status|progress|blocker|next step)/.test(text);
@@ -3060,11 +3237,13 @@ export class LlmMemoryExtractor {
     const lastUser = [...input.messages].reverse().find((message) => message.role === "user")?.content ?? "";
     const heuristicProject = /(项目|deadline|进展|blocker|next step|里程碑|发布)/i.test(lastUser);
     const heuristicFeedback = looksLikeCollaborationRuleText(lastUser);
-    const heuristicUser = /(喜欢|偏好|习惯|我是|我会|记住我)/i.test(lastUser);
+    const heuristicUser = /(喜欢|偏好|习惯|我是|我会|记住我|我(?:现在)?常用|我的技术栈|长期使用)/i.test(lastUser);
     const explicitText = input.messages
       .filter((message) => message.role === "user")
       .map((message) => message.content)
       .join("\n");
+    const normalizedExplicitText = stripExplicitRememberLead(explicitText);
+    const normalizedLastUser = stripExplicitRememberLead(lastUser);
     const explicitProjectContext = /(项目|目标|里程碑|试用|版本|当前卡点|deadline|blocker|next step|进展)/i.test(explicitText);
     const explicitProjectName = extractProjectNameHint(explicitText);
     const explicitTimeline = extractTimelineHints(explicitText);
@@ -3129,17 +3308,16 @@ export class LlmMemoryExtractor {
           notes: ["Captured from an explicit remember request without a formal project id."],
         });
       }
-      if (fallback.length === 0 && (heuristicUser || input.explicitRemember)) {
+      if (fallback.length === 0 && (heuristicUser || looksLikeDurableUserProfileText(explicitText))) {
         fallback.push({
           type: "user",
           scope: "global",
           name: "user-profile",
-          description: truncateForPrompt(lastUser, 120),
+          description: truncateForPrompt(normalizedExplicitText || normalizedLastUser || lastUser, 120),
           ...(input.sessionKey ? { sourceSessionKey: input.sessionKey } : {}),
           capturedAt: input.timestamp,
-          summary: truncateForPrompt(lastUser, 220),
+          profile: truncateForPrompt(normalizedExplicitText || normalizedLastUser || lastUser, 220),
           ...(explicitPreferences.length > 0 ? { preferences: explicitPreferences } : {}),
-          notes: ["Captured from an explicit remember request."],
         });
       }
     }
@@ -3188,6 +3366,7 @@ export class LlmMemoryExtractor {
             description,
             ...(input.sessionKey ? { sourceSessionKey: input.sessionKey } : {}),
             capturedAt: input.timestamp,
+            ...(typeof item.profile === "string" ? { profile: truncateForPrompt(item.profile, 280) } : {}),
             ...(typeof item.summary === "string" ? { summary: truncateForPrompt(item.summary, 280) } : {}),
             preferences: normalizeStringArray(item.preferences, 10),
             constraints: normalizeStringArray(item.constraints, 10),

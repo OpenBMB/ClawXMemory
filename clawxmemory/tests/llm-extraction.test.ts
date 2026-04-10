@@ -116,7 +116,126 @@ describe("LlmMemoryExtractor hop debug trace", () => {
       type: "user",
       scope: "global",
       name: "user-profile",
+      profile: expect.stringContaining("我长期偏好中文交流"),
     });
+  });
+
+  it("does not turn a transient explicit reminder into user profile memory", async () => {
+    const extractor = createExtractor();
+    vi.spyOn(extractor as never as { callStructuredJson: (input: unknown) => Promise<string> }, "callStructuredJson")
+      .mockResolvedValue(JSON.stringify({ items: [] }));
+
+    const result = await extractor.extractFileMemoryCandidates({
+      timestamp: "2026-04-10T01:05:00.000Z",
+      explicitRemember: true,
+      messages: [
+        {
+          role: "user",
+          content: "记住今天下午三点我要开会。",
+        },
+      ],
+    });
+
+    expect(result).toHaveLength(0);
+  });
+
+  it("treats '我现在常用 TypeScript 和 Node.js' as a durable user preference update", async () => {
+    const extractor = createExtractor();
+    vi.spyOn(extractor as never as { callStructuredJson: (input: unknown) => Promise<string> }, "callStructuredJson")
+      .mockResolvedValue(JSON.stringify({ items: [] }));
+
+    const result = await extractor.extractFileMemoryCandidates({
+      timestamp: "2026-04-10T02:35:00.000Z",
+      explicitRemember: true,
+      messages: [
+        {
+          role: "user",
+          content: "再记一个长期信息：我现在常用 TypeScript 和 Node.js。",
+        },
+      ],
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      type: "user",
+      scope: "global",
+      name: "user-profile",
+    });
+    expect(result[0]?.preferences?.some((item) => item.includes("TypeScript") && item.includes("Node.js"))).toBe(true);
+  });
+
+  it("rewrites user profile candidates into the fixed four-section schema", async () => {
+    const extractor = createExtractor();
+    vi.spyOn(extractor as never as { callStructuredJson: (input: unknown) => Promise<string> }, "callStructuredJson")
+      .mockResolvedValue(JSON.stringify({
+        profile: "用户长期住在北京，平时更习惯中文交流。",
+        preferences: ["中文交流"],
+        constraints: ["长期住在北京"],
+        relationships: [],
+      }));
+
+    const result = await extractor.rewriteUserProfile({
+      existingProfile: {
+        profile: "",
+        preferences: [],
+        constraints: [],
+        relationships: [],
+        files: [],
+      },
+      candidates: [{
+        type: "user",
+        scope: "global",
+        name: "user-profile",
+        description: "记住，我长期住在北京，而且我平时更习惯中文交流。",
+        profile: "记住，我长期住在北京，而且我平时更习惯中文交流。",
+        capturedAt: "2026-04-10T01:00:00.000Z",
+      }],
+    });
+
+    expect(result).toMatchObject({
+      type: "user",
+      scope: "global",
+      name: "user-profile",
+      profile: "用户长期住在北京，平时更习惯中文交流。",
+      preferences: ["中文交流"],
+      constraints: ["长期住在北京"],
+      relationships: [],
+    });
+  });
+
+  it("does not let the model drop newly added durable user facts during rewrite", async () => {
+    const extractor = createExtractor();
+    vi.spyOn(extractor as never as { callStructuredJson: (input: unknown) => Promise<string> }, "callStructuredJson")
+      .mockResolvedValue(JSON.stringify({
+        profile: "用户从事AI产品工作，长期住在北京。",
+        preferences: ["使用中文交流"],
+        constraints: [],
+        relationships: [],
+      }));
+
+    const result = await extractor.rewriteUserProfile({
+      existingProfile: {
+        profile: "用户从事AI产品工作，长期住在北京。",
+        preferences: ["使用中文交流"],
+        constraints: [],
+        relationships: [],
+        files: [],
+      },
+      candidates: [{
+        type: "user",
+        scope: "global",
+        name: "user-profile",
+        description: "我现在常用 TypeScript 和 Node.js。",
+        profile: "我现在常用 TypeScript 和 Node.js。",
+        preferences: ["我现在常用 TypeScript 和 Node.js。"],
+        capturedAt: "2026-04-10T02:36:13.474Z",
+      }],
+    });
+
+    expect(result?.preferences).toEqual(expect.arrayContaining([
+      "使用中文交流",
+      "我现在常用 TypeScript 和 Node.js。",
+    ]));
   });
 
   it("falls back to both project and feedback memories for explicit project remembers", async () => {

@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -20,6 +20,7 @@ describe("MemoryPluginRuntime", () => {
 
   afterEach(async () => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
     vi.useRealTimers();
     for (const runtime of runtimes.splice(0)) {
       runtime.stop();
@@ -275,6 +276,115 @@ describe("MemoryPluginRuntime", () => {
     );
 
     runtime.stop();
+  });
+
+  it("skips answer-time recall for explicit remember turns", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "clawxmemory-runtime-"));
+    cleanupPaths.push(dir);
+
+    const runtime = new MemoryPluginRuntime({
+      apiConfig: {},
+      pluginRuntime: undefined,
+      pluginConfig: {
+        dbPath: join(dir, "memory.sqlite"),
+        uiEnabled: false,
+      },
+      logger: undefined,
+    });
+    runtimes.push(runtime);
+
+    const retrieve = vi.fn();
+    (runtime as { retriever: { retrieve: typeof retrieve } }).retriever = { retrieve };
+
+    const result = await runtime.handleBeforePromptBuild(
+      {
+        prompt: "再记一个长期信息：我现在常用 TypeScript 和 Node.js。",
+        messages: [],
+      } as never,
+      { sessionKey: "session-remember" } as never,
+    );
+
+    expect(result).toBeUndefined();
+    expect(retrieve).not.toHaveBeenCalled();
+
+    const records = (runtime as never as {
+      listRecentCaseTraces: (limit: number) => Array<Record<string, unknown>>;
+    }).listRecentCaseTraces(10);
+    const steps = (((records[0]?.retrieval as { trace?: { steps?: Array<{ kind: string; outputSummary?: string }> } })?.trace?.steps) ?? []);
+    expect(steps.map((step) => step.kind)).toEqual(["recall_start", "recall_skipped"]);
+    expect(steps[1]?.outputSummary).toContain("memory write request");
+
+    runtime.stop();
+  });
+
+  it("isolates workspace USER.md and MEMORY.md and restores them when ClawXMemory no longer owns memory", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "clawxmemory-runtime-"));
+    const workspaceDir = join(dir, "workspace");
+    const dataDir = join(dir, "data");
+    const configPath = join(dir, "openclaw.json");
+    cleanupPaths.push(dir);
+
+    await mkdir(workspaceDir, { recursive: true });
+    await writeFile(join(workspaceDir, "USER.md"), "legacy user memory\n", "utf-8");
+    await writeFile(join(workspaceDir, "MEMORY.md"), "legacy workspace memory\n", "utf-8");
+    await writeFile(configPath, `${JSON.stringify({
+      plugins: {
+        slots: { memory: "openbmb-clawxmemory" },
+        entries: { "openbmb-clawxmemory": { enabled: true } },
+      },
+      agents: {
+        defaults: { workspace: workspaceDir },
+      },
+    }, null, 2)}\n`, "utf-8");
+    vi.stubEnv("OPENCLAW_CONFIG_PATH", configPath);
+
+    const runtime = new MemoryPluginRuntime({
+      apiConfig: {
+        plugins: {
+          slots: { memory: "openbmb-clawxmemory" },
+          entries: { "openbmb-clawxmemory": { enabled: true } },
+        },
+        agents: {
+          defaults: { workspace: workspaceDir },
+        },
+      },
+      pluginRuntime: undefined,
+      pluginConfig: {
+        dbPath: join(dir, "memory.sqlite"),
+        dataDir,
+        uiEnabled: false,
+      },
+      logger: undefined,
+    });
+    runtimes.push(runtime);
+
+    expect((runtime as never as { reconcileManagedWorkspaceBoundary: () => string }).reconcileManagedWorkspaceBoundary()).toBe("isolated");
+    await expect(readFile(join(workspaceDir, "USER.md"), "utf-8")).rejects.toThrow();
+    await expect(readFile(join(workspaceDir, "MEMORY.md"), "utf-8")).rejects.toThrow();
+
+    const state = (runtime as never as {
+      readManagedBoundaryState: (workspaceDir: string) => { files: Array<{ name: string; status: string }> } | undefined;
+    }).readManagedBoundaryState(workspaceDir);
+    expect(state?.files.map((file) => `${file.name}:${file.status}`)).toEqual([
+      "USER.md:isolated",
+      "MEMORY.md:isolated",
+    ]);
+
+    await writeFile(configPath, `${JSON.stringify({
+      plugins: {
+        slots: { memory: "memory-core" },
+        entries: { "openbmb-clawxmemory": { enabled: false } },
+      },
+      agents: {
+        defaults: { workspace: workspaceDir },
+      },
+    }, null, 2)}\n`, "utf-8");
+
+    runtime.stop();
+
+    await expect(readFile(join(workspaceDir, "USER.md"), "utf-8")).resolves.toBe("legacy user memory\n");
+    await expect(readFile(join(workspaceDir, "MEMORY.md"), "utf-8")).resolves.toBe("legacy workspace memory\n");
+    expect((runtime as never as { readManagedBoundaryState: (workspaceDir: string) => unknown }).readManagedBoundaryState(workspaceDir)).toBeUndefined();
   });
 
   it("records real-turn case traces with retrieval, tool summaries, and final answer", async () => {

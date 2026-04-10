@@ -124,18 +124,31 @@ export class HeartbeatIndexer {
     const processedIds: string[] = [];
     for (const session of sessions) {
       try {
+        const store = this.repository.getFileMemoryStore();
         const candidates = await this.extractor.extractFileMemoryCandidates({
           timestamp: session.timestamp,
           sessionKey: session.sessionKey,
           messages: session.messages,
           explicitRemember: hasExplicitRememberIntent(session.messages),
         });
-        for (const candidate of candidates) {
-          this.repository.getFileMemoryStore().upsertCandidate(candidate);
+        const userCandidates = candidates.filter((candidate) => candidate.type === "user");
+        const fileCandidates = candidates.filter((candidate) => candidate.type !== "user");
+
+        for (const candidate of fileCandidates) {
+          store.upsertCandidate(candidate);
           stats.l1Created += 1;
           if (candidate.type === "project" || candidate.type === "feedback") {
             stats.l2ProjectUpdated += 1;
-          } else {
+          }
+        }
+        if (userCandidates.length > 0) {
+          const rewrittenUser = await this.extractor.rewriteUserProfile({
+            existingProfile: store.getUserSummary(),
+            candidates: userCandidates,
+          });
+          if (rewrittenUser) {
+            store.upsertCandidate(rewrittenUser);
+            stats.l1Created += 1;
             stats.profileUpdated += 1;
           }
         }

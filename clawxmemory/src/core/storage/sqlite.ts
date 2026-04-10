@@ -683,7 +683,7 @@ export class MemoryRepository {
         scope: "global",
         name: "user-profile",
         description: truncate(bundle.globalProfile.profileText, 120),
-        summary: bundle.globalProfile.profileText,
+        profile: bundle.globalProfile.profileText,
       });
     }
 
