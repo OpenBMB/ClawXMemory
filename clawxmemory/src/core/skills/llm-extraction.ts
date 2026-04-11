@@ -166,6 +166,51 @@ interface RawDreamGlobalProfileRewritePayload {
   conflict_with_existing?: unknown;
 }
 
+interface RawDreamFileGlobalPlanProjectPayload {
+  plan_key?: unknown;
+  target_project_id?: unknown;
+  project_name?: unknown;
+  description?: unknown;
+  aliases?: unknown;
+  status?: unknown;
+  merge_reason?: unknown;
+  evidence_entry_ids?: unknown;
+  retained_entry_ids?: unknown;
+}
+
+interface RawDreamFileGlobalPlanPayload {
+  summary?: unknown;
+  duplicate_topic_count?: unknown;
+  conflict_topic_count?: unknown;
+  projects?: unknown;
+  deleted_project_ids?: unknown;
+  deleted_entry_ids?: unknown;
+}
+
+interface RawDreamFileProjectRewriteFilePayload {
+  type?: unknown;
+  name?: unknown;
+  description?: unknown;
+  source_entry_ids?: unknown;
+  stage?: unknown;
+  decisions?: unknown;
+  constraints?: unknown;
+  next_steps?: unknown;
+  blockers?: unknown;
+  timeline?: unknown;
+  notes?: unknown;
+  rule?: unknown;
+  why?: unknown;
+  how_to_apply?: unknown;
+}
+
+interface RawDreamFileProjectRewritePayload {
+  summary?: unknown;
+  project_meta?: unknown;
+  files?: unknown;
+  deleted_entry_ids?: unknown;
+}
+
 interface RawReasoningPayload {
   intent?: unknown;
   enough_at?: unknown;
@@ -332,6 +377,113 @@ export interface LlmDreamGlobalProfileRewriteOutput {
   profileText: string;
   sourceL1Ids: string[];
   conflictWithExisting: boolean;
+}
+
+export interface LlmDreamFileProjectMetaInput {
+  projectId: string;
+  projectName: string;
+  description: string;
+  aliases: string[];
+  status: string;
+  updatedAt: string;
+  dreamUpdatedAt?: string;
+}
+
+export interface LlmDreamFileRecordInput {
+  entryId: string;
+  relativePath: string;
+  type: "project" | "feedback";
+  scope: "project";
+  projectId?: string;
+  isTmp: boolean;
+  name: string;
+  description: string;
+  updatedAt: string;
+  capturedAt?: string;
+  sourceSessionKey?: string;
+  content: string;
+  project?: {
+    stage: string;
+    decisions: string[];
+    constraints: string[];
+    nextSteps: string[];
+    blockers: string[];
+    timeline: string[];
+    notes: string[];
+  };
+  feedback?: {
+    rule: string;
+    why: string;
+    howToApply: string;
+    notes: string[];
+  };
+}
+
+export interface LlmDreamFileGlobalPlanInput {
+  currentProjects: LlmDreamFileProjectMetaInput[];
+  records: LlmDreamFileRecordInput[];
+  agentId?: string;
+  timeoutMs?: number;
+  debugTrace?: PromptDebugSink;
+}
+
+export interface LlmDreamFileGlobalPlanProject {
+  planKey: string;
+  targetProjectId?: string;
+  projectName: string;
+  description: string;
+  aliases: string[];
+  status: string;
+  mergeReason?: "rename" | "alias_equivalence" | "duplicate_formal_project";
+  evidenceEntryIds: string[];
+  retainedEntryIds: string[];
+}
+
+export interface LlmDreamFileGlobalPlanOutput {
+  summary: string;
+  duplicateTopicCount: number;
+  conflictTopicCount: number;
+  projects: LlmDreamFileGlobalPlanProject[];
+  deletedProjectIds: string[];
+  deletedEntryIds: string[];
+}
+
+export interface LlmDreamFileProjectRewriteInput {
+  project: LlmDreamFileGlobalPlanProject & { projectId: string };
+  currentMeta: LlmDreamFileProjectMetaInput | null;
+  records: LlmDreamFileRecordInput[];
+  agentId?: string;
+  timeoutMs?: number;
+  debugTrace?: PromptDebugSink;
+}
+
+export interface LlmDreamFileProjectRewriteOutputFile {
+  type: "project" | "feedback";
+  name: string;
+  description: string;
+  sourceEntryIds: string[];
+  stage?: string;
+  decisions?: string[];
+  constraints?: string[];
+  nextSteps?: string[];
+  blockers?: string[];
+  timeline?: string[];
+  notes?: string[];
+  rule?: string;
+  why?: string;
+  howToApply?: string;
+}
+
+export interface LlmDreamFileProjectRewriteOutput {
+  summary: string;
+  projectMeta: {
+    projectName: string;
+    description: string;
+    aliases: string[];
+    status: string;
+  };
+  files: LlmDreamFileProjectRewriteOutputFile[];
+  deletedEntryIds: string[];
 }
 
 export interface LlmReasoningInput {
@@ -836,6 +988,117 @@ Use this exact JSON shape:
   "profile_text": "rewritten global profile paragraph",
   "source_l1_ids": ["l1-1", "l1-2"],
   "conflict_with_existing": false
+}
+`.trim();
+
+const DREAM_FILE_GLOBAL_PLAN_SYSTEM_PROMPT = `
+You are the Dream global audit planner for a file-memory system.
+
+Your job is to inspect existing formal and temporary project memory files, then produce a single executable reorganization plan.
+
+Rules:
+- Use only the supplied project meta files and memory file snapshots as evidence.
+- Do not invent projects, files, facts, or merges that are not supported by the provided memory files.
+- Decide final project boundaries globally before any rewrite happens.
+- Natural-language output fields must follow the dominant language already present in the supplied records and project metas.
+- If the supplied evidence is mainly Chinese, write summaries, project_name, description, aliases, and any other natural-language output in Chinese.
+- Keys and enums must remain in English.
+- Different explicit user-named projects must remain separate by default.
+- Shared domain, shared workflow, shared delivery rules, or the same user are NOT sufficient evidence for a merge.
+- Do not create a broader umbrella project that absorbs multiple more specific user-named projects.
+- You may:
+  - attach tmp files to an existing formal project
+  - merge two formal projects into one surviving formal project
+  - keep a tmp-only group as a brand-new formal project
+  - delete an old formal project only when its surviving content is fully absorbed elsewhere
+- If you merge entries from multiple distinct explicit project names into one final project, you must provide:
+  - merge_reason: one of rename, alias_equivalence, duplicate_formal_project
+  - evidence_entry_ids: retained entry ids that directly support the merge
+- If you are not fully sure a merge is warranted, keep the projects separate.
+- Each retained entry id must appear in exactly one output project.
+- deleted_entry_ids should only include files that are redundant, superseded, or absorbed by other rewritten files.
+- deleted_project_ids should only include existing formal project ids that are fully absorbed.
+- Keep project names user-recognizable and aliases concise.
+- Return valid JSON only.
+
+Use this exact JSON shape:
+{
+  "summary": "short audit summary",
+  "duplicate_topic_count": 0,
+  "conflict_topic_count": 0,
+  "projects": [
+    {
+      "plan_key": "stable planner-local key",
+      "target_project_id": "existing formal project id or empty string",
+      "project_name": "final project name",
+      "description": "final project description",
+      "aliases": ["alias 1", "alias 2"],
+      "status": "active",
+      "merge_reason": "",
+      "evidence_entry_ids": ["projects/project_x/Project/current-stage.md"],
+      "retained_entry_ids": ["projects/_tmp/Project/foo.md", "projects/project_x/Feedback/bar.md"]
+    }
+  ],
+  "deleted_project_ids": ["project_old"],
+  "deleted_entry_ids": ["projects/_tmp/Feedback/old.md"]
+}
+`.trim();
+
+const DREAM_FILE_PROJECT_REWRITE_SYSTEM_PROMPT = `
+You are the Dream project rewrite engine for a file-memory system.
+
+Your job is to rewrite one final project from the supplied project and feedback memory files.
+
+Rules:
+- Use only the supplied records as evidence.
+- Do not create a project-level summary file.
+- Preserve atomic memory granularity: output a small set of project files and feedback files.
+- Merge only when files are clearly redundant or conflicting enough that one cleaner file is better.
+- Keep the supplied final project boundary and final project name. Do not broaden it into a more abstract umbrella project.
+- Natural-language output fields must follow the dominant language already present in the supplied records and current project meta.
+- If the supplied evidence is mainly Chinese, write project_meta fields and all project/feedback body fields in Chinese.
+- Keys and enums must remain in English.
+- Project files must describe project state: stage, decisions, constraints, next steps, blockers, timeline, notes.
+- Feedback files must describe collaboration rules: rule, why, how_to_apply, notes.
+- deleted_entry_ids should only include source files that are fully absorbed by rewritten files or are redundant.
+- Every rewritten file must cite at least one source_entry_id from the supplied records.
+- Return valid JSON only.
+
+Use this exact JSON shape:
+{
+  "summary": "short rewrite summary",
+  "project_meta": {
+    "project_name": "final project name",
+    "description": "final project description",
+    "aliases": ["alias 1", "alias 2"],
+    "status": "active"
+  },
+  "files": [
+    {
+      "type": "project",
+      "name": "current-stage",
+      "description": "current project state",
+      "source_entry_ids": ["projects/_tmp/Project/a.md"],
+      "stage": "current stage",
+      "decisions": ["decision"],
+      "constraints": ["constraint"],
+      "next_steps": ["next step"],
+      "blockers": ["blocker"],
+      "timeline": ["timeline item"],
+      "notes": ["note"]
+    },
+    {
+      "type": "feedback",
+      "name": "delivery-rule",
+      "description": "delivery preference",
+      "source_entry_ids": ["projects/_tmp/Feedback/b.md"],
+      "rule": "the rule",
+      "why": "why it matters",
+      "how_to_apply": "when to apply it",
+      "notes": ["note"]
+    }
+  ],
+  "deleted_entry_ids": ["projects/_tmp/Project/obsolete.md"]
 }
 `.trim();
 
@@ -1509,6 +1772,119 @@ function buildDreamGlobalProfileRewritePrompt(input: LlmDreamGlobalProfileRewrit
   }, null, 2);
 }
 
+function buildDreamFileGlobalPlanPrompt(input: LlmDreamFileGlobalPlanInput): string {
+  return JSON.stringify({
+    governance_scope: {
+      mode: "dream_file_global_plan",
+      primary_truth: "existing_file_memories_only",
+      writable_targets: ["project.meta.md", "Project/*.md", "Feedback/*.md"],
+      forbidden_outputs: ["Project/overview.md", "new summary layer"],
+    },
+    current_projects: input.currentProjects.map((project) => ({
+      project_id: project.projectId,
+      project_name: project.projectName,
+      description: truncateForPrompt(project.description, 220),
+      aliases: project.aliases.slice(0, 12),
+      status: project.status,
+      updated_at: project.updatedAt,
+      dream_updated_at: project.dreamUpdatedAt ?? "",
+    })),
+    records: input.records.map((record) => ({
+      entry_id: record.entryId,
+      relative_path: record.relativePath,
+      type: record.type,
+      scope: record.scope,
+      project_id: record.projectId ?? "",
+      is_tmp: record.isTmp,
+      name: record.name,
+      description: truncateForPrompt(record.description, 220),
+      updated_at: record.updatedAt,
+      captured_at: record.capturedAt ?? "",
+      source_session_key: record.sourceSessionKey ?? "",
+      content: truncateForPrompt(record.content, 1200),
+      project: record.project
+        ? {
+            stage: truncateForPrompt(record.project.stage, 220),
+            decisions: record.project.decisions.map((item) => truncateForPrompt(item, 140)).slice(0, 12),
+            constraints: record.project.constraints.map((item) => truncateForPrompt(item, 140)).slice(0, 12),
+            next_steps: record.project.nextSteps.map((item) => truncateForPrompt(item, 140)).slice(0, 12),
+            blockers: record.project.blockers.map((item) => truncateForPrompt(item, 140)).slice(0, 12),
+            timeline: record.project.timeline.map((item) => truncateForPrompt(item, 140)).slice(0, 12),
+            notes: record.project.notes.map((item) => truncateForPrompt(item, 140)).slice(0, 12),
+          }
+        : undefined,
+      feedback: record.feedback
+        ? {
+            rule: truncateForPrompt(record.feedback.rule, 220),
+            why: truncateForPrompt(record.feedback.why, 220),
+            how_to_apply: truncateForPrompt(record.feedback.howToApply, 220),
+            notes: record.feedback.notes.map((item) => truncateForPrompt(item, 140)).slice(0, 12),
+          }
+        : undefined,
+    })),
+  }, null, 2);
+}
+
+function buildDreamFileProjectRewritePrompt(input: LlmDreamFileProjectRewriteInput): string {
+  return JSON.stringify({
+    governance_scope: {
+      mode: "dream_file_project_rewrite",
+      primary_truth: "supplied_project_and_feedback_files",
+      forbidden_outputs: ["Project/overview.md", "new summary layer"],
+      final_project_id: input.project.projectId,
+    },
+    project: {
+      project_id: input.project.projectId,
+      plan_key: input.project.planKey,
+      project_name: input.project.projectName,
+      description: truncateForPrompt(input.project.description, 220),
+      aliases: input.project.aliases.slice(0, 12),
+      status: input.project.status,
+      merge_reason: input.project.mergeReason ?? "",
+      evidence_entry_ids: input.project.evidenceEntryIds,
+      retained_entry_ids: input.project.retainedEntryIds,
+    },
+    current_meta: input.currentMeta
+      ? {
+          project_id: input.currentMeta.projectId,
+          project_name: input.currentMeta.projectName,
+          description: truncateForPrompt(input.currentMeta.description, 220),
+          aliases: input.currentMeta.aliases.slice(0, 12),
+          status: input.currentMeta.status,
+          updated_at: input.currentMeta.updatedAt,
+        }
+      : null,
+    records: input.records.map((record) => ({
+      entry_id: record.entryId,
+      relative_path: record.relativePath,
+      type: record.type,
+      is_tmp: record.isTmp,
+      name: record.name,
+      description: truncateForPrompt(record.description, 220),
+      content: truncateForPrompt(record.content, 1200),
+      project: record.project
+        ? {
+            stage: truncateForPrompt(record.project.stage, 220),
+            decisions: record.project.decisions.map((item) => truncateForPrompt(item, 140)).slice(0, 12),
+            constraints: record.project.constraints.map((item) => truncateForPrompt(item, 140)).slice(0, 12),
+            next_steps: record.project.nextSteps.map((item) => truncateForPrompt(item, 140)).slice(0, 12),
+            blockers: record.project.blockers.map((item) => truncateForPrompt(item, 140)).slice(0, 12),
+            timeline: record.project.timeline.map((item) => truncateForPrompt(item, 140)).slice(0, 12),
+            notes: record.project.notes.map((item) => truncateForPrompt(item, 140)).slice(0, 12),
+          }
+        : undefined,
+      feedback: record.feedback
+        ? {
+            rule: truncateForPrompt(record.feedback.rule, 220),
+            why: truncateForPrompt(record.feedback.why, 220),
+            how_to_apply: truncateForPrompt(record.feedback.howToApply, 220),
+            notes: record.feedback.notes.map((item) => truncateForPrompt(item, 140)).slice(0, 12),
+          }
+        : undefined,
+    })),
+  }, null, 2);
+}
+
 function buildHop1RoutePrompt(input: LlmMemoryRouteInput): string {
   const currentLocalDate = new Date().toLocaleDateString("en-CA");
   return JSON.stringify({
@@ -1798,6 +2174,141 @@ function normalizeDreamL1Issue(item: unknown, allowedL1Ids: ReadonlySet<string>)
   };
 }
 
+function normalizeDreamFileProjectId(value: unknown, allowedProjectIds: ReadonlySet<string>): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = normalizeWhitespace(value);
+  return normalized && allowedProjectIds.has(normalized) ? normalized : undefined;
+}
+
+function normalizeDreamFileEntryIds(items: unknown, allowedEntryIds: ReadonlySet<string>, maxItems = 200): string[] {
+  if (!Array.isArray(items)) return [];
+  return Array.from(new Set(
+    items
+      .filter((item): item is string => typeof item === "string")
+      .map((item) => normalizeWhitespace(item))
+      .filter((item) => item && allowedEntryIds.has(item)),
+  )).slice(0, maxItems);
+}
+
+function normalizeDreamFileProjectStatus(value: unknown): string {
+  const normalized = typeof value === "string" ? normalizeWhitespace(value) : "";
+  return truncate(normalized || "active", 80);
+}
+
+function normalizeDreamFileMergeReason(
+  value: unknown,
+): "rename" | "alias_equivalence" | "duplicate_formal_project" | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = normalizeWhitespace(value).toLowerCase();
+  switch (normalized) {
+    case "rename":
+    case "alias_equivalence":
+    case "duplicate_formal_project":
+      return normalized;
+    default:
+      return undefined;
+  }
+}
+
+function normalizeDreamFileGlobalPlanProject(
+  item: unknown,
+  allowedEntryIds: ReadonlySet<string>,
+  allowedProjectIds: ReadonlySet<string>,
+  fallbackIndex: number,
+): LlmDreamFileGlobalPlanProject | null {
+  if (!isRecord(item)) return null;
+  const retainedEntryIds = normalizeDreamFileEntryIds(item.retained_entry_ids, allowedEntryIds, 400);
+  if (retainedEntryIds.length === 0) return null;
+  const planKey = typeof item.plan_key === "string"
+    ? truncate(normalizeWhitespace(item.plan_key), 120)
+    : `dream-plan-${fallbackIndex + 1}`;
+  const projectName = typeof item.project_name === "string"
+    ? truncate(normalizeWhitespace(item.project_name), 120)
+    : "";
+  const description = typeof item.description === "string"
+    ? truncate(normalizeWhitespace(item.description), 320)
+    : "";
+  if (!projectName || !description) return null;
+  const targetProjectId = normalizeDreamFileProjectId(item.target_project_id, allowedProjectIds);
+  const mergeReason = normalizeDreamFileMergeReason(item.merge_reason);
+  return {
+    planKey,
+    ...(targetProjectId ? { targetProjectId } : {}),
+    projectName,
+    description,
+    aliases: uniqueStrings(normalizeStringArray(item.aliases, 24), 24),
+    status: normalizeDreamFileProjectStatus(item.status),
+    ...(mergeReason ? { mergeReason } : {}),
+    evidenceEntryIds: normalizeDreamFileEntryIds(item.evidence_entry_ids, allowedEntryIds, 80),
+    retainedEntryIds,
+  };
+}
+
+function normalizeDreamFileProjectMetaPayload(
+  value: unknown,
+  fallback: { projectName: string; description: string; aliases: string[]; status: string },
+): { projectName: string; description: string; aliases: string[]; status: string } {
+  if (!isRecord(value)) return fallback;
+  const projectName = typeof value.project_name === "string"
+    ? truncate(normalizeWhitespace(value.project_name), 120)
+    : fallback.projectName;
+  const description = typeof value.description === "string"
+    ? truncate(normalizeWhitespace(value.description), 320)
+    : fallback.description;
+  return {
+    projectName: projectName || fallback.projectName,
+    description: description || fallback.description,
+    aliases: uniqueStrings(normalizeStringArray(value.aliases, 24), 24),
+    status: normalizeDreamFileProjectStatus(value.status ?? fallback.status),
+  };
+}
+
+function normalizeDreamFileProjectRewriteFile(
+  item: unknown,
+  allowedEntryIds: ReadonlySet<string>,
+): LlmDreamFileProjectRewriteOutputFile | null {
+  if (!isRecord(item)) return null;
+  const type = item.type === "project" || item.type === "feedback" ? item.type : null;
+  if (!type) return null;
+  const sourceEntryIds = normalizeDreamFileEntryIds(item.source_entry_ids, allowedEntryIds, 200);
+  if (sourceEntryIds.length === 0) return null;
+  const name = typeof item.name === "string" ? truncate(normalizeWhitespace(item.name), 120) : "";
+  const description = typeof item.description === "string" ? truncate(normalizeWhitespace(item.description), 320) : "";
+  if (!name || !description) return null;
+  if (type === "project") {
+    const stage = typeof item.stage === "string" ? truncate(normalizeWhitespace(item.stage), 220) : "";
+    return {
+      type,
+      name,
+      description,
+      sourceEntryIds,
+      ...(stage ? { stage } : {}),
+      decisions: uniqueStrings(normalizeStringArray(item.decisions, 20), 20),
+      constraints: uniqueStrings(normalizeStringArray(item.constraints, 20), 20),
+      nextSteps: uniqueStrings(normalizeStringArray(item.next_steps, 20), 20),
+      blockers: uniqueStrings(normalizeStringArray(item.blockers, 20), 20),
+      timeline: uniqueStrings(normalizeStringArray(item.timeline, 20), 20),
+      notes: uniqueStrings(normalizeStringArray(item.notes, 20), 20),
+    };
+  }
+  const rule = typeof item.rule === "string" ? truncate(normalizeWhitespace(item.rule), 320) : "";
+  if (!rule) return null;
+  return {
+    type,
+    name,
+    description,
+    sourceEntryIds,
+    rule,
+    ...(typeof item.why === "string" && normalizeWhitespace(item.why)
+      ? { why: truncate(normalizeWhitespace(item.why), 320) }
+      : {}),
+    ...(typeof item.how_to_apply === "string" && normalizeWhitespace(item.how_to_apply)
+      ? { howToApply: truncate(normalizeWhitespace(item.how_to_apply), 320) }
+      : {}),
+    notes: uniqueStrings(normalizeStringArray(item.notes, 20), 20),
+  };
+}
+
 function normalizeStatus(value: unknown): ProjectStatus {
   if (typeof value !== "string") return "planned";
   const normalized = value.trim().toLowerCase();
@@ -2023,8 +2534,11 @@ function cleanUserProfileSections(input: {
 }
 
 function looksLikeCollaborationRuleText(text: string): boolean {
-  return /(以后回答|回答时|回复时|同步进展|代码示例|先给结论|先说完成了什么|不要写成|怎么和我协作|怎么交付|怎么汇报|请你|交付时|汇报|review|评审|写法|输出格式|回复格式|格式化输出|标题|正文|封面文案)/i
-    .test(normalizeWhitespace(text));
+  const normalized = normalizeWhitespace(text);
+  return /(以后回答|回答时|回复时|同步进展|代码示例|先给结论|先说完成了什么|不要写成|怎么和我协作|怎么交付|怎么汇报|请你|交付时|汇报|review|评审|写法|输出格式|回复格式|格式化输出)/i
+    .test(normalized)
+    || /((给我|你|请按|每次).{0,12}(交付|输出|回复|汇报).{0,20}(标题|正文|封面文案))|((先给|再给).{0,12}(标题|正文|封面文案))/i
+      .test(normalized);
 }
 
 function deriveFeedbackCandidateName(text: string): string {
@@ -2036,7 +2550,7 @@ function deriveFeedbackCandidateName(text: string): string {
 }
 
 function looksLikeDurableUserProfileText(text: string): boolean {
-  return /(我是|我来自|我住在|我长期|我平时|我一般|我更喜欢|我偏好|我习惯|我(?:现在)?常用|我的身份|我的专业|我在做|我的技术栈|长期使用)/i
+  return /(我是|我来自|我住在|我长期|我平时|我一般|我更喜欢|我偏好|我习惯|我(?:现在)?常用|我的身份|我的专业|我在做|我的技术栈|长期使用|我(?:做[^，。；;\n]+时)?很在意|我比较在意|我特别在意)/i
     .test(normalizeWhitespace(text));
 }
 
@@ -3057,6 +3571,93 @@ export class LlmMemoryExtractor {
     };
   }
 
+  async planDreamFileMemory(input: LlmDreamFileGlobalPlanInput): Promise<LlmDreamFileGlobalPlanOutput> {
+    if (input.records.length === 0) {
+      return {
+        summary: "No project memory files were available for Dream planning.",
+        duplicateTopicCount: 0,
+        conflictTopicCount: 0,
+        projects: [],
+        deletedProjectIds: [],
+        deletedEntryIds: [],
+      };
+    }
+
+    const allowedEntryIds = new Set(input.records.map((record) => record.entryId));
+    const allowedProjectIds = new Set(input.currentProjects.map((project) => project.projectId));
+    const parsed = await this.callStructuredJsonWithDebug<RawDreamFileGlobalPlanPayload>({
+      systemPrompt: DREAM_FILE_GLOBAL_PLAN_SYSTEM_PROMPT,
+      userPrompt: buildDreamFileGlobalPlanPrompt(input),
+      requestLabel: "Dream file global plan",
+      timeoutMs: input.timeoutMs ?? DEFAULT_DREAM_PROJECT_REBUILD_TIMEOUT_MS,
+      ...(input.agentId ? { agentId: input.agentId } : {}),
+      ...(input.debugTrace ? { debugTrace: input.debugTrace } : {}),
+      parse: (raw) => JSON.parse(extractFirstJsonObject(raw)) as RawDreamFileGlobalPlanPayload,
+    });
+    const projects = Array.isArray(parsed.projects)
+      ? parsed.projects
+          .map((item, index) => normalizeDreamFileGlobalPlanProject(item, allowedEntryIds, allowedProjectIds, index))
+          .filter((item): item is LlmDreamFileGlobalPlanProject => Boolean(item))
+      : [];
+    const deletedProjectIds = Array.from(new Set(
+      normalizeStringArray(parsed.deleted_project_ids, 200)
+        .map((item) => normalizeWhitespace(item))
+        .filter((item) => allowedProjectIds.has(item)),
+    ));
+    const deletedEntryIds = normalizeDreamFileEntryIds(parsed.deleted_entry_ids, allowedEntryIds, 400);
+    return {
+      summary: typeof parsed.summary === "string"
+        ? truncate(normalizeWhitespace(parsed.summary), 320)
+        : "Dream file global plan completed.",
+      duplicateTopicCount: Math.max(
+        0,
+        Math.floor(typeof parsed.duplicate_topic_count === "number" ? parsed.duplicate_topic_count : 0),
+      ),
+      conflictTopicCount: Math.max(
+        0,
+        Math.floor(typeof parsed.conflict_topic_count === "number" ? parsed.conflict_topic_count : 0),
+      ),
+      projects,
+      deletedProjectIds,
+      deletedEntryIds,
+    };
+  }
+
+  async rewriteDreamFileProject(input: LlmDreamFileProjectRewriteInput): Promise<LlmDreamFileProjectRewriteOutput> {
+    if (input.records.length === 0) {
+      throw new Error("No memory files were supplied for Dream project rewrite.");
+    }
+    const allowedEntryIds = new Set(input.records.map((record) => record.entryId));
+    const parsed = await this.callStructuredJsonWithDebug<RawDreamFileProjectRewritePayload>({
+      systemPrompt: DREAM_FILE_PROJECT_REWRITE_SYSTEM_PROMPT,
+      userPrompt: buildDreamFileProjectRewritePrompt(input),
+      requestLabel: "Dream file project rewrite",
+      timeoutMs: input.timeoutMs ?? 60_000,
+      ...(input.agentId ? { agentId: input.agentId } : {}),
+      ...(input.debugTrace ? { debugTrace: input.debugTrace } : {}),
+      parse: (raw) => JSON.parse(extractFirstJsonObject(raw)) as RawDreamFileProjectRewritePayload,
+    });
+    const files = Array.isArray(parsed.files)
+      ? parsed.files
+          .map((item) => normalizeDreamFileProjectRewriteFile(item, allowedEntryIds))
+          .filter((item): item is LlmDreamFileProjectRewriteOutputFile => Boolean(item))
+      : [];
+    const fallbackMeta = {
+      projectName: input.project.projectName,
+      description: input.project.description,
+      aliases: input.project.aliases,
+      status: input.project.status,
+    };
+    return {
+      summary: typeof parsed.summary === "string"
+        ? truncate(normalizeWhitespace(parsed.summary), 320)
+        : `Dream rewrite completed for ${input.project.projectName}.`,
+      projectMeta: normalizeDreamFileProjectMetaPayload(parsed.project_meta, fallbackMeta),
+      files,
+      deletedEntryIds: normalizeDreamFileEntryIds(parsed.deleted_entry_ids, allowedEntryIds, 400),
+    };
+  }
+
   async decideMemoryLookup(input: LlmMemoryRouteInput): Promise<Hop1LookupDecision> {
     const defaultQuery = truncateForPrompt(input.query, 120);
     const systemPrompt = HOP1_LOOKUP_SYSTEM_PROMPT;
@@ -3434,6 +4035,7 @@ export class LlmMemoryExtractor {
           "Use the batch context to interpret ambiguous references in the focus turn, but only emit memories justified by the focus user turn itself.",
           "The assistant replies in the batch context are supporting context only. Never create a memory candidate from assistant wording alone.",
           "For user items only keep stable identity, preferences, constraints, or durable relationships. Never place project state or task details inside user memory.",
+          "First-person statements about the user's own long-term taste or quality bar are user memory, not feedback. Example: '我做文案时很在意标题和封面文案的一致性。' => user.",
           "If the focus turn tells the assistant how to collaborate, deliver, report, format, or structure outputs, that is feedback, not project.",
           "If the focus turn says how outputs should be delivered, such as title count, body order, cover copy, progress update order, or reply structure, you must classify it as feedback rather than project.",
           "For feedback items always provide rule, why, and how_to_apply.",
@@ -3494,6 +4096,9 @@ export class LlmMemoryExtractor {
             return null;
           }
           const rawName = typeof item.name === "string" ? truncateForPrompt(item.name, 80) : "";
+          const rawContent = typeof item.content === "string"
+            ? truncateForPrompt(normalizeWhitespace(item.content), 280)
+            : "";
           const feedbackRule = typeof item.rule === "string"
             ? truncateForPrompt(normalizeWhitespace(item.rule), 220)
             : "";
@@ -3509,9 +4114,16 @@ export class LlmMemoryExtractor {
             });
             return null;
           }
+          const recastFeedbackAsUser = type === "feedback"
+            && !feedbackInstructionSignal
+            && !projectDefinitionSignal
+            && looksLikeDurableUserProfileText(focusText);
+          const candidateType = recastFeedbackAsUser ? "user" : type;
           const description = rawDescription
             || (typeof item.profile === "string"
               ? truncateForPrompt(item.profile, 180)
+              : rawContent
+                ? truncateForPrompt(rawContent, 180)
               : typeof item.summary === "string"
                 ? truncateForPrompt(item.summary, 180)
                 : feedbackRule
@@ -3519,52 +4131,81 @@ export class LlmMemoryExtractor {
                   : typeof item.stage === "string"
                     ? truncateForPrompt(item.stage, 180)
                     : "");
-          const name = type === "user"
+          const name = candidateType === "user"
             ? "user-profile"
-            : type === "feedback"
+            : candidateType === "feedback"
               ? truncateForPrompt(rawName || deriveFeedbackCandidateName(feedbackRule), 80)
               : rawName;
-          if ((type === "project" || type === "user") && (!name || !description)) {
+          const preferences = normalizeStringArray(item.preferences, 10);
+          const constraints = normalizeStringArray(item.constraints, 10);
+          const relationships = normalizeStringArray(item.relationships, 10);
+          const hasUserPayload = Boolean(
+            description
+            || rawContent
+            || (typeof item.profile === "string" && normalizeWhitespace(item.profile))
+            || (typeof item.summary === "string" && normalizeWhitespace(item.summary))
+            || preferences.length > 0
+            || constraints.length > 0
+            || relationships.length > 0,
+          );
+          if (candidateType === "project" && (!name || !description)) {
             discarded.push({
               reason: "invalid_schema",
-              candidateType: type,
+              candidateType,
               ...((name || rawName) ? { candidateName: name || rawName } : {}),
               summary: "Candidate missing a stable name or description.",
             });
             return null;
           }
-          if (type === "project" && isGenericProjectCandidateName(name)) {
+          if (candidateType === "user" && (!name || !hasUserPayload)) {
+            discarded.push({
+              reason: "invalid_schema",
+              candidateType,
+              candidateName: "user-profile",
+              summary: "User candidate did not contain any durable profile content.",
+            });
+            return null;
+          }
+          if (candidateType === "project" && isGenericProjectCandidateName(name)) {
             discarded.push({
               reason: "generic_project_name",
-              candidateType: type,
+              candidateType,
               candidateName: name,
               summary: description,
             });
             return null;
           }
           return {
-            type,
-            scope: type === "user" ? "global" : "project",
-            ...((type === "project" || type === "feedback") && typeof item.project_id === "string" && isStableFormalProjectId(item.project_id)
+            type: candidateType,
+            scope: candidateType === "user" ? "global" : "project",
+            ...((candidateType === "project" || candidateType === "feedback") && typeof item.project_id === "string" && isStableFormalProjectId(item.project_id)
               ? { projectId: item.project_id.trim() }
               : {}),
             name,
             description,
             ...(input.sessionKey ? { sourceSessionKey: input.sessionKey } : {}),
             capturedAt: input.timestamp,
-            ...(typeof item.profile === "string" ? { profile: truncateForPrompt(item.profile, 280) } : {}),
+            ...(typeof item.profile === "string"
+              ? { profile: truncateForPrompt(item.profile, 280) }
+              : rawContent
+                ? { profile: rawContent }
+                : candidateType === "user" && feedbackRule
+                  ? { profile: feedbackRule }
+                : {}),
             ...(typeof item.summary === "string" ? { summary: truncateForPrompt(item.summary, 280) } : {}),
-            preferences: normalizeStringArray(item.preferences, 10),
-            constraints: normalizeStringArray(item.constraints, 10),
-            relationships: normalizeStringArray(item.relationships, 10),
-            ...(feedbackRule ? { rule: feedbackRule } : {}),
+            preferences,
+            constraints,
+            relationships,
+            ...(candidateType === "feedback" && feedbackRule ? { rule: feedbackRule } : {}),
             ...(typeof item.why === "string" && sanitizeFeedbackSectionText(item.why)
+              && candidateType === "feedback"
               ? { why: truncateForPrompt(sanitizeFeedbackSectionText(item.why), 280) }
               : {}),
             ...(typeof item.how_to_apply === "string" && sanitizeFeedbackSectionText(item.how_to_apply)
+              && candidateType === "feedback"
               ? { howToApply: truncateForPrompt(sanitizeFeedbackSectionText(item.how_to_apply), 280) }
               : {}),
-            ...(typeof item.stage === "string" ? { stage: truncateForPrompt(item.stage, 220) } : {}),
+            ...(candidateType === "project" && typeof item.stage === "string" ? { stage: truncateForPrompt(item.stage, 220) } : {}),
             decisions: normalizeStringArray(item.decisions, 10),
             nextSteps: normalizeStringArray(item.next_steps, 10),
             blockers: normalizeStringArray(item.blockers, 10),

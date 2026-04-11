@@ -98,6 +98,7 @@ export interface ProjectMetaRecord {
   status: string;
   createdAt: string;
   updatedAt: string;
+  dreamUpdatedAt?: string;
   relativePath: string;
   absolutePath: string;
 }
@@ -221,6 +222,7 @@ export interface ProjectMetaExportRecord {
   status: string;
   createdAt: string;
   updatedAt: string;
+  dreamUpdatedAt?: string;
   relativePath: string;
 }
 
@@ -400,6 +402,76 @@ export interface IndexTraceRecord {
   batchSummary: IndexTraceBatchSummary;
   steps: IndexTraceStep[];
   storedResults: IndexTraceStoredResult[];
+}
+
+export type DreamTraceTrigger = "manual" | "scheduled";
+export type DreamTraceStatus = "running" | "completed" | "skipped" | "error";
+export type DreamTraceMutationAction = "write" | "delete" | "delete_project" | "rewrite_user_profile";
+
+export interface DreamTraceSnapshotSummary {
+  formalProjectCount: number;
+  tmpProjectCount: number;
+  tmpFeedbackCount: number;
+  formalProjectFileCount: number;
+  formalFeedbackFileCount: number;
+  hasUserProfile: boolean;
+}
+
+export interface DreamTraceMutation {
+  mutationId: string;
+  action: DreamTraceMutationAction;
+  relativePath?: string;
+  projectId?: string;
+  projectName?: string;
+  candidateType?: MemoryRecordType;
+  name?: string;
+  description?: string;
+  preview?: string;
+}
+
+export type DreamTraceStepKind =
+  | "dream_start"
+  | "snapshot_loaded"
+  | "global_plan_generated"
+  | "global_plan_validated"
+  | "project_rewrite_generated"
+  | "project_mutations_applied"
+  | "user_profile_rewritten"
+  | "manifests_repaired"
+  | "dream_finished";
+
+export interface DreamTraceStep {
+  stepId: string;
+  kind: DreamTraceStepKind;
+  title: string;
+  status: "info" | "success" | "warning" | "error" | "skipped";
+  inputSummary: string;
+  outputSummary: string;
+  refs?: Record<string, unknown>;
+  metrics?: Record<string, unknown>;
+  details?: RetrievalTraceDetail[];
+  promptDebug?: RetrievalPromptDebug;
+}
+
+export interface DreamTraceOutcome {
+  rewrittenProjects: number;
+  deletedProjects: number;
+  deletedFiles: number;
+  profileUpdated: boolean;
+  summary: string;
+}
+
+export interface DreamTraceRecord {
+  dreamTraceId: string;
+  trigger: DreamTraceTrigger;
+  startedAt: string;
+  finishedAt?: string;
+  status: DreamTraceStatus;
+  snapshotSummary: DreamTraceSnapshotSummary;
+  steps: DreamTraceStep[];
+  mutations: DreamTraceMutation[];
+  outcome: DreamTraceOutcome;
+  skipReason?: string;
 }
 
 export type RetrievalTraceStepKind =

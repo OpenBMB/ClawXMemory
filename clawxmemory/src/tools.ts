@@ -223,7 +223,7 @@ export function buildPluginTools(
     {
       name: "memory_dream",
       label: "Dream ClawXMemory",
-      description: "Run a manual Dream pass to rebuild manifests and organize file memories.",
+      description: "Run a manual Dream pass to distill indexed memories into cleaner formal project memory.",
       parameters: noParameters,
       async execute() {
         if (!callbacks.runDream) {

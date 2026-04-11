@@ -89,6 +89,10 @@ interface ProjectManifestSelection {
   limit: number;
 }
 
+function projectManifestPriority(entry: MemoryManifestEntry): number {
+  return entry.type === "project" ? 0 : 1;
+}
+
 function normalizeQueryKey(query: string): string {
   return query.toLowerCase().replace(/\s+/g, " ").trim();
 }
@@ -155,17 +159,36 @@ function renderUserSummaryBlock(userSummary: MemoryUserSummary): string[] {
   return lines;
 }
 
+function renderProjectMetaBlock(projectMeta: ProjectMetaRecord | undefined): string[] {
+  if (!projectMeta) return [];
+  const lines = [
+    `### [project_meta] ${projectMeta.relativePath} (${projectMeta.updatedAt})`,
+    `- project_id: ${projectMeta.projectId}`,
+    `- project_name: ${projectMeta.projectName}`,
+    `- description: ${projectMeta.description}`,
+    `- status: ${projectMeta.status}`,
+    `- aliases: ${projectMeta.aliases.join(", ") || "none"}`,
+  ];
+  if (projectMeta.dreamUpdatedAt) {
+    lines.push(`- dream_updated_at: ${projectMeta.dreamUpdatedAt}`);
+  }
+  lines.push("");
+  return lines;
+}
+
 function renderContext(
   route: MemoryRoute,
   userSummary: MemoryUserSummary,
+  projectMeta: ProjectMetaRecord | undefined,
   records: Array<{ relativePath: string; type: string; updatedAt: string; content: string }>,
 ): string {
-  if (!hasUserSummary(userSummary) && records.length === 0) return "";
+  if (!hasUserSummary(userSummary) && !projectMeta && records.length === 0) return "";
   const lines = [
     "## ClawXMemory Recall",
     `route=${route}`,
     "",
     ...renderUserSummaryBlock(userSummary),
+    ...renderProjectMetaBlock(projectMeta),
   ];
   for (const record of records) {
     lines.push(`### [${record.type}] ${record.relativePath} (${record.updatedAt})`);
@@ -410,12 +433,19 @@ function buildProjectManifestSelection(
     projectId,
     scope: "project",
   } as const;
+  const allCount = repository.countMemoryEntries(query);
+  const allEntries = repository.listMemoryEntries({
+    ...query,
+    limit: Math.max(boundedLimit, Math.min(1000, Math.max(allCount, 500))),
+  });
+  const sorted = [...allEntries].sort((left, right) =>
+    projectManifestPriority(left) - projectManifestPriority(right)
+    || right.updatedAt.localeCompare(left.updatedAt)
+    || left.relativePath.localeCompare(right.relativePath)
+  );
   return {
-    allCount: repository.countMemoryEntries(query),
-    entries: repository.listMemoryEntries({
-      ...query,
-      limit: boundedLimit,
-    }),
+    allCount,
+    entries: sorted.slice(0, boundedLimit),
     kinds,
     limit: boundedLimit,
   };
@@ -666,10 +696,14 @@ export class ReasoningRetriever {
     });
 
     let resolvedProjectId = "";
+    let resolvedProjectMeta: ProjectMetaRecord | undefined;
     if (routeNeedsProjectMemory(route)) {
       const projectMetas = store.listProjectMetas();
       const resolution = resolveCurrentProject(projectMetas, normalizedQuery, options.recentMessages, options.workspaceHint);
       resolvedProjectId = resolution.projectId ?? "";
+      resolvedProjectMeta = resolvedProjectId
+        ? projectMetas.find((project) => project.projectId === resolvedProjectId)
+        : undefined;
       trace.steps.push({
         stepId: `${traceId}:step:${trace.steps.length + 1}`,
         kind: "project_resolved",
@@ -744,7 +778,7 @@ export class ReasoningRetriever {
     });
 
     let manifestSelectionPromptDebug: RetrievalPromptDebug | undefined;
-    const selectedIds = manifest.length > 0
+    const rawSelectedIds = manifest.length > 0
       ? await this.extractor.selectFileManifestEntries({
           query: normalizedQuery,
           route,
@@ -755,6 +789,8 @@ export class ReasoningRetriever {
           },
         })
       : [];
+    const selectedIds = Array.from(new Set(rawSelectedIds))
+      .slice(0, Math.max(1, Math.min(5, settings.recallTopK || DEFAULT_RECALL_TOP_K)));
     trace.steps.push({
       stepId: `${traceId}:step:${trace.steps.length + 1}`,
       kind: "manifest_selected",
@@ -799,7 +835,7 @@ export class ReasoningRetriever {
       ],
     });
 
-    const context = renderContext(route, userSummary, records);
+    const context = renderContext(route, userSummary, resolvedProjectMeta, records);
     trace.steps.push({
       stepId: `${traceId}:step:${trace.steps.length + 1}`,
       kind: "context_rendered",
@@ -811,6 +847,7 @@ export class ReasoningRetriever {
         kvDetail("context-rendered-summary", "Context Summary", [
           { label: "route", value: route },
           { label: "userBaseInjected", value: hasUserSummary(userSummary) ? "yes" : "no" },
+          { label: "projectMetaInjected", value: resolvedProjectMeta ? "yes" : "no" },
           { label: "fileCount", value: records.length },
           { label: "characters", value: context.length },
           { label: "lines", value: context ? context.split("\n").length : 0 },
@@ -820,6 +857,7 @@ export class ReasoningRetriever {
           "Injected Blocks",
           [
             ...(hasUserSummary(userSummary) ? ["global/User/user-profile.md"] : []),
+            ...(resolvedProjectMeta ? [resolvedProjectMeta.relativePath] : []),
             ...records.map((record) => record.relativePath),
           ],
         ),

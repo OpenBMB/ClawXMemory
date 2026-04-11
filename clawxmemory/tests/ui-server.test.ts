@@ -70,15 +70,15 @@ function createDefaultRepository() {
       },
       recentMemoryFiles: [
         {
-          name: "overview",
+          name: "current-stage",
           description: "Project memory",
           type: "project",
           scope: "project",
           projectId: "proj-a",
           updatedAt: "2026-04-01T00:00:00.000Z",
-          file: "overview.md",
-          relativePath: "projects/proj-a/Project/overview.md",
-          absolutePath: "/tmp/projects/proj-a/Project/overview.md",
+          file: "current-stage.md",
+          relativePath: "projects/proj-a/Project/current-stage.md",
+          absolutePath: "/tmp/projects/proj-a/Project/current-stage.md",
         },
       ],
     }),
@@ -186,6 +186,8 @@ async function startUiServer(
       getCaseTrace: () => undefined,
       listIndexTraces: () => [],
       getIndexTrace: () => undefined,
+      listDreamTraces: () => [],
+      getDreamTrace: () => undefined,
       ...controls,
     } as never,
     {},
@@ -385,6 +387,57 @@ describe("LocalUiServer static assets", () => {
     await expect(detailResponse.json()).resolves.toEqual(indexTraceRecord);
   });
 
+  it("serves recent dream traces", async () => {
+    const dreamTraceRecord = {
+      dreamTraceId: "dream-trace-1",
+      trigger: "manual",
+      startedAt: "2026-04-01T00:00:00.000Z",
+      finishedAt: "2026-04-01T00:00:02.000Z",
+      status: "completed",
+      snapshotSummary: {
+        formalProjectCount: 1,
+        tmpProjectCount: 1,
+        tmpFeedbackCount: 1,
+        formalProjectFileCount: 1,
+        formalFeedbackFileCount: 1,
+        hasUserProfile: true,
+      },
+      steps: [],
+      mutations: [
+        {
+          mutationId: "mutation-1",
+          action: "delete",
+          relativePath: "projects/_tmp/Feedback/delivery-rule.md",
+          candidateType: "feedback",
+          name: "delivery-rule",
+          description: "交付顺序要求",
+          preview: "先给3个标题，再给正文。",
+        },
+      ],
+      outcome: {
+        rewrittenProjects: 1,
+        deletedProjects: 0,
+        deletedFiles: 1,
+        profileUpdated: false,
+        summary: "Dream reorganized one project and deleted one redundant file.",
+      },
+    };
+    const baseUrl = await startUiServer({
+      controls: {
+        listDreamTraces: () => [dreamTraceRecord],
+        getDreamTrace: (dreamTraceId: string) => (dreamTraceId === "dream-trace-1" ? dreamTraceRecord : undefined),
+      },
+    });
+
+    const listResponse = await fetch(`${baseUrl}/api/dream-traces`);
+    expect(listResponse.status).toBe(200);
+    await expect(listResponse.json()).resolves.toEqual([dreamTraceRecord]);
+
+    const detailResponse = await fetch(`${baseUrl}/api/dream-traces/dream-trace-1`);
+    expect(detailResponse.status).toBe(200);
+    await expect(detailResponse.json()).resolves.toEqual(dreamTraceRecord);
+  });
+
   it("routes manual Dream runs through POST /api/dream/run", async () => {
     const runDreamNow = vi.fn().mockResolvedValue({
       prepFlush: { l0Captured: 1, l1Created: 1, l2TimeUpdated: 0, l2ProjectUpdated: 1, profileUpdated: 1, failed: 0 },
@@ -416,15 +469,15 @@ describe("LocalUiServer static assets", () => {
 
   it("serves file-memory list/get/user-summary APIs", async () => {
     const projectEntry = {
-      name: "overview",
+      name: "current-stage",
       description: "Current stage and blockers",
       type: "project",
       scope: "project",
       projectId: "proj-a",
       updatedAt: "2026-04-01T00:00:00.000Z",
-      file: "overview.md",
-      relativePath: "projects/proj-a/Project/overview.md",
-      absolutePath: "/tmp/projects/proj-a/Project/overview.md",
+      file: "current-stage.md",
+      relativePath: "projects/proj-a/Project/current-stage.md",
+      absolutePath: "/tmp/projects/proj-a/Project/current-stage.md",
     };
     const projectRecord = {
       ...projectEntry,

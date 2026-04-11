@@ -2070,7 +2070,11 @@ describe("MemoryPluginRuntime", () => {
 
     await expect((runtime as never as {
       runDreamNow: (trigger: "manual") => Promise<unknown>;
-    }).runDreamNow("manual")).rejects.toThrow("already running");
+    }).runDreamNow("manual")).resolves.toMatchObject({
+      status: "skipped",
+      skipReason: "already_running",
+      trigger: "manual",
+    });
 
     const queuedIndexPromise = (runtime as never as {
       requestIndexRun: (reason: string, sessionKeys?: string[]) => Promise<unknown>;

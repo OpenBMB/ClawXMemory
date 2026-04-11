@@ -95,7 +95,7 @@ const LOCALES = {
     "confirm.sync.body": "将扫描最近对话并把可归类内容写入文件式 memory。",
     "confirm.sync.ok": "开始同步",
     "confirm.dream.title": "记忆 Dream",
-    "confirm.dream.body": "Dream 会整理当前 MEMORY.md 和记忆文件，修复索引并合并重复记忆。",
+    "confirm.dream.body": "Dream 会整理、重写、合并并删除冗余的已索引项目记忆，不会额外生成项目摘要层。",
     "confirm.dream.ok": "开始 Dream",
     "confirm.clear.title": "清除记忆",
     "confirm.clear.body": "此操作将删除所有记忆数据，且不可撤销。确定继续吗？",
@@ -148,11 +148,15 @@ const LOCALES = {
     "board.user.sources": "来源文件",
     "board.memoryTrace.empty": "暂无真实对话案例",
     "board.memoryTrace.emptyIndex": "暂无索引追溯记录",
+    "board.memoryTrace.emptyDream": "暂无 Dream 追溯记录",
     "board.memoryTrace.selectCase": "选择案例",
     "board.memoryTrace.selectIndexTrace": "选择索引批次",
+    "board.memoryTrace.selectDreamTrace": "选择 Dream 运行",
     "board.memoryTrace.modeRecall": "Recall",
     "board.memoryTrace.modeIndex": "Index",
+    "board.memoryTrace.modeDream": "Dream",
     "board.memoryTrace.filterAll": "全部触发",
+    "board.memoryTrace.filterManual": "手动触发",
     "board.memoryTrace.filterExplicitRemember": "显式记住",
     "board.memoryTrace.filterManualSync": "手动同步",
     "board.memoryTrace.filterScheduled": "自动定时",
@@ -172,6 +176,11 @@ const LOCALES = {
     "board.memoryTrace.finalNote": "最终记忆笔记",
     "board.memoryTrace.flow": "推理过程",
     "board.memoryTrace.batchWindow": "批次时间范围",
+    "board.memoryTrace.snapshot": "Dream 前快照",
+    "board.memoryTrace.mutations": "实际写入/删除",
+    "board.memoryTrace.rewrittenProjects": "重写项目",
+    "board.memoryTrace.deletedProjects": "删除项目",
+    "board.memoryTrace.deletedFiles": "删除文件",
     "board.memoryTrace.storedResults": "最终写入",
     "board.memoryTrace.focusTurns": "Focus User Turns",
     "board.memoryTrace.segmentCount": "Segments",
@@ -258,6 +267,7 @@ const LOCALES = {
     "trace.step.user_profile_rewritten": "User Profile Rewritten",
     "trace.step.index_finished": "Index Finished",
     "trace.step.unknown": "Trace Step",
+    "trigger.manual": "手动触发",
     "trigger.explicit_remember": "显式记住",
     "trigger.manual_sync": "手动同步",
     "trigger.scheduled": "自动定时",
@@ -356,7 +366,7 @@ const LOCALES = {
     "confirm.sync.body": "This scans recent chats and writes classified items into file-based memory.",
     "confirm.sync.ok": "Start Sync",
     "confirm.dream.title": "Dream",
-    "confirm.dream.body": "Dream will organize MEMORY.md files, repair manifests, and merge duplicate memories.",
+    "confirm.dream.body": "Dream will organize, rewrite, merge, and delete redundant indexed project memory without creating an extra project summary layer.",
     "confirm.dream.ok": "Start Dream",
     "confirm.clear.title": "Clear Memory",
     "confirm.clear.body": "This deletes all stored memory data and cannot be undone. Continue?",
@@ -409,11 +419,15 @@ const LOCALES = {
     "board.user.sources": "Source Files",
     "board.memoryTrace.empty": "No real traced conversations yet",
     "board.memoryTrace.emptyIndex": "No index trace records yet",
+    "board.memoryTrace.emptyDream": "No Dream trace records yet",
     "board.memoryTrace.selectCase": "Select Case",
     "board.memoryTrace.selectIndexTrace": "Select Index Batch",
+    "board.memoryTrace.selectDreamTrace": "Select Dream Run",
     "board.memoryTrace.modeRecall": "Recall",
     "board.memoryTrace.modeIndex": "Index",
+    "board.memoryTrace.modeDream": "Dream",
     "board.memoryTrace.filterAll": "All Triggers",
+    "board.memoryTrace.filterManual": "Manual",
     "board.memoryTrace.filterExplicitRemember": "Explicit Remember",
     "board.memoryTrace.filterManualSync": "Manual Sync",
     "board.memoryTrace.filterScheduled": "Scheduled",
@@ -433,6 +447,11 @@ const LOCALES = {
     "board.memoryTrace.finalNote": "Final Memory Note",
     "board.memoryTrace.flow": "Trace Flow",
     "board.memoryTrace.batchWindow": "Batch Window",
+    "board.memoryTrace.snapshot": "Dream Snapshot",
+    "board.memoryTrace.mutations": "Applied Mutations",
+    "board.memoryTrace.rewrittenProjects": "Rewritten Projects",
+    "board.memoryTrace.deletedProjects": "Deleted Projects",
+    "board.memoryTrace.deletedFiles": "Deleted Files",
     "board.memoryTrace.storedResults": "Stored Results",
     "board.memoryTrace.focusTurns": "Focus User Turns",
     "board.memoryTrace.segmentCount": "Segments",
@@ -519,6 +538,7 @@ const LOCALES = {
     "trace.step.user_profile_rewritten": "User Profile Rewritten",
     "trace.step.index_finished": "Index Finished",
     "trace.step.unknown": "Trace Step",
+    "trigger.manual": "Manual",
     "trigger.explicit_remember": "Explicit Remember",
     "trigger.manual_sync": "Manual Sync",
     "trigger.scheduled": "Scheduled",
@@ -637,8 +657,14 @@ const state = {
   indexTraceDetailCache: new Map(),
   selectedIndexTraceId: "",
   activeIndexTraceStepId: "",
+  dreamTraces: [],
+  dreamTraceRequestLoaded: false,
+  dreamTraceDetailCache: new Map(),
+  selectedDreamTraceId: "",
+  activeDreamTraceStepId: "",
   traceMode: "recall",
   indexTraceFilterTrigger: "all",
+  dreamTraceFilterTrigger: "all",
   selectedProjectId: "",
   selectedFileId: "",
   selectedFileType: "",
@@ -891,7 +917,11 @@ function getMemoryCount(level) {
   if (level === "project") return state.projectGroups.length;
   if (level === "tmp") return Number(state.tmpSnapshot?.totalFiles || state.overview.tmpTotalFiles || 0);
   if (level === "user") return safeArray(state.userSummary?.files).length || Number(state.overview.totalUserMemories || 0);
-  if (level === "memory_trace") return state.traceMode === "index" ? state.indexTraces.length : state.cases.length;
+  if (level === "memory_trace") {
+    if (state.traceMode === "index") return state.indexTraces.length;
+    if (state.traceMode === "dream") return state.dreamTraces.length;
+    return state.cases.length;
+  }
   return 0;
 }
 
@@ -1074,6 +1104,11 @@ function invalidateTraceCaches() {
   state.indexTraceDetailCache.clear();
   state.selectedIndexTraceId = "";
   state.activeIndexTraceStepId = "";
+  state.dreamTraces = [];
+  state.dreamTraceRequestLoaded = false;
+  state.dreamTraceDetailCache.clear();
+  state.selectedDreamTraceId = "";
+  state.activeDreamTraceStepId = "";
   state.traceSelectorOpen = false;
 }
 
@@ -1190,6 +1225,31 @@ async function loadIndexTraceDetail(indexTraceId, { force = false } = {}) {
   return detail;
 }
 
+async function loadDreamTraces({ force = false } = {}) {
+  if (state.dreamTraceRequestLoaded && !force) return state.dreamTraces;
+  state.dreamTraces = safeArray(await fetchJson("./api/dream-traces?limit=30"));
+  state.dreamTraceRequestLoaded = true;
+  if (!state.selectedDreamTraceId && state.dreamTraces[0]) {
+    state.selectedDreamTraceId = state.dreamTraces[0].dreamTraceId;
+  }
+  if (state.selectedDreamTraceId) {
+    await loadDreamTraceDetail(state.selectedDreamTraceId);
+  }
+  renderNav();
+  return state.dreamTraces;
+}
+
+async function loadDreamTraceDetail(dreamTraceId, { force = false } = {}) {
+  if (!dreamTraceId) return null;
+  if (!force && state.dreamTraceDetailCache.has(dreamTraceId)) return state.dreamTraceDetailCache.get(dreamTraceId);
+  const detail = await fetchJson(`./api/dream-traces/${encodeURIComponent(dreamTraceId)}`);
+  state.dreamTraceDetailCache.set(dreamTraceId, detail);
+  if (!state.activeDreamTraceStepId) {
+    state.activeDreamTraceStepId = safeArray(detail?.steps)[0]?.stepId || "";
+  }
+  return detail;
+}
+
 async function ensureActiveData({ force = false } = {}) {
   const level = getCurrentLevel();
   if (level === "project") {
@@ -1207,6 +1267,8 @@ async function ensureActiveData({ force = false } = {}) {
   if (level === "memory_trace") {
     if (state.traceMode === "index") {
       await loadIndexTraces({ force });
+    } else if (state.traceMode === "dream") {
+      await loadDreamTraces({ force });
     } else {
       await loadCases({ force });
     }
@@ -1799,8 +1861,45 @@ function getSelectedIndexTrace() {
   return selected;
 }
 
+function getVisibleDreamTraces() {
+  const query = normalizeText(state.queries.memory_trace).toLowerCase();
+  const filteredByTrigger = state.dreamTraceFilterTrigger === "all"
+    ? state.dreamTraces
+    : state.dreamTraces.filter((item) => item.trigger === state.dreamTraceFilterTrigger);
+  if (!query) return filteredByTrigger;
+  return filteredByTrigger.filter((item) => {
+    const haystack = [
+      item.trigger,
+      normalizeText(item.outcome?.summary),
+      safeArray(item.mutations).map((mutation) => [
+        mutation.relativePath,
+        decodeEscapedTraceText(mutation.projectName),
+        decodeEscapedTraceText(mutation.name),
+        decodeEscapedTraceText(mutation.preview),
+      ].join(" ")).join(" "),
+    ].join(" ").toLowerCase();
+    return haystack.includes(query);
+  });
+}
+
+function getSelectedDreamTrace() {
+  const visibleTraces = getVisibleDreamTraces();
+  const selected = state.dreamTraceDetailCache.get(state.selectedDreamTraceId)
+    || visibleTraces.find((item) => item.dreamTraceId === state.selectedDreamTraceId)
+    || visibleTraces[0]
+    || null;
+  if (selected && state.selectedDreamTraceId !== selected.dreamTraceId) {
+    state.selectedDreamTraceId = selected.dreamTraceId;
+  }
+  return selected;
+}
+
 function formatIndexTrigger(trigger) {
   return t(`trigger.${trigger || "manual_sync"}`);
+}
+
+function formatDreamTrigger(trigger) {
+  return t(`trigger.${trigger || "manual"}`);
 }
 
 function renderTraceModeControls(container) {
@@ -1808,6 +1907,7 @@ function renderTraceModeControls(container) {
   [
     { id: "recall", label: t("board.memoryTrace.modeRecall") },
     { id: "index", label: t("board.memoryTrace.modeIndex") },
+    { id: "dream", label: t("board.memoryTrace.modeDream") },
   ].forEach((item) => {
     const button = el("button", `memory-trace-artifact-tab${state.traceMode === item.id ? " active" : ""}`, item.label);
     button.type = "button";
@@ -1816,6 +1916,28 @@ function renderTraceModeControls(container) {
       state.traceMode = item.id;
       state.traceSelectorOpen = false;
       await ensureActiveData();
+      renderActiveView();
+    });
+    tabs.append(button);
+  });
+  container.append(tabs);
+}
+
+function renderDreamTriggerFilters(container) {
+  const tabs = el("div", "memory-trace-artifact-tabs");
+  [
+    { id: "all", label: t("board.memoryTrace.filterAll") },
+    { id: "manual", label: t("board.memoryTrace.filterManual") },
+    { id: "scheduled", label: t("board.memoryTrace.filterScheduled") },
+  ].forEach((item) => {
+    const button = el("button", `memory-trace-artifact-tab${state.dreamTraceFilterTrigger === item.id ? " active" : ""}`, item.label);
+    button.type = "button";
+    button.addEventListener("click", () => {
+      if (state.dreamTraceFilterTrigger === item.id) return;
+      state.dreamTraceFilterTrigger = item.id;
+      state.traceSelectorOpen = false;
+      state.selectedDreamTraceId = "";
+      state.activeDreamTraceStepId = "";
       renderActiveView();
     });
     tabs.append(button);
@@ -1934,6 +2056,8 @@ function createTraceSummaryCard(title, bodyText, klass = "") {
 }
 
 function traceStepLabel(step) {
+  const explicitTitle = normalizeText(step?.title);
+  if (explicitTitle && explicitTitle !== step?.kind) return explicitTitle;
   const key = `trace.step.${step?.kind || "unknown"}`;
   const hasTranslation = Boolean(LOCALES[state.locale][key] || LOCALES.en[key]);
   return hasTranslation ? t(key) : (step?.title || t("trace.step.unknown"));
@@ -2222,6 +2346,160 @@ function renderIndexTrace(host) {
   host.append(page);
 }
 
+function renderDreamTrace(host) {
+  const traces = getVisibleDreamTraces();
+  clearNode(host);
+  if (!traces.length) {
+    host.append(createEmptyState(t("board.memoryTrace.emptyDream")));
+    return;
+  }
+
+  const selected = getSelectedDreamTrace();
+  if (!selected) {
+    host.append(createEmptyState(t("board.memoryTrace.emptyDream")));
+    return;
+  }
+
+  const page = el("div", "memory-trace-page");
+  const hero = el("section", "memory-trace-hero");
+  const header = el("div", "memory-trace-section-head");
+  header.append(el("h4", "", t("board.memoryTrace.selectDreamTrace")));
+
+  const selector = el("div", "memory-trace-selector");
+  const trigger = el("button", "memory-trace-selector-trigger");
+  trigger.type = "button";
+  trigger.append(el("span", "memory-trace-selector-title", `${formatDreamTrigger(selected.trigger)} · ${formatDateTime(selected.startedAt)}`));
+  trigger.append(el("span", "memory-trace-selector-chevron", state.traceSelectorOpen ? "▴" : "▾"));
+  trigger.addEventListener("click", () => {
+    state.traceSelectorOpen = !state.traceSelectorOpen;
+    renderActiveView();
+  });
+  selector.append(trigger);
+
+  if (state.traceSelectorOpen) {
+    const list = el("div", "memory-trace-selector-list");
+    traces.forEach((item) => {
+      const option = el("button", `memory-trace-selector-option${item.dreamTraceId === selected.dreamTraceId ? " active" : ""}`);
+      option.type = "button";
+      option.append(el("div", "memory-trace-selector-option-title", `${formatDreamTrigger(item.trigger)} · ${formatDateTime(item.startedAt)}`));
+      option.append(el(
+        "div",
+        "memory-trace-selector-option-meta",
+        `${item.snapshotSummary?.formalProjectCount || 0} formal · ${item.outcome?.rewrittenProjects || 0} rewritten · ${item.outcome?.deletedFiles || 0} deleted`,
+      ));
+      option.addEventListener("click", async () => {
+        state.selectedDreamTraceId = item.dreamTraceId;
+        state.traceSelectorOpen = false;
+        await loadDreamTraceDetail(item.dreamTraceId);
+        renderActiveView();
+      });
+      list.append(option);
+    });
+    selector.append(list);
+  }
+
+  header.append(selector);
+  hero.append(header);
+
+  const metaGrid = el("div", "memory-trace-meta-grid");
+  metaGrid.append(
+    createTraceMetaChip(t("board.memoryTrace.trigger"), formatDreamTrigger(selected.trigger)),
+    createTraceMetaChip(t("board.memoryTrace.status"), selected.status || t("common.none")),
+    createTraceMetaChip(t("board.memoryTrace.started"), formatDateTime(selected.startedAt)),
+    createTraceMetaChip(t("board.memoryTrace.finished"), formatDateTime(selected.finishedAt)),
+    createTraceMetaChip(t("board.memoryTrace.rewrittenProjects"), String(selected.outcome?.rewrittenProjects || 0)),
+    createTraceMetaChip(t("board.memoryTrace.deletedProjects"), String(selected.outcome?.deletedProjects || 0)),
+    createTraceMetaChip(t("board.memoryTrace.deletedFiles"), String(selected.outcome?.deletedFiles || 0)),
+  );
+  hero.append(metaGrid);
+
+  const summaryGrid = el("div", "memory-trace-summary-grid");
+  summaryGrid.append(
+    createTraceSummaryCard(
+      t("board.memoryTrace.snapshot"),
+      [
+        `formal projects: ${selected.snapshotSummary?.formalProjectCount || 0}`,
+        `tmp project files: ${selected.snapshotSummary?.tmpProjectCount || 0}`,
+        `tmp feedback files: ${selected.snapshotSummary?.tmpFeedbackCount || 0}`,
+        `formal project files: ${selected.snapshotSummary?.formalProjectFileCount || 0}`,
+        `formal feedback files: ${selected.snapshotSummary?.formalFeedbackFileCount || 0}`,
+        `has user profile: ${selected.snapshotSummary?.hasUserProfile ? "yes" : "no"}`,
+      ].join("\n"),
+      "memory-trace-summary-card--path",
+    ),
+    createTraceSummaryCard(
+      t("board.memoryTrace.mutations"),
+      safeArray(selected.mutations).map((item) => `${item.action} · ${item.relativePath || item.projectName || item.projectId || t("common.none")}`).join("\n") || t("common.none"),
+      "memory-trace-summary-card--artifact",
+    ),
+    createTraceSummaryCard(
+      t("overview.lastDreamSummary"),
+      selected.outcome?.summary || t("common.none"),
+      "memory-trace-summary-card--artifact",
+    ),
+  );
+  hero.append(summaryGrid);
+  page.append(hero);
+
+  const flow = el("section", "memory-trace-flow");
+  const flowHeader = el("div", "memory-trace-section-head");
+  flowHeader.append(el("h4", "", t("board.memoryTrace.flow")));
+  flow.append(flowHeader);
+  const steps = safeArray(selected.steps);
+  if (!steps.length) {
+    flow.append(createEmptyState(t("board.memoryTrace.noTrace")));
+    page.append(flow);
+    host.append(page);
+    return;
+  }
+
+  if (!state.activeDreamTraceStepId || !steps.some((step) => step.stepId === state.activeDreamTraceStepId)) {
+    state.activeDreamTraceStepId = pickDefaultTraceStepId(steps);
+  }
+
+  const list = el("div", "memory-trace-flow-list");
+  steps.forEach((step, index) => {
+    const isActive = step.stepId === state.activeDreamTraceStepId;
+    const item = el("div", `memory-trace-step-item${step.stepId === state.activeDreamTraceStepId ? " active" : ""}`);
+    const toggle = el("button", "memory-trace-step-toggle");
+    toggle.type = "button";
+    toggle.setAttribute("aria-expanded", isActive ? "true" : "false");
+    toggle.addEventListener("click", () => {
+      state.activeDreamTraceStepId = state.activeDreamTraceStepId === step.stepId ? "" : step.stepId;
+      renderActiveView();
+    });
+
+    toggle.append(el("span", "memory-trace-step-marker", String(index + 1)));
+    const summary = el("div", "memory-trace-step-summary");
+    const head = el("div", "memory-trace-step-head");
+    head.append(el("strong", "", traceStepLabel(step)));
+    head.append(el("span", "memory-trace-kind-badge", step.kind));
+    summary.append(head);
+    summary.append(el("div", "memory-trace-step-line", decodeEscapedTraceText(step.inputSummary || t("common.none"))));
+    summary.append(el("div", "memory-trace-step-line is-output", decodeEscapedTraceText(step.outputSummary || t("common.none"))));
+    toggle.append(summary);
+    toggle.append(el("span", "memory-trace-step-chevron", isActive ? "▴" : "▾"));
+    item.append(toggle);
+
+    if (isActive) {
+      const expanded = el("div", "memory-trace-step-expanded");
+      const meta = el("div", "memory-trace-expanded-meta");
+      meta.append(
+        createTraceMetaChip("status", step.status || t("common.none")),
+        createTraceMetaChip("kind", step.kind || t("common.none")),
+      );
+      expanded.append(meta);
+      renderTraceStepExpandedContent(expanded, step);
+      item.append(expanded);
+    }
+
+    list.append(item);
+  });
+  flow.append(list);
+  page.append(flow);
+  host.append(page);
+}
+
 function renderMemoryTrace(host) {
   clearNode(host);
   const page = el("div", "memory-trace-page");
@@ -2232,6 +2510,8 @@ function renderMemoryTrace(host) {
   controls.append(header);
   if (state.traceMode === "index") {
     renderIndexTriggerFilters(controls);
+  } else if (state.traceMode === "dream") {
+    renderDreamTriggerFilters(controls);
   }
   page.append(controls);
   host.append(page);
@@ -2239,6 +2519,7 @@ function renderMemoryTrace(host) {
   const content = el("div");
   host.append(content);
   if (state.traceMode === "index") renderIndexTrace(content);
+  else if (state.traceMode === "dream") renderDreamTrace(content);
   else renderRecallTrace(content);
 }
 

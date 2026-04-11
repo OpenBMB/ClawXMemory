@@ -38,15 +38,15 @@ function createSkillsRuntime() {
 
 function createManifestEntry(overrides: Partial<MemoryManifestEntry> = {}): MemoryManifestEntry {
   return {
-    name: "overview",
+    name: "current-stage",
     description: "Project progress memory.",
     type: "project",
     scope: "project",
     projectId: "project_clawxmemory",
     updatedAt: "2026-04-09T00:00:00.000Z",
-    file: "overview.md",
-    relativePath: "projects/project_clawxmemory/Project/overview.md",
-    absolutePath: "/tmp/projects/project_clawxmemory/Project/overview.md",
+    file: "current-stage.md",
+    relativePath: "projects/project_clawxmemory/Project/current-stage.md",
+    absolutePath: "/tmp/projects/project_clawxmemory/Project/current-stage.md",
     ...overrides,
   };
 }
@@ -84,7 +84,7 @@ function createRepository(overrides: Record<string, unknown> = {}) {
 function createExtractor(overrides: Record<string, unknown> = {}) {
   return {
     decideFileMemoryRoute: vi.fn().mockResolvedValue("project"),
-    selectFileManifestEntries: vi.fn().mockResolvedValue(["projects/project_clawxmemory/Project/overview.md"]),
+    selectFileManifestEntries: vi.fn().mockResolvedValue(["projects/project_clawxmemory/Project/current-stage.md"]),
     ...overrides,
   };
 }
@@ -136,7 +136,7 @@ describe("ReasoningRetriever", () => {
     });
     const extractor = createExtractor({
       decideFileMemoryRoute: vi.fn().mockResolvedValue("project"),
-      selectFileManifestEntries: vi.fn().mockResolvedValue(["projects/project_clawxmemory/Project/overview.md"]),
+      selectFileManifestEntries: vi.fn().mockResolvedValue(["projects/project_clawxmemory/Project/current-stage.md"]),
     });
 
     const retriever = new ReasoningRetriever(
@@ -155,7 +155,7 @@ describe("ReasoningRetriever", () => {
       kinds: ["project"],
       projectId: "project_clawxmemory",
       scope: "project",
-      limit: 200,
+      limit: 500,
     });
     expect(repository.countMemoryEntries).toHaveBeenCalledWith({
       kinds: ["project"],
@@ -163,7 +163,7 @@ describe("ReasoningRetriever", () => {
       scope: "project",
     });
     expect(repository.getMemoryRecordsByIds).toHaveBeenCalledWith(
-      ["projects/project_clawxmemory/Project/overview.md"],
+      ["projects/project_clawxmemory/Project/current-stage.md"],
       80,
     );
     expect(result.intent).toBe("project");
@@ -171,12 +171,13 @@ describe("ReasoningRetriever", () => {
     expect(result.context).toContain("global/User/user-profile.md");
     expect(result.context).toContain("## Profile");
     expect(result.context).not.toContain("## Notes");
-    expect(result.context).toContain("projects/project_clawxmemory/Project/overview.md");
+    expect(result.context).toContain("projects/project_clawxmemory/project.meta.md");
+    expect(result.context).toContain("projects/project_clawxmemory/Project/current-stage.md");
     expect(result.debug).toMatchObject({
       route: "project",
       manifestCount: 1,
       resolvedProjectId: "project_clawxmemory",
-      selectedFileIds: ["projects/project_clawxmemory/Project/overview.md"],
+      selectedFileIds: ["projects/project_clawxmemory/Project/current-stage.md"],
     });
     expect(result.trace?.steps.map((step) => step.kind)).toEqual([
       "recall_start",
@@ -348,7 +349,7 @@ describe("ReasoningRetriever", () => {
       kinds: ["project"],
       projectId: "project_citycoffee",
       scope: "project",
-      limit: 200,
+      limit: 500,
     });
     expect(result.debug?.resolvedProjectId).toBe("project_citycoffee");
   });
@@ -417,7 +418,7 @@ describe("ReasoningRetriever", () => {
       kinds: ["project"],
       projectId: "project_boreal",
       scope: "project",
-      limit: 200,
+      limit: 500,
     });
     expect(result.debug?.resolvedProjectId).toBe("project_boreal");
   });
@@ -494,7 +495,7 @@ describe("ReasoningRetriever", () => {
       kinds: ["project"],
       projectId: "project_new_boreal",
       scope: "project",
-      limit: 200,
+      limit: 500,
     });
     expect(result.debug?.resolvedProjectId).toBe("project_new_boreal");
   });

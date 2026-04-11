@@ -3,6 +3,7 @@ import {
   type CaseToolEvent,
   type CaseTraceRecord,
   type DashboardOverview,
+  type DreamTraceRecord,
   DreamRewriteRunner,
   HeartbeatIndexer,
   type IndexTraceRecord,
@@ -67,6 +68,7 @@ const COMMAND_REPLY_TTL_MS = 10_000;
 const NON_MEMORY_TURN_TTL_MS = 15_000;
 const STARTUP_REPAIR_SNAPSHOT_LIMIT = 200;
 const RECENT_CASE_LIMIT = 30;
+const RECENT_DREAM_TRACE_LIMIT = 30;
 const STARTUP_FALLBACK_GREETING = "I'm ready. What would you like to do?";
 const STARTUP_BOUNDARY_RUNNING_MESSAGE = "Applying managed OpenClaw memory config and requesting a gateway restart.";
 const MANAGED_BOUNDARY_STATE_VERSION = 1 as const;
@@ -760,6 +762,8 @@ export class MemoryPluginRuntime {
           getCaseTrace: (caseId) => this.getCaseTrace(caseId),
           listIndexTraces: (limit) => this.listRecentIndexTraces(limit),
           getIndexTrace: (indexTraceId) => this.getIndexTrace(indexTraceId),
+          listDreamTraces: (limit) => this.listRecentDreamTraces(limit),
+          getDreamTrace: (dreamTraceId) => this.getDreamTrace(dreamTraceId),
         },
         this.logger,
       );
@@ -810,6 +814,78 @@ export class MemoryPluginRuntime {
 
   private getIndexTrace(indexTraceId: string): IndexTraceRecord | undefined {
     return this.repository.getIndexTrace(indexTraceId);
+  }
+
+  private listRecentDreamTraces(limit: number): DreamTraceRecord[] {
+    return this.repository.listRecentDreamTraces(limit);
+  }
+
+  private getDreamTrace(dreamTraceId: string): DreamTraceRecord | undefined {
+    return this.repository.getDreamTrace(dreamTraceId);
+  }
+
+  private buildDreamSnapshotSummary(): DreamTraceRecord["snapshotSummary"] {
+    const store = this.repository.getFileMemoryStore();
+    const formalEntries = store.listMemoryEntries({
+      scope: "project",
+      kinds: ["project", "feedback"],
+      limit: 2000,
+    });
+    const tmpEntries = store.listTmpEntries(2000);
+    const userSummary = store.getUserSummary();
+    return {
+      formalProjectCount: store.listProjectMetas().length,
+      tmpProjectCount: tmpEntries.filter((entry) => entry.type === "project").length,
+      tmpFeedbackCount: tmpEntries.filter((entry) => entry.type === "feedback").length,
+      formalProjectFileCount: formalEntries.filter((entry) => entry.type === "project").length,
+      formalFeedbackFileCount: formalEntries.filter((entry) => entry.type === "feedback").length,
+      hasUserProfile: Boolean(
+        userSummary.profile
+          || userSummary.preferences.length
+          || userSummary.constraints.length
+          || userSummary.relationships.length,
+      ),
+    };
+  }
+
+  private saveSkippedDreamTrace(trigger: DreamTraceRecord["trigger"], summary: string, skipReason: string): void {
+    const startedAt = nowIso();
+    const trace: DreamTraceRecord = {
+      dreamTraceId: `dream_trace_${hashText(`${trigger}:${startedAt}:${skipReason}`)}`,
+      trigger,
+      startedAt,
+      finishedAt: startedAt,
+      status: "skipped",
+      skipReason,
+      snapshotSummary: this.buildDreamSnapshotSummary(),
+      steps: [
+        {
+          stepId: `dream_trace_step_${hashText(`${startedAt}:start`)}`,
+          kind: "dream_start",
+          title: "Dream Start",
+          status: "info",
+          inputSummary: `${trigger} Dream run started.`,
+          outputSummary: "Dream evaluated whether it should run.",
+        },
+        {
+          stepId: `dream_trace_step_${hashText(`${startedAt}:finish`)}`,
+          kind: "dream_finished",
+          title: "Dream Finished",
+          status: "skipped",
+          inputSummary: "Dream was skipped before any rewrite work started.",
+          outputSummary: summary,
+        },
+      ],
+      mutations: [],
+      outcome: {
+        rewrittenProjects: 0,
+        deletedProjects: 0,
+        deletedFiles: 0,
+        profileUpdated: false,
+        summary,
+      },
+    };
+    this.repository.saveDreamTrace(trace, RECENT_DREAM_TRACE_LIMIT);
   }
 
   private trimCaseBuffer(): void {
@@ -1882,15 +1958,11 @@ export class MemoryPluginRuntime {
 
   private async runDreamNow(trigger: "manual" | "scheduled"): Promise<DreamRunResult> {
     if (this.dreamRunLocked || this.dreamRunPromise) {
-      if (trigger === "scheduled") {
-        return this.buildSkippedDreamResult(
-          trigger,
-          emptyStats(),
-          "Skipped automatic Dream because another Dream reconstruction is already running.",
-          "already_running",
-        );
-      }
-      throw new Error("Dream reconstruction is already running");
+      const summary = trigger === "scheduled"
+        ? "Skipped automatic Dream because another Dream reconstruction is already running."
+        : "Skipped manual Dream because another Dream reconstruction is already running.";
+      this.saveSkippedDreamTrace(trigger, summary, "already_running");
+      return this.buildSkippedDreamResult(trigger, emptyStats(), summary, "already_running");
     }
 
     this.dreamRunLocked = true;
@@ -1914,11 +1986,12 @@ export class MemoryPluginRuntime {
           if (newL1Count < threshold) {
             const summary = `Skipped automatic Dream: ${newL1Count} changed memory files since the last successful Dream, below threshold ${threshold}.`;
             this.recordDreamLifecycle("skipped", summary, { completedAt: nowIso() });
+            this.saveSkippedDreamTrace(trigger, summary, "new_l1_below_threshold");
             return this.buildSkippedDreamResult(trigger, prepFlush, summary, "new_l1_below_threshold");
           }
         }
       }
-      const outcome = await this.dreamRewriter.run();
+      const outcome = await this.dreamRewriter.run(trigger);
       this.repository.getFileMemoryStore().repairManifests();
       const latestL1EndedAt = this.getLatestL1EndedAt();
       this.recordDreamLifecycle("success", outcome.summary, {

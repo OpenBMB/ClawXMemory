@@ -5,6 +5,8 @@ import type {
   ActiveTopicBufferRecord,
   CaseTraceRecord,
   DashboardOverview,
+  DreamTraceRecord,
+  DreamTraceStepKind,
   DreamPipelineStatus,
   FactCandidate,
   GlobalProfileRecord,
@@ -50,6 +52,7 @@ const LAST_DREAM_SUMMARY_STATE_KEY = "lastDreamSummary" as const;
 const LAST_DREAM_L1_ENDED_AT_STATE_KEY = "lastDreamL1EndedAt" as const;
 const RECENT_CASE_TRACES_STATE_KEY = "recentCaseTraces" as const;
 const RECENT_INDEX_TRACES_STATE_KEY = "recentIndexTraces" as const;
+const RECENT_DREAM_TRACES_STATE_KEY = "recentDreamTraces" as const;
 
 export class MemoryBundleValidationError extends Error {
   constructor(message: string) {
@@ -134,6 +137,20 @@ function isIndexTraceStepKind(value: string): value is IndexTraceStepKind {
     "candidate_persisted",
     "user_profile_rewritten",
     "index_finished",
+  ].includes(value);
+}
+
+function isDreamTraceStepKind(value: string): value is DreamTraceStepKind {
+  return [
+    "dream_start",
+    "snapshot_loaded",
+    "global_plan_generated",
+    "global_plan_validated",
+    "project_rewrite_generated",
+    "project_mutations_applied",
+    "user_profile_rewritten",
+    "manifests_repaired",
+    "dream_finished",
   ].includes(value);
 }
 
@@ -225,6 +242,116 @@ function parseIndexTraceRecord(value: unknown): IndexTraceRecord | null {
     batchSummary,
     steps,
     storedResults,
+  };
+}
+
+function parseDreamTraceRecord(value: unknown): DreamTraceRecord | null {
+  if (!isRecord(value)) return null;
+  if (typeof value.dreamTraceId !== "string" || !value.dreamTraceId.trim()) return null;
+  if (typeof value.startedAt !== "string" || !value.startedAt.trim()) return null;
+  const trigger = typeof value.trigger === "string" ? value.trigger : "";
+  if (!["manual", "scheduled"].includes(trigger)) return null;
+  const status = typeof value.status === "string" ? value.status : "";
+  if (!["running", "completed", "skipped", "error"].includes(status)) return null;
+  if (!isRecord(value.snapshotSummary)) return null;
+  if (!isRecord(value.outcome)) return null;
+  const snapshotSummary = {
+    formalProjectCount:
+      typeof value.snapshotSummary.formalProjectCount === "number" && Number.isFinite(value.snapshotSummary.formalProjectCount)
+        ? Math.max(0, Math.floor(value.snapshotSummary.formalProjectCount))
+        : 0,
+    tmpProjectCount:
+      typeof value.snapshotSummary.tmpProjectCount === "number" && Number.isFinite(value.snapshotSummary.tmpProjectCount)
+        ? Math.max(0, Math.floor(value.snapshotSummary.tmpProjectCount))
+        : 0,
+    tmpFeedbackCount:
+      typeof value.snapshotSummary.tmpFeedbackCount === "number" && Number.isFinite(value.snapshotSummary.tmpFeedbackCount)
+        ? Math.max(0, Math.floor(value.snapshotSummary.tmpFeedbackCount))
+        : 0,
+    formalProjectFileCount:
+      typeof value.snapshotSummary.formalProjectFileCount === "number" && Number.isFinite(value.snapshotSummary.formalProjectFileCount)
+        ? Math.max(0, Math.floor(value.snapshotSummary.formalProjectFileCount))
+        : 0,
+    formalFeedbackFileCount:
+      typeof value.snapshotSummary.formalFeedbackFileCount === "number" && Number.isFinite(value.snapshotSummary.formalFeedbackFileCount)
+        ? Math.max(0, Math.floor(value.snapshotSummary.formalFeedbackFileCount))
+        : 0,
+    hasUserProfile: Boolean(value.snapshotSummary.hasUserProfile),
+  };
+  const steps = Array.isArray(value.steps)
+    ? value.steps
+        .map((step): DreamTraceRecord["steps"][number] | null => {
+          if (!isRecord(step)) return null;
+          if (typeof step.stepId !== "string" || !step.stepId.trim()) return null;
+          if (typeof step.kind !== "string" || !isDreamTraceStepKind(step.kind)) return null;
+          const stepStatus = typeof step.status === "string" ? step.status : "";
+          if (!["info", "success", "warning", "error", "skipped"].includes(stepStatus)) return null;
+          const nextStep: DreamTraceRecord["steps"][number] = {
+            stepId: step.stepId,
+            kind: step.kind,
+            title: typeof step.title === "string" ? step.title : step.kind,
+            status: stepStatus as DreamTraceRecord["steps"][number]["status"],
+            inputSummary: typeof step.inputSummary === "string" ? step.inputSummary : "",
+            outputSummary: typeof step.outputSummary === "string" ? step.outputSummary : "",
+          };
+          if (isRecord(step.refs)) nextStep.refs = step.refs;
+          if (isRecord(step.metrics)) nextStep.metrics = step.metrics;
+          if (Array.isArray(step.details)) nextStep.details = step.details as RetrievalTraceDetail[];
+          if (isRecord(step.promptDebug)) nextStep.promptDebug = step.promptDebug as unknown as RetrievalPromptDebug;
+          return nextStep;
+        })
+        .filter((step): step is DreamTraceRecord["steps"][number] => Boolean(step))
+    : [];
+  const mutations = Array.isArray(value.mutations)
+    ? value.mutations
+        .map((item): DreamTraceRecord["mutations"][number] | null => {
+          if (!isRecord(item)) return null;
+          if (typeof item.mutationId !== "string" || !item.mutationId.trim()) return null;
+          if (typeof item.action !== "string" || !["write", "delete", "delete_project", "rewrite_user_profile"].includes(item.action)) return null;
+          const nextItem: DreamTraceRecord["mutations"][number] = {
+            mutationId: item.mutationId,
+            action: item.action as DreamTraceRecord["mutations"][number]["action"],
+          };
+          if (typeof item.relativePath === "string" && item.relativePath.trim()) nextItem.relativePath = item.relativePath;
+          if (typeof item.projectId === "string" && item.projectId.trim()) nextItem.projectId = item.projectId;
+          if (typeof item.projectName === "string" && item.projectName.trim()) nextItem.projectName = item.projectName;
+          if (typeof item.candidateType === "string" && ["user", "feedback", "project"].includes(item.candidateType)) {
+            nextItem.candidateType = item.candidateType as NonNullable<DreamTraceRecord["mutations"][number]["candidateType"]>;
+          }
+          if (typeof item.name === "string") nextItem.name = item.name;
+          if (typeof item.description === "string") nextItem.description = item.description;
+          if (typeof item.preview === "string") nextItem.preview = item.preview;
+          return nextItem;
+        })
+        .filter((item): item is DreamTraceRecord["mutations"][number] => Boolean(item))
+    : [];
+  const outcome = {
+    rewrittenProjects:
+      typeof value.outcome.rewrittenProjects === "number" && Number.isFinite(value.outcome.rewrittenProjects)
+        ? Math.max(0, Math.floor(value.outcome.rewrittenProjects))
+        : 0,
+    deletedProjects:
+      typeof value.outcome.deletedProjects === "number" && Number.isFinite(value.outcome.deletedProjects)
+        ? Math.max(0, Math.floor(value.outcome.deletedProjects))
+        : 0,
+    deletedFiles:
+      typeof value.outcome.deletedFiles === "number" && Number.isFinite(value.outcome.deletedFiles)
+        ? Math.max(0, Math.floor(value.outcome.deletedFiles))
+        : 0,
+    profileUpdated: Boolean(value.outcome.profileUpdated),
+    summary: typeof value.outcome.summary === "string" ? value.outcome.summary : "",
+  };
+  return {
+    dreamTraceId: value.dreamTraceId,
+    trigger: trigger as DreamTraceRecord["trigger"],
+    startedAt: value.startedAt,
+    ...(typeof value.finishedAt === "string" && value.finishedAt.trim() ? { finishedAt: value.finishedAt } : {}),
+    status: status as DreamTraceRecord["status"],
+    snapshotSummary,
+    steps,
+    mutations,
+    outcome,
+    ...(typeof value.skipReason === "string" && value.skipReason.trim() ? { skipReason: value.skipReason } : {}),
   };
 }
 
@@ -438,6 +565,9 @@ function normalizeProjectMetaExportRecord(value: unknown, index: number): Projec
     status: readString(value.status ?? "active", `projectMetas[${index}].status`),
     createdAt: requireString(value.createdAt, `projectMetas[${index}].createdAt`),
     updatedAt: requireString(value.updatedAt, `projectMetas[${index}].updatedAt`),
+    ...(typeof value.dreamUpdatedAt === "string" && value.dreamUpdatedAt.trim()
+      ? { dreamUpdatedAt: value.dreamUpdatedAt.trim() }
+      : {}),
     relativePath: requireString(value.relativePath, `projectMetas[${index}].relativePath`),
   };
 }
@@ -1922,6 +2052,34 @@ export class MemoryRepository {
     );
   }
 
+  listRecentDreamTraces(limit: number): DreamTraceRecord[] {
+    const raw = this.getPipelineState(RECENT_DREAM_TRACES_STATE_KEY);
+    if (!raw) return [];
+    const parsed = safeJsonParse<unknown[]>(raw, []);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map(parseDreamTraceRecord)
+      .filter((record): record is DreamTraceRecord => Boolean(record))
+      .slice(0, Math.max(1, Math.min(200, limit)));
+  }
+
+  getDreamTrace(dreamTraceId: string): DreamTraceRecord | undefined {
+    if (!dreamTraceId.trim()) return undefined;
+    return this.listRecentDreamTraces(200).find((record) => record.dreamTraceId === dreamTraceId.trim());
+  }
+
+  saveDreamTrace(record: DreamTraceRecord, maxRecords = 30): void {
+    const normalized = parseDreamTraceRecord(record);
+    if (!normalized) return;
+    const next = this.listRecentDreamTraces(Math.max(1, Math.min(200, maxRecords + 20)))
+      .filter((item) => item.dreamTraceId !== normalized.dreamTraceId);
+    next.unshift(normalized);
+    this.setPipelineState(
+      RECENT_DREAM_TRACES_STATE_KEY,
+      JSON.stringify(next.slice(0, Math.max(1, Math.min(200, maxRecords)))),
+    );
+  }
+
   getIndexingSettings(defaults: IndexingSettings): IndexingSettings {
     const raw = this.getPipelineState(INDEXING_SETTINGS_STATE_KEY);
     if (!raw) return normalizeIndexingSettings(undefined, defaults);
@@ -1970,6 +2128,7 @@ export class MemoryRepository {
         status: meta.status,
         createdAt: meta.createdAt,
         updatedAt: meta.updatedAt,
+        ...(meta.dreamUpdatedAt ? { dreamUpdatedAt: meta.dreamUpdatedAt } : {}),
         relativePath: meta.relativePath,
       }));
       const restoredMemoryFiles: MemoryFileExportRecord[] = restored.memoryFiles.map((record) => ({

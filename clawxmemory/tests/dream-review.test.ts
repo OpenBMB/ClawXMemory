@@ -1,8 +1,34 @@
-import { mkdtemp, rm, unlink, access } from "node:fs/promises";
+import { access, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { DreamRewriteRunner, LlmMemoryExtractor, MemoryRepository } from "../src/core/index.js";
+
+function createDreamExtractor(overrides: Record<string, unknown> = {}) {
+  return {
+    planDreamFileMemory: async () => ({
+      summary: "noop",
+      duplicateTopicCount: 0,
+      conflictTopicCount: 0,
+      projects: [],
+      deletedProjectIds: [],
+      deletedEntryIds: [],
+    }),
+    rewriteDreamFileProject: async () => ({
+      summary: "noop",
+      projectMeta: {
+        projectName: "Dream Project",
+        description: "Dream Project",
+        aliases: [],
+        status: "active",
+      },
+      files: [],
+      deletedEntryIds: [],
+    }),
+    rewriteUserProfile: async (_input: unknown) => null,
+    ...overrides,
+  } as never as LlmMemoryExtractor;
+}
 
 describe("DreamRewriteRunner", () => {
   const cleanupPaths: string[] = [];
@@ -17,9 +43,7 @@ describe("DreamRewriteRunner", () => {
     const repository = new MemoryRepository(join(dir, "memory.sqlite"), {
       memoryDir: join(dir, "memory"),
     });
-    const runner = new DreamRewriteRunner(repository, {
-      reviewDream: async () => ({ summary: "", projectRebuild: [], profileSuggestions: [], cleanup: [], ambiguous: [], noAction: [] }),
-    } as never as LlmMemoryExtractor);
+    const runner = new DreamRewriteRunner(repository, createDreamExtractor());
 
     const result = await runner.run();
 
@@ -29,223 +53,329 @@ describe("DreamRewriteRunner", () => {
       profileUpdated: false,
     });
     expect(result.summary).toContain("No file-based memory exists yet");
+    const traces = repository.listRecentDreamTraces(5);
+    expect(traces).toHaveLength(1);
+    expect(traces[0]?.status).toBe("completed");
+    expect(traces[0]?.steps.map((step) => step.kind)).toEqual([
+      "dream_start",
+      "snapshot_loaded",
+      "dream_finished",
+    ]);
     repository.close();
   });
 
-  it("promotes tmp project memories into a formal project and rebuilds manifests", async () => {
+  it("promotes tmp memory into a formal project without generating overview files", async () => {
     const dir = await mkdtemp(join(tmpdir(), "clawxmemory-dream-"));
     cleanupPaths.push(dir);
     const memoryDir = join(dir, "memory");
     const repository = new MemoryRepository(join(dir, "memory.sqlite"), { memoryDir });
     const store = repository.getFileMemoryStore();
+
+    const tmpFeedback = store.upsertCandidate({
+      type: "feedback",
+      scope: "project",
+      name: "delivery-rule",
+      description: "交付顺序要求",
+      rule: "先给3个标题，再给正文，再给封面文案。",
+      howToApply: "每次交付小红书文案时执行",
+    });
+    const tmpProject = store.upsertCandidate({
+      type: "project",
+      scope: "project",
+      name: "初夏通勤穿搭爆文",
+      description: "帮时尚博主批量生成通勤穿搭小红书文案。",
+      stage: "目前还在选题和风格摸索阶段。",
+      nextSteps: ["收敛标题风格"],
+    });
+
+    const runner = new DreamRewriteRunner(repository, createDreamExtractor({
+      planDreamFileMemory: async () => ({
+        summary: "Attach tmp files into one final project.",
+        duplicateTopicCount: 0,
+        conflictTopicCount: 0,
+        projects: [{
+          planKey: "summer-commute",
+          projectName: "初夏通勤穿搭爆文",
+          description: "帮时尚博主批量生成通勤穿搭小红书文案。",
+          aliases: ["初夏通勤穿搭爆文"],
+          status: "active",
+          evidenceEntryIds: [],
+          retainedEntryIds: [tmpProject.relativePath, tmpFeedback.relativePath],
+        }],
+        deletedProjectIds: [],
+        deletedEntryIds: [],
+      }),
+      rewriteDreamFileProject: async () => ({
+        summary: "Rewrite project and feedback.",
+        projectMeta: {
+          projectName: "初夏通勤穿搭爆文",
+          description: "帮时尚博主批量生成通勤穿搭小红书文案，目前处于选题与风格探索阶段。",
+          aliases: ["初夏通勤穿搭爆文"],
+          status: "active",
+        },
+        files: [
+          {
+            type: "project",
+            name: "current-stage",
+            description: "当前项目状态",
+            sourceEntryIds: [tmpProject.relativePath],
+            stage: "目前还在选题和风格摸索阶段。",
+            nextSteps: ["收敛标题风格"],
+          },
+          {
+            type: "feedback",
+            name: "delivery-rule",
+            description: "交付顺序要求",
+            sourceEntryIds: [tmpFeedback.relativePath],
+            rule: "先给3个标题，再给正文，再给封面文案。",
+            howToApply: "每次交付小红书文案时执行",
+          },
+        ],
+        deletedEntryIds: [],
+      }),
+    }));
+
+    const result = await runner.run();
+
+    const projectIds = store.listProjectIds().filter((projectId) => projectId !== "_tmp");
+    expect(projectIds).toHaveLength(1);
+    const projectId = projectIds[0]!;
+    const meta = store.getProjectMeta(projectId)!;
+    expect(meta.projectName).toBe("初夏通勤穿搭爆文");
+    expect("overviewPath" in meta).toBe(false);
+    await expect(access(join(memoryDir, "projects", projectId, "Project", "overview.md"))).rejects.toThrow();
+    const entries = store.listMemoryEntries({ scope: "project", projectId, limit: 20 });
+    expect(entries.map((entry) => entry.relativePath).sort()).toEqual([
+      `projects/${projectId}/Feedback/delivery-rule.md`,
+      `projects/${projectId}/Project/current-stage.md`,
+    ]);
+    expect(store.listTmpEntries()).toHaveLength(0);
+    expect(result.rewrittenProjects).toBe(1);
+    expect(result.deletedProjects).toBe(0);
+    const traces = repository.listRecentDreamTraces(5);
+    expect(traces).toHaveLength(1);
+    expect(traces[0]?.steps.some((step) => step.kind === "global_plan_generated")).toBe(true);
+    expect(traces[0]?.steps.some((step) => step.kind === "project_rewrite_generated")).toBe(true);
+    expect(traces[0]?.steps.some((step) => step.kind === "project_mutations_applied")).toBe(true);
+    expect(traces[0]?.mutations.some((mutation) => mutation.action === "write")).toBe(true);
+    repository.close();
+  });
+
+  it("can merge two formal projects into one survivor and delete the absorbed project", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "clawxmemory-dream-"));
+    cleanupPaths.push(dir);
+    const repository = new MemoryRepository(join(dir, "memory.sqlite"), {
+      memoryDir: join(dir, "memory"),
+    });
+    const store = repository.getFileMemoryStore();
+
+    const survivorId = "project_survivor";
+    const absorbedId = "project_absorbed";
+    store.upsertProjectMeta({
+      projectId: survivorId,
+      projectName: "城市咖啡探店爆文",
+      description: "旧版项目描述 A",
+      aliases: ["城市咖啡探店爆文"],
+      status: "active",
+    });
+    store.upsertProjectMeta({
+      projectId: absorbedId,
+      projectName: "城市咖啡馆探店爆文",
+      description: "旧版项目描述 B",
+      aliases: ["城市咖啡馆探店爆文"],
+      status: "active",
+    });
+    const projectA = store.writeCandidateToRelativePath(`projects/${survivorId}/Project/current-stage.md`, {
+      type: "project",
+      scope: "project",
+      projectId: survivorId,
+      name: "current-stage",
+      description: "项目 A 状态",
+      stage: "还在测试探店标题。",
+    });
+    const projectB = store.writeCandidateToRelativePath(`projects/${absorbedId}/Project/current-stage.md`, {
+      type: "project",
+      scope: "project",
+      projectId: absorbedId,
+      name: "current-stage",
+      description: "项目 B 状态",
+      stage: "已经开始收集门店素材。",
+      notes: ["这个项目其实和 A 是同一个项目"],
+    });
+
+    const runner = new DreamRewriteRunner(repository, createDreamExtractor({
+      planDreamFileMemory: async () => ({
+        summary: "Merge overlapping formal projects.",
+        duplicateTopicCount: 1,
+        conflictTopicCount: 0,
+        projects: [{
+          planKey: "coffee",
+          targetProjectId: survivorId,
+          projectName: "城市咖啡探店爆文",
+          description: "统一后的咖啡探店项目。",
+          aliases: ["城市咖啡探店爆文", "城市咖啡馆探店爆文"],
+          status: "active",
+          mergeReason: "duplicate_formal_project",
+          evidenceEntryIds: [projectA.relativePath, projectB.relativePath],
+          retainedEntryIds: [projectA.relativePath, projectB.relativePath],
+        }],
+        deletedProjectIds: [absorbedId],
+        deletedEntryIds: [],
+      }),
+      rewriteDreamFileProject: async () => ({
+        summary: "Rewrite merged project.",
+        projectMeta: {
+          projectName: "城市咖啡探店爆文",
+          description: "统一后的咖啡探店项目。",
+          aliases: ["城市咖啡探店爆文", "城市咖啡馆探店爆文"],
+          status: "active",
+        },
+        files: [{
+          type: "project",
+          name: "current-stage",
+          description: "统一后的项目状态",
+          sourceEntryIds: [projectA.relativePath, projectB.relativePath],
+          stage: "正在统一标题风格并收集门店素材。",
+          notes: ["由两个重复 formal project 合并而来"],
+        }],
+        deletedEntryIds: [],
+      }),
+    }));
+
+    const result = await runner.run();
+
+    expect(store.getProjectMeta(absorbedId)).toBeUndefined();
+    expect(store.getProjectMeta(survivorId)?.aliases).toContain("城市咖啡馆探店爆文");
+    const entries = store.listMemoryEntries({ scope: "project", projectId: survivorId, limit: 20 });
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.relativePath).toBe(`projects/${survivorId}/Project/current-stage.md`);
+    expect(result.deletedProjects).toBe(1);
+    repository.close();
+  });
+
+  it("keeps unresolved tmp memory untouched when the global plan does not attach or delete it", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "clawxmemory-dream-"));
+    cleanupPaths.push(dir);
+    const repository = new MemoryRepository(join(dir, "memory.sqlite"), {
+      memoryDir: join(dir, "memory"),
+    });
+    const store = repository.getFileMemoryStore();
+
+    store.upsertCandidate({
+      type: "feedback",
+      scope: "project",
+      name: "ad-tone",
+      description: "语气要求",
+      rule: "标题不要太像广告。",
+    });
+
+    const runner = new DreamRewriteRunner(repository, createDreamExtractor({
+      planDreamFileMemory: async () => ({
+        summary: "No safe attachment was found.",
+        duplicateTopicCount: 0,
+        conflictTopicCount: 1,
+        projects: [],
+        deletedProjectIds: [],
+        deletedEntryIds: [],
+      }),
+    }));
+
+    const result = await runner.run();
+
+    expect(store.listProjectIds().filter((projectId) => projectId !== "_tmp")).toHaveLength(0);
+    expect(store.listTmpEntries()).toHaveLength(1);
+    expect(result.rewrittenProjects).toBe(0);
+    expect(result.conflictTopicCount).toBe(1);
+    repository.close();
+  });
+
+  it("rejects umbrella merges that collapse distinct explicit tmp project names without strong evidence", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "clawxmemory-dream-"));
+    cleanupPaths.push(dir);
+    const repository = new MemoryRepository(join(dir, "memory.sqlite"), {
+      memoryDir: join(dir, "memory"),
+    });
+    const store = repository.getFileMemoryStore();
+
+    const projectA = store.upsertCandidate({
+      type: "project",
+      scope: "project",
+      name: "初夏通勤穿搭爆文",
+      description: "帮时尚博主批量生成通勤穿搭小红书文案。",
+      stage: "还在选题和风格摸索阶段。",
+    });
+    const projectB = store.upsertCandidate({
+      type: "project",
+      scope: "project",
+      name: "城市咖啡探店爆文",
+      description: "给本地生活博主批量生成咖啡店和餐厅探店小红书文案。",
+      stage: "正在收集门店素材。",
+    });
+
+    const runner = new DreamRewriteRunner(repository, createDreamExtractor({
+      planDreamFileMemory: async () => ({
+        summary: "Merge both projects into one content super-project.",
+        duplicateTopicCount: 0,
+        conflictTopicCount: 0,
+        projects: [{
+          planKey: "content-super-project",
+          projectName: "小红书文案批量生成",
+          description: "为多类博主批量生成小红书文案。",
+          aliases: ["小红书文案"],
+          status: "active",
+          evidenceEntryIds: [projectA.relativePath, projectB.relativePath],
+          retainedEntryIds: [projectA.relativePath, projectB.relativePath],
+        }],
+        deletedProjectIds: [],
+        deletedEntryIds: [],
+      }),
+    }));
+
+    await expect(runner.run()).rejects.toThrow(/distinct explicit projects/i);
+    repository.close();
+  });
+
+  it("rewrites the global user profile without requiring project rewrites", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "clawxmemory-dream-"));
+    cleanupPaths.push(dir);
+    const repository = new MemoryRepository(join(dir, "memory.sqlite"), {
+      memoryDir: join(dir, "memory"),
+    });
+    const store = repository.getFileMemoryStore();
+
     store.upsertCandidate({
       type: "user",
       scope: "global",
       name: "user-profile",
-      description: "Stable user profile.",
-      summary: "The user prefers direct engineering language.",
-      preferences: ["中文"],
+      description: "用户画像",
+      profile: "用户是做小红书图文选题策划的。",
+      preferences: ["更习惯中文", "常用飞书表格和 Notion"],
+      constraints: ["很在意标题和封面文案的一致性"],
+      relationships: ["长期与博主团队合作"],
     });
-    store.upsertCandidate({
-      type: "feedback",
-      scope: "project",
-      name: "review-style",
-      description: "This project needs engineering-style review notes.",
-      rule: "For this project, start with findings and concrete risks.",
-      why: "The project is in an architecture refactor stage.",
-      howToApply: "Focus on regressions and missing tests.",
-    });
-    store.upsertCandidate({
-      type: "project",
-      scope: "project",
-      name: "ClawXMemory memory refactor",
-      description: "Memory refactor progress for ClawXMemory.",
-      stage: "The file-based memory migration is in progress.",
-      nextSteps: ["Wire retriever and tools to the new memory files."],
-      timeline: ["2026-04-09: started the file-memory refactor."],
-    });
+    const runner = new DreamRewriteRunner(repository, createDreamExtractor({
+      rewriteUserProfile: async () => ({
+        type: "user",
+        scope: "global",
+        name: "user-profile",
+        description: "Dream rewritten user profile",
+        profile: "用户是做小红书图文选题策划的，长期服务于内容团队。",
+        preferences: ["更习惯中文", "常用飞书表格和 Notion"],
+        constraints: ["很在意标题和封面文案的一致性"],
+        relationships: ["长期与博主团队合作"],
+      }),
+    }));
 
-    await unlink(join(memoryDir, "global", "MEMORY.md"));
-    await unlink(join(memoryDir, "projects", "_tmp", "MEMORY.md"));
-
-    const runner = new DreamRewriteRunner(repository, {} as never as LlmMemoryExtractor);
     const result = await runner.run();
 
-    await expect(access(join(memoryDir, "global", "MEMORY.md"))).resolves.toBeUndefined();
-    const projectIds = store.listProjectIds().filter((projectId) => projectId !== "_tmp");
-    expect(projectIds).toHaveLength(1);
-    const projectId = projectIds[0]!;
-    await expect(access(join(memoryDir, "projects", projectId, "MEMORY.md"))).resolves.toBeUndefined();
-    await expect(access(join(memoryDir, "projects", projectId, "project.meta.md"))).resolves.toBeUndefined();
-    const meta = store.getProjectMeta(projectId);
-    expect(meta?.projectName).toBe("ClawXMemory memory refactor");
-    expect(meta?.description).toBe("Memory refactor progress for ClawXMemory.");
-    expect(store.listTmpEntries()).toHaveLength(0);
-    expect(result.reviewedL1).toBe(3);
-    expect(result.rewrittenProjects).toBe(1);
-    expect(result.summary).toContain("Dream reviewed 3 memory files");
-    expect(result.summary).toContain("Promoted 2 temporary project memories into 1 formal projects");
-    repository.close();
-  });
-
-  it("keeps unresolved tmp project memories in separate files even when they share a generic name", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "clawxmemory-dream-"));
-    cleanupPaths.push(dir);
-    const repository = new MemoryRepository(join(dir, "memory.sqlite"), {
-      memoryDir: join(dir, "memory"),
-    });
-    const store = repository.getFileMemoryStore();
-
-    store.upsertCandidate({
-      type: "project",
-      scope: "project",
-      name: "overview",
-      description: "Project A progress",
-      stage: "Project A is in discovery.",
-    });
-    store.upsertCandidate({
-      type: "project",
-      scope: "project",
-      name: "overview",
-      description: "Project B progress",
-      stage: "Project B is in implementation.",
-    });
-
-    const tmpEntries = store.listTmpEntries(20).filter((entry) => entry.type === "project");
-    expect(tmpEntries).toHaveLength(2);
-    expect(new Set(tmpEntries.map((entry) => entry.file)).size).toBe(2);
-    repository.close();
-  });
-
-  it("keeps feedback-only tmp memory unresolved until a project anchor exists", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "clawxmemory-dream-"));
-    cleanupPaths.push(dir);
-    const repository = new MemoryRepository(join(dir, "memory.sqlite"), {
-      memoryDir: join(dir, "memory"),
-    });
-    const store = repository.getFileMemoryStore();
-
-    store.upsertCandidate({
-      type: "feedback",
-      scope: "project",
-      name: "api-review-style",
-      description: "This API redesign needs stricter contract reviews.",
-      rule: "Review API contracts before implementation in this project.",
-      why: "The project is changing retrieval and tool boundaries quickly.",
-      howToApply: "Start every review from contract drift and compatibility risk.",
-    });
-
-    const runner = new DreamRewriteRunner(repository, {} as never as LlmMemoryExtractor);
-    const result = await runner.run();
-
-    const projectIds = store.listProjectIds().filter((projectId) => projectId !== "_tmp");
-    expect(projectIds).toHaveLength(0);
-    const tmpEntries = store.listTmpEntries();
-    expect(tmpEntries).toHaveLength(1);
-    expect(tmpEntries[0]?.type).toBe("feedback");
-    expect(tmpEntries[0]?.dreamAttempts).toBe(1);
-    expect(result.rewrittenProjects).toBe(0);
-    expect(result.summary).toContain("No temporary project memories were ready to promote");
-    expect(result.summary).toContain("Left 1 temporary feedback memories unresolved");
-    repository.close();
-  });
-
-  it("uses session and time proximity to attach tmp feedback to the right tmp project", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "clawxmemory-dream-"));
-    cleanupPaths.push(dir);
-    const repository = new MemoryRepository(join(dir, "memory.sqlite"), {
-      memoryDir: join(dir, "memory"),
-    });
-    const store = repository.getFileMemoryStore();
-
-    store.upsertCandidate({
-      type: "project",
-      scope: "project",
-      name: "Boreal",
-      description: "本地知识库整理工具",
-      capturedAt: "2026-04-10T06:57:17.011Z",
-      sourceSessionKey: "agent:main:main#window:1",
-      stage: "目前还在设计阶段。",
-    });
-    store.upsertCandidate({
-      type: "feedback",
-      scope: "project",
-      name: "collaboration-rule",
-      description: "你给我汇报时要先说完成了什么，再说风险。",
-      capturedAt: "2026-04-10T06:56:46.718Z",
-      sourceSessionKey: "agent:main:main#window:1",
-      rule: "你给我汇报时要先说完成了什么，再说风险。",
-      howToApply: "在这个项目里，你给我汇报时",
-    });
-
-    const runner = new DreamRewriteRunner(repository, {} as never as LlmMemoryExtractor);
-    const result = await runner.run();
-
-    const projectIds = store.listProjectIds().filter((projectId) => projectId !== "_tmp");
-    expect(projectIds).toHaveLength(1);
-    const projectId = projectIds[0]!;
-    const entries = store.listMemoryEntries({ scope: "project", projectId, limit: 20 });
-    expect(entries.map((entry) => entry.type).sort()).toEqual(["feedback", "project"]);
-    const meta = store.getProjectMeta(projectId);
-    expect(meta?.projectName).toBe("Boreal");
-    expect(meta?.aliases).not.toContain("collaboration-rule");
-    expect(store.listTmpEntries()).toHaveLength(0);
-    expect(result.rewrittenProjects).toBe(1);
-    repository.close();
-  });
-
-  it("splits multiple named tmp projects in one batch into separate formal projects", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "clawxmemory-dream-"));
-    cleanupPaths.push(dir);
-    const repository = new MemoryRepository(join(dir, "memory.sqlite"), {
-      memoryDir: join(dir, "memory"),
-    });
-    const store = repository.getFileMemoryStore();
-
-    store.upsertCandidate({
-      type: "project",
-      scope: "project",
-      name: "Aster",
-      description: "把 OpenClaw 的记忆系统改成文件式 memory。",
-      capturedAt: "2026-04-10T07:10:00.000Z",
-      sourceSessionKey: "agent:main:main#window:7",
-      stage: "正在设计阶段。",
-    });
-    store.upsertCandidate({
-      type: "project",
-      scope: "project",
-      name: "Northwind",
-      description: "一个本地知识库整理工具。",
-      capturedAt: "2026-04-10T07:11:00.000Z",
-      sourceSessionKey: "agent:main:main#window:7",
-      stage: "正在设计阶段。",
-    });
-    store.upsertCandidate({
-      type: "project",
-      scope: "project",
-      name: "Boreal",
-      description: "另一个本地知识库整理工具。",
-      capturedAt: "2026-04-10T07:12:00.000Z",
-      sourceSessionKey: "agent:main:main#window:7",
-      stage: "目前还在设计阶段。",
-    });
-
-    const runner = new DreamRewriteRunner(repository, {} as never as LlmMemoryExtractor);
-    const result = await runner.run();
-
-    const projectIds = store.listProjectIds().filter((projectId) => projectId !== "_tmp");
-    expect(projectIds).toHaveLength(3);
-    expect(projectIds.every((projectId) => /^project_[a-z0-9]+$/.test(projectId))).toBe(true);
-
-    const metas = store.listProjectMetas();
-    expect(metas.map((meta) => meta.projectName).sort()).toEqual(["Aster", "Boreal", "Northwind"]);
-
-    for (const meta of metas) {
-      const entries = store.listMemoryEntries({ scope: "project", projectId: meta.projectId, limit: 20 });
-      expect(entries).toHaveLength(1);
-      expect(entries[0]?.name).toBe(meta.projectName);
-    }
-    expect(result.rewrittenProjects).toBe(3);
+    const userRecord = store.getMemoryRecord("global/User/user-profile.md", 5000);
+    expect(userRecord?.content).toContain("## Profile");
+    expect(userRecord?.content).toContain("长期服务于内容团队");
+    expect(result.profileUpdated).toBe(true);
+    const traces = repository.listRecentDreamTraces(5);
+    expect(traces).toHaveLength(1);
+    expect(traces[0]?.steps.some((step) => step.kind === "user_profile_rewritten")).toBe(true);
+    expect(traces[0]?.mutations.some((mutation) => mutation.action === "rewrite_user_profile")).toBe(true);
     repository.close();
   });
 });

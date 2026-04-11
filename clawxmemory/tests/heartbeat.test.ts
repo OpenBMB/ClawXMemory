@@ -196,4 +196,58 @@ describe("HeartbeatIndexer batch indexing", () => {
     expect(tmpEntries[0]?.name).toBe("Boreal");
     repository.close();
   });
+
+  it("rewrites the global user profile from a content-only user candidate", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "clawxmemory-heartbeat-"));
+    cleanupPaths.push(dir);
+    const repository = new MemoryRepository(join(dir, "memory.sqlite"), {
+      memoryDir: join(dir, "memory"),
+    });
+
+    repository.insertL0Session({
+      l0IndexId: "l0-user-1",
+      sessionKey: "agent:main:explicit:user-window",
+      timestamp: "2026-04-11T09:31:37.010Z",
+      source: "openclaw",
+      indexed: false,
+      messages: createMessages(
+        "记住这些长期信息：我是做小红书图文选题策划的，平时更习惯中文；我常用飞书表格和 Notion 管选题。",
+        "好的，我记住了。",
+      ),
+    });
+
+    const indexer = new HeartbeatIndexer(
+      repository,
+      {
+        extractFileMemoryCandidates: vi.fn().mockResolvedValue([{
+          type: "user",
+          scope: "global",
+          name: "user-profile",
+          description: "职业：小红书图文选题策划；语言偏好：中文；常用工具：飞书表格和 Notion。",
+          profile: "职业：小红书图文选题策划；语言偏好：中文；常用工具：飞书表格和 Notion。",
+          capturedAt: "2026-04-11T09:31:37.010Z",
+        }]),
+        rewriteUserProfile: vi.fn().mockResolvedValue({
+          type: "user",
+          scope: "global",
+          name: "user-profile",
+          description: "用户画像",
+          profile: "用户是做小红书图文选题策划的。",
+          preferences: ["更习惯中文", "常用飞书表格和 Notion"],
+          constraints: [],
+          relationships: [],
+          capturedAt: "2026-04-11T09:31:37.010Z",
+        }),
+      } as never,
+      { settings: DEFAULT_SETTINGS },
+    );
+
+    const stats = await indexer.runHeartbeat({ reason: "manual" });
+
+    const userRecord = repository.getFileMemoryStore().getMemoryRecord("global/User/user-profile.md", 5000);
+    expect(userRecord?.content).toContain("## Profile");
+    expect(userRecord?.content).toContain("小红书图文选题策划");
+    expect(stats.profileUpdated).toBe(1);
+    repository.close();
+  });
 });

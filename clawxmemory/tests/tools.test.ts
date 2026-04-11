@@ -25,7 +25,7 @@ const retrievalResult: RetrievalResult = {
     cacheHit: false,
     route: "project",
     manifestCount: 2,
-    selectedFileIds: ["projects/clawxmemory/Project/overview.md"],
+    selectedFileIds: ["projects/clawxmemory/Project/current-stage.md"],
   },
 };
 
@@ -83,12 +83,12 @@ function createRepository() {
         type: "project" as const,
         scope: "project" as const,
         projectId: "clawxmemory",
-        name: "overview",
+        name: "current-stage",
         description: "Project progress.",
         updatedAt: "2026-04-09T00:20:00.000Z",
-        file: "overview.md",
-        relativePath: "projects/clawxmemory/Project/overview.md",
-        absolutePath: "/tmp/projects/clawxmemory/Project/overview.md",
+        file: "current-stage.md",
+        relativePath: "projects/clawxmemory/Project/current-stage.md",
+        absolutePath: "/tmp/projects/clawxmemory/Project/current-stage.md",
       },
     ]),
     getMemoryRecordsByIds: vi.fn().mockReturnValue([
@@ -96,12 +96,12 @@ function createRepository() {
         type: "project" as const,
         scope: "project" as const,
         projectId: "clawxmemory",
-        name: "overview",
+        name: "current-stage",
         description: "Project progress.",
         updatedAt: "2026-04-09T00:20:00.000Z",
-        file: "overview.md",
-        relativePath: "projects/clawxmemory/Project/overview.md",
-        absolutePath: "/tmp/projects/clawxmemory/Project/overview.md",
+        file: "current-stage.md",
+        relativePath: "projects/clawxmemory/Project/current-stage.md",
+        absolutePath: "/tmp/projects/clawxmemory/Project/current-stage.md",
         content: "## Current Stage\nMemory refactor is in progress.",
         preview: "Memory refactor is in progress.",
       },
@@ -165,7 +165,7 @@ describe("buildPluginTools", () => {
       route: "project",
       enoughAt: "file",
       refs: {
-        files: ["projects/clawxmemory/Project/overview.md"],
+        files: ["projects/clawxmemory/Project/current-stage.md"],
       },
     });
 
@@ -289,10 +289,10 @@ describe("buildPluginTools", () => {
     const memoryGet = tools.find((tool) => tool.name === "memory_get");
     expect(memoryGet).toBeDefined();
 
-    const ok = await memoryGet!.execute("call-7", { ids: ["projects/clawxmemory/Project/overview.md"] });
+    const ok = await memoryGet!.execute("call-7", { ids: ["projects/clawxmemory/Project/current-stage.md"] });
     expect(ok.details).toMatchObject({
       ok: true,
-      foundIds: ["projects/clawxmemory/Project/overview.md"],
+      foundIds: ["projects/clawxmemory/Project/current-stage.md"],
       missingIds: [],
       count: 1,
     });

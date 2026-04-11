@@ -6,6 +6,7 @@ import {
   type ClearMemoryResult,
   type CaseTraceRecord,
   type DashboardOverview,
+  type DreamTraceRecord,
   type DreamRunResult,
   type HeartbeatStats,
   type IndexTraceRecord,
@@ -72,6 +73,8 @@ export interface UiServerControls {
   getCaseTrace: (caseId: string) => CaseTraceRecord | undefined;
   listIndexTraces: (limit: number) => IndexTraceRecord[];
   getIndexTrace: (indexTraceId: string) => IndexTraceRecord | undefined;
+  listDreamTraces: (limit: number) => DreamTraceRecord[];
+  getDreamTrace: (dreamTraceId: string) => DreamTraceRecord | undefined;
 }
 
 interface UiProjectGroup {
@@ -562,6 +565,18 @@ export class LocalUiServer {
       const indexTraceId = decodeURIComponent(relativePath.slice("/api/index-traces/".length));
       if (!indexTraceId.trim()) return sendNotFound(res);
       const record = this.controls.getIndexTrace(indexTraceId);
+      if (!record) return sendNotFound(res);
+      return sendJson(res, record);
+    }
+    if (relativePath === "/api/dream-traces") {
+      if (upperMethod !== "GET") return sendMethodNotAllowed(res, "GET");
+      return sendJson(res, this.controls.listDreamTraces(parseLimit(url.searchParams.get("limit"), 12)));
+    }
+    if (relativePath.startsWith("/api/dream-traces/")) {
+      if (upperMethod !== "GET") return sendMethodNotAllowed(res, "GET");
+      const dreamTraceId = decodeURIComponent(relativePath.slice("/api/dream-traces/".length));
+      if (!dreamTraceId.trim()) return sendNotFound(res);
+      const record = this.controls.getDreamTrace(dreamTraceId);
       if (!record) return sendNotFound(res);
       return sendJson(res, record);
     }

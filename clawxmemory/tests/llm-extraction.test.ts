@@ -283,6 +283,37 @@ describe("LlmMemoryExtractor hop debug trace", () => {
     });
   });
 
+  it("normalizes user candidates when the model only returns content", async () => {
+    const extractor = createExtractor();
+    vi.spyOn(extractor as never as { callStructuredJson: (input: unknown) => Promise<string> }, "callStructuredJson")
+      .mockResolvedValue(JSON.stringify({
+        items: [{
+          type: "user",
+          content: "职业：小红书图文选题策划；语言偏好：中文；常用工具：飞书表格和 Notion（用于管理选题）。",
+        }],
+      }));
+
+    const result = await extractor.extractFileMemoryCandidates({
+      timestamp: "2026-04-11T09:31:37.010Z",
+      explicitRemember: true,
+      messages: [
+        {
+          role: "user",
+          content: "记住这些长期信息：我是做小红书图文选题策划的，平时更习惯中文；我常用飞书表格和 Notion 管选题。",
+        },
+      ],
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      type: "user",
+      scope: "global",
+      name: "user-profile",
+      profile: "职业：小红书图文选题策划；语言偏好：中文；常用工具：飞书表格和 Notion（用于管理选题）。",
+    });
+    expect(result[0]?.description).toContain("职业：小红书图文选题策划");
+  });
+
   it("does not turn a transient explicit reminder into user profile memory", async () => {
     const extractor = createExtractor();
     vi.spyOn(extractor as never as { callStructuredJson: (input: unknown) => Promise<string> }, "callStructuredJson")
@@ -333,6 +364,69 @@ describe("LlmMemoryExtractor hop debug trace", () => {
       name: "user-profile",
     });
     expect(result[0]?.preferences?.some((item) => item.includes("TypeScript") && item.includes("Node.js"))).toBe(true);
+  });
+
+  it("keeps durable first-person quality preferences in global user memory", async () => {
+    const extractor = createExtractor();
+    vi.spyOn(extractor as never as { callStructuredJson: (input: unknown) => Promise<string> }, "callStructuredJson")
+      .mockResolvedValue(JSON.stringify({
+        items: [{
+          type: "user",
+          content: "我做文案时很在意标题和封面文案的一致性。",
+        }],
+      }));
+
+    const result = await extractor.extractFileMemoryCandidates({
+      timestamp: "2026-04-11T10:05:00.000Z",
+      explicitRemember: true,
+      messages: [
+        {
+          role: "user",
+          content: "再记一个长期信息：我做文案时很在意标题和封面文案的一致性。",
+        },
+      ],
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      type: "user",
+      scope: "global",
+      name: "user-profile",
+    });
+    expect(result[0]?.description).toContain("标题和封面文案的一致性");
+  });
+
+  it("recasts first-person quality-bar feedback output into global user memory", async () => {
+    const extractor = createExtractor();
+    vi.spyOn(extractor as never as { callStructuredJson: (input: unknown) => Promise<string> }, "callStructuredJson")
+      .mockResolvedValue(JSON.stringify({
+        items: [{
+          type: "feedback",
+          rule: "标题和封面文案要保持一致性",
+          description: "标题和封面文案要保持一致性",
+          why: "用户在做文案时很在意标题和封面文案的一致性",
+          how_to_apply: "在生成小红书选题策划或文案时，确保标题与封面文案在风格、关键词和调性上保持一致。",
+        }],
+      }));
+
+    const result = await extractor.extractFileMemoryCandidates({
+      timestamp: "2026-04-11T10:06:00.000Z",
+      explicitRemember: true,
+      messages: [
+        {
+          role: "user",
+          content: "再记一个长期信息：我做文案时很在意标题和封面文案的一致性。",
+        },
+      ],
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      type: "user",
+      scope: "global",
+      name: "user-profile",
+      profile: "标题和封面文案要保持一致性",
+    });
   });
 
   it("rewrites user profile candidates into the fixed four-section schema", async () => {
