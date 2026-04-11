@@ -1,4 +1,5 @@
 import type { MemoryMessage } from "./core/types.js";
+import { decodeEscapedUnicodeText } from "./core/utils/text.js";
 
 const MEMORY_CONTEXT_HEADER = "You are using multi-level memory indexes for this turn.";
 const MEMORY_CONTEXT_FOOTER = "Treat the above as authoritative prior memory when it is relevant. Prioritize the user's latest request, and do not claim memory is missing or that this is a fresh conversation if the answer is already shown above.";
@@ -104,15 +105,15 @@ function extractTextFromObject(content: Record<string, unknown>, depth: number):
     return "";
   }
   if (["text", "input_text", "output_text", "paragraph"].includes(type) && typeof content.text === "string") {
-    return content.text;
+    return decodeEscapedUnicodeText(content.text);
   }
   if (typeof content.text === "string" && type === "message_text") {
-    return content.text;
+    return decodeEscapedUnicodeText(content.text);
   }
 
   const parts: string[] = [];
   if (typeof content.text === "string") {
-    pushUniqueText(parts, content.text);
+    pushUniqueText(parts, decodeEscapedUnicodeText(content.text));
   }
   const prioritizedKeys = ["content", "body", "message", "caption"];
   const listKeys = ["parts", "items", "blocks", "segments", "chunks"];
@@ -131,7 +132,7 @@ function extractTextFromObject(content: Record<string, unknown>, depth: number):
 
 function extractTextFromContent(content: unknown, depth = 0): string {
   if (depth > MAX_CONTENT_EXTRACTION_DEPTH) return "";
-  if (typeof content === "string") return content;
+  if (typeof content === "string") return decodeEscapedUnicodeText(content);
   if (Array.isArray(content)) {
     const blocks: string[] = [];
     for (const block of content) {

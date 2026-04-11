@@ -18,5 +18,6 @@ describe("buildMemoryPromptSection", () => {
     expect(lines.join("\n")).toContain("memory_flush");
     expect(lines.join("\n")).toContain("memory_dream");
     expect(lines.join("\n")).toContain("authoritative long-term memory source");
+    expect(lines.join("\n")).toContain("Never call write, edit, move, rename, or delete tools on workspace memory files");
   });
 });

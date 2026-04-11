@@ -1,9 +1,11 @@
 import {
+  type ClearMemoryResult,
   type CaseToolEvent,
   type CaseTraceRecord,
   type DashboardOverview,
   DreamRewriteRunner,
   HeartbeatIndexer,
+  type IndexTraceRecord,
   LlmMemoryExtractor,
   type ManagedBoundaryStatus,
   type ManagedWorkspaceBoundaryState,
@@ -36,6 +38,7 @@ import type {
   PluginHookBeforePromptBuildResult,
   PluginHookBeforeResetEvent,
   PluginHookBeforeToolCallEvent,
+  PluginHookBeforeToolCallResult,
   PluginHookAfterToolCallEvent,
   PluginLogger,
   PluginRuntime,
@@ -47,7 +50,7 @@ import { buildPluginTools } from "./tools.js";
 import { LocalUiServer } from "./ui-server.js";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 
 const MEMORY_REPAIR_VERSION = "2026-04-03-strict-user-io-cleanup-v16";
 const INDEXING_SETTINGS_MIGRATION_VERSION = "2026-04-02-auto-dream-settings-v3";
@@ -70,6 +73,22 @@ const MANAGED_BOUNDARY_STATE_VERSION = 1 as const;
 const MANAGED_BOUNDARY_DIRNAME = "managed-boundary";
 const MANAGED_BOUNDARY_STATE_FILENAME = "workspace-memory-boundary.json";
 const MANAGED_WORKSPACE_FILES = ["USER.md", "MEMORY.md"] as const satisfies readonly ManagedWorkspaceFileName[];
+const BLOCKED_WORKSPACE_MEMORY_TOOL_NAMES = new Set(["write", "edit", "delete", "move", "rename", "remove"]);
+const TOOL_PATH_PARAM_KEYS = new Set([
+  "path",
+  "file",
+  "file_path",
+  "filepath",
+  "target_file",
+  "source_path",
+  "destination_path",
+  "destination",
+  "source",
+  "old_path",
+  "new_path",
+  "to",
+  "from",
+]);
 
 type ManagedBoundaryAction = "none" | "isolated" | "restored" | "conflict";
 
@@ -328,6 +347,40 @@ function canonicalizeUserQuery(text: string): string {
   });
   const normalized = info.role === "user" ? info.content.trim() : "";
   return normalized || text.trim();
+}
+
+function normalizeFsComparePath(value: string): string {
+  const normalized = resolve(value).replace(/\\/g, "/");
+  return process.platform === "win32" || process.platform === "darwin"
+    ? normalized.toLowerCase()
+    : normalized;
+}
+
+function isPathWithinRoot(targetPath: string, rootPath: string): boolean {
+  const normalizedTarget = normalizeFsComparePath(targetPath);
+  const normalizedRoot = normalizeFsComparePath(rootPath);
+  return normalizedTarget === normalizedRoot || normalizedTarget.startsWith(`${normalizedRoot}/`);
+}
+
+function collectToolPathParams(value: unknown, keyHint = "", depth = 0): string[] {
+  if (depth > 6 || value == null) return [];
+  if (typeof value === "string") {
+    return TOOL_PATH_PARAM_KEYS.has(keyHint.toLowerCase()) ? [value] : [];
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => collectToolPathParams(item, keyHint, depth + 1));
+  }
+  if (typeof value !== "object") return [];
+  return Object.entries(value as Record<string, unknown>)
+    .flatMap(([key, item]) => collectToolPathParams(item, key, depth + 1));
+}
+
+function resolveToolPath(rawPath: string, workspaceDir: string): string {
+  const trimmed = rawPath.trim();
+  if (!trimmed) return resolve(workspaceDir);
+  if (trimmed === "~") return homedir();
+  if (trimmed.startsWith("~/")) return resolve(homedir(), trimmed.slice(2));
+  return resolve(workspaceDir, trimmed);
 }
 
 function buildCaseId(sessionKey: string, query: string): string {
@@ -698,12 +751,15 @@ export class MemoryPluginRuntime {
           saveSettings: (partial) => this.applyIndexingSettings(partial),
           runIndexNow: () => this.flushAllNow("manual"),
           runDreamNow: () => this.runDreamNow("manual"),
+          clearMemoryNow: () => this.clearMemoryNow(),
           exportMemoryBundle: () => this.repository.exportMemoryBundle(),
           importMemoryBundle: (bundle) => this.replaceMemoryBundle(bundle),
           getRuntimeOverview: () => this.getRuntimeOverview(),
           getStartupRepairSnapshot: (limit) => this.getStartupRepairSnapshot(limit),
           listCaseTraces: (limit) => this.listRecentCaseTraces(limit),
           getCaseTrace: (caseId) => this.getCaseTrace(caseId),
+          listIndexTraces: (limit) => this.listRecentIndexTraces(limit),
+          getIndexTrace: (indexTraceId) => this.getIndexTrace(indexTraceId),
         },
         this.logger,
       );
@@ -746,6 +802,14 @@ export class MemoryPluginRuntime {
   private getCaseTrace(caseId: string): CaseTraceRecord | undefined {
     const record = this.repository.getCaseTrace(caseId);
     return shouldHideCaseTrace(record) ? undefined : record;
+  }
+
+  private listRecentIndexTraces(limit: number): IndexTraceRecord[] {
+    return this.repository.listRecentIndexTraces(limit);
+  }
+
+  private getIndexTrace(indexTraceId: string): IndexTraceRecord | undefined {
+    return this.repository.getIndexTrace(indexTraceId);
   }
 
   private trimCaseBuffer(): void {
@@ -920,6 +984,27 @@ export class MemoryPluginRuntime {
     }
     this.clearEphemeralMemoryState();
     return this.repository.importMemoryBundle(bundle);
+  }
+
+  private async clearMemoryNow(): Promise<ClearMemoryResult> {
+    this.setStartupRepairState("idle");
+    this.clearEphemeralMemoryState();
+    if (this.queuePromise) {
+      try {
+        await this.queuePromise;
+      } catch (error) {
+        this.logger.warn?.(`[clawxmemory] pending index queue failed before clear: ${String(error)}`);
+      }
+    }
+    if (this.dreamRunPromise) {
+      try {
+        await this.dreamRunPromise;
+      } catch (error) {
+        this.logger.warn?.(`[clawxmemory] dream run failed before clear: ${String(error)}`);
+      }
+    }
+    this.clearEphemeralMemoryState();
+    return this.repository.clearAllMemoryData();
   }
 
   getTools() {
@@ -1120,12 +1205,8 @@ export class MemoryPluginRuntime {
     if (this.activeSessionKey === previousSessionKey) {
       this.activeSessionKey = undefined;
     }
-
-    void this.flushSessionNow(previousSessionKey, reason).catch((error) => {
-      this.logger.warn?.(`[clawxmemory] ${reason} failed session=${previousSessionKey}: ${String(error)}`);
-    });
     this.logger.info?.(
-      `[clawxmemory] opened new conversation window raw_session=${trimmed} previous=${previousSessionKey} next=${nextSessionKey} reason=${reason}`,
+      `[clawxmemory] opened new conversation window raw_session=${trimmed} previous=${previousSessionKey} next=${nextSessionKey} reason=${reason} pending_index=deferred`,
     );
   }
 
@@ -1324,11 +1405,45 @@ export class MemoryPluginRuntime {
   handleBeforeToolCall = (
     event: PluginHookBeforeToolCallEvent,
     ctx: PluginHookToolContext,
-  ): void => {
+  ): PluginHookBeforeToolCallResult | void => {
     this.ensureStarted();
     const rawSessionKey = typeof ctx.sessionKey === "string" ? ctx.sessionKey.trim() : "";
     if (!rawSessionKey || rawSessionKey.startsWith("temp:")) return;
     const query = this.getActiveCase(rawSessionKey)?.query ?? "";
+    const blockedPath = this.resolveBlockedManagedMemoryPath(event.toolName, event.params);
+    if (blockedPath) {
+      const occurredAt = nowIso();
+      if (query) {
+        this.appendCaseToolEvent(rawSessionKey, query, {
+          eventId: buildToolEventId(rawSessionKey, event.toolName, occurredAt),
+          phase: "start",
+          toolName: event.toolName,
+          ...(event.toolCallId ? { toolCallId: event.toolCallId } : {}),
+          occurredAt,
+          status: "running",
+          summary: `${event.toolName} started.`,
+          paramsPreview: previewJson(event.params, 360),
+        });
+        this.appendCaseToolEvent(rawSessionKey, query, {
+          eventId: buildToolEventId(rawSessionKey, event.toolName, occurredAt),
+          phase: "result",
+          toolName: event.toolName,
+          ...(event.toolCallId ? { toolCallId: event.toolCallId } : {}),
+          occurredAt,
+          status: "error",
+          summary: `${event.toolName} blocked by ClawXMemory boundary.`,
+          paramsPreview: previewJson(event.params, 240),
+          resultPreview: `Blocked path: ${blockedPath.displayPath}`,
+        });
+      }
+      this.logger.warn?.(
+        `[clawxmemory] blocked ${event.toolName} targeting managed memory path ${blockedPath.displayPath}`,
+      );
+      return {
+        block: true,
+        blockReason: `ClawXMemory blocks writes to managed memory files (${blockedPath.displayPath}). Use managed ClawXMemory memory instead.`,
+      };
+    }
     if (!query) return;
     const occurredAt = nowIso();
     this.appendCaseToolEvent(rawSessionKey, query, {
@@ -1373,6 +1488,45 @@ export class MemoryPluginRuntime {
     });
   };
 
+  private resolveBlockedManagedMemoryPath(
+    toolName: string,
+    params: Record<string, unknown>,
+  ): { absolutePath: string; displayPath: string } | undefined {
+    if (!BLOCKED_WORKSPACE_MEMORY_TOOL_NAMES.has(toolName)) return undefined;
+    const workspaceDir = this.resolveWorkspaceDir();
+    const workspaceUserPath = join(workspaceDir, "USER.md");
+    const workspaceMemoryManifestPath = join(workspaceDir, "MEMORY.md");
+    const workspaceMemoryDir = join(workspaceDir, "memory");
+    const managedMemoryRoot = resolve(this.config.memoryDir);
+    const rawPaths = collectToolPathParams(params);
+    for (const rawPath of rawPaths) {
+      const resolvedPath = resolveToolPath(rawPath, workspaceDir);
+      if (isPathWithinRoot(resolvedPath, workspaceDir)) {
+        if (normalizeFsComparePath(resolvedPath) === normalizeFsComparePath(workspaceUserPath)) {
+          return { absolutePath: resolvedPath, displayPath: "USER.md" };
+        }
+        if (normalizeFsComparePath(resolvedPath) === normalizeFsComparePath(workspaceMemoryManifestPath)) {
+          return { absolutePath: resolvedPath, displayPath: "MEMORY.md" };
+        }
+        if (
+          isPathWithinRoot(resolvedPath, workspaceMemoryDir)
+          && normalizeFsComparePath(resolvedPath).endsWith(".md")
+        ) {
+          const displayPath = resolvedPath
+            .slice(workspaceDir.length)
+            .replace(/^[/\\]+/, "")
+            .replace(/\\/g, "/");
+          return { absolutePath: resolvedPath, displayPath };
+        }
+      }
+      if (isPathWithinRoot(resolvedPath, managedMemoryRoot)) {
+        const displayPath = `managed-memory/${relative(managedMemoryRoot, resolvedPath).replace(/\\/g, "/") || "."}`;
+        return { absolutePath: resolvedPath, displayPath };
+      }
+    }
+    return undefined;
+  }
+
   handleAgentEnd = async (event: PluginHookAgentEndEvent, ctx: PluginHookAgentContext): Promise<void> => {
     this.ensureStarted();
     if (!this.config.addEnabled) return;
@@ -1389,11 +1543,6 @@ export class MemoryPluginRuntime {
         return;
       }
 
-      if (this.activeSessionKey && this.activeSessionKey !== sessionKey) {
-        void this.flushSessionNow(this.activeSessionKey, "session_boundary").catch((error) => {
-          this.logger.warn?.(`[clawxmemory] session_boundary failed: ${String(error)}`);
-        });
-      }
       this.activeSessionKey = sessionKey;
 
       const pending = this.pendingBySession.get(sessionKey) ?? [];
@@ -1437,14 +1586,12 @@ export class MemoryPluginRuntime {
       });
       if (captured) {
         this.logger.info?.(
-          `[clawxmemory] captured l0 session=${sessionKey} indexed=pending trigger=idle|timer|session_boundary|manual`,
+          `[clawxmemory] captured l0 session=${sessionKey} indexed=pending trigger=explicit_remember|scheduled|manual`,
         );
         if (hasExplicitRememberIntent(messages)) {
           void this.flushSessionNow(sessionKey, "explicit_remember").catch((error) => {
             this.logger.warn?.(`[clawxmemory] explicit_remember flush failed session=${sessionKey}: ${String(error)}`);
           });
-        } else {
-          this.scheduleIdleIndex(sessionKey);
         }
       }
     } finally {
@@ -1481,7 +1628,6 @@ export class MemoryPluginRuntime {
           this.logger.info?.(`[clawxmemory] captured pending l0 before reset session=${sessionKey}`);
         }
       }
-      await this.flushSessionNow(sessionKey, "before_reset");
       if (this.activeSessionKey === sessionKey) {
         this.activeSessionKey = undefined;
       }
@@ -1620,9 +1766,6 @@ export class MemoryPluginRuntime {
     const settings = this.indexer.getSettings();
     if (settings.autoIndexIntervalMinutes > 0) {
       this.autoIndexTimer = setInterval(() => {
-        for (const sessionKey of Array.from(this.debouncedSessions)) {
-          this.clearIdleTimer(sessionKey);
-        }
         void this.requestIndexRun("scheduled").catch((error) => {
           this.logger.warn?.(`[clawxmemory] scheduled index failed: ${String(error)}`);
         });
@@ -1759,7 +1902,7 @@ export class MemoryPluginRuntime {
       if (this.queuePromise) {
         await this.queuePromise;
       }
-      const prepFlush = await this.flushAllNow("dream_prep", { allowWhileDream: true });
+      const prepFlush = emptyStats();
       if (trigger === "scheduled") {
         const settings = this.indexer.getSettings();
         const threshold = Number.isFinite(settings.autoDreamMinNewL1)
@@ -1776,6 +1919,7 @@ export class MemoryPluginRuntime {
         }
       }
       const outcome = await this.dreamRewriter.run();
+      this.repository.getFileMemoryStore().repairManifests();
       const latestL1EndedAt = this.getLatestL1EndedAt();
       this.recordDreamLifecycle("success", outcome.summary, {
         completedAt: nowIso(),
@@ -1947,11 +2091,34 @@ export class MemoryPluginRuntime {
     for (const name of MANAGED_WORKSPACE_FILES) {
       const originalPath = join(workspaceDir, name);
       if (!existsSync(originalPath)) continue;
-      if (nextFiles.some((file) => file.name === name && file.status === "isolated" && existsSync(file.managedPath))) {
-        continue;
-      }
       const managedDir = this.resolveManagedBoundaryDir(workspaceDir);
       mkdirSync(managedDir, { recursive: true });
+      const existingIndex = nextFiles.findIndex((file) => file.name === name);
+      const existingFile = existingIndex >= 0 ? nextFiles[existingIndex] : undefined;
+      if (existingFile?.managedPath && existsSync(existingFile.managedPath)) {
+        const currentHash = hashText(readFileSync(originalPath, "utf-8"));
+        if (currentHash === existingFile.hash) {
+          rmSync(originalPath, { force: true });
+          if (existingFile.status !== "isolated") {
+            nextFiles[existingIndex] = {
+              ...existingFile,
+              status: "isolated",
+            };
+          }
+          action = action === "conflict" ? action : "isolated";
+          continue;
+        }
+        const conflictPath = join(workspaceDir, `${name.replace(/\.md$/i, "")}.clawxmemory-conflict-active-${Date.now().toString(36)}.md`);
+        renameSync(originalPath, conflictPath);
+        nextFiles[existingIndex] = {
+          ...existingFile,
+          status: "conflict",
+          conflictPath,
+        };
+        action = "conflict";
+        this.logger.warn?.(`[clawxmemory] re-isolated regenerated workspace ${name}; preserved original managed copy and stored the new file as conflict.`);
+        continue;
+      }
       const managedPath = join(managedDir, `${name}.${Date.now().toString(36)}.managed.md`);
       renameSync(originalPath, managedPath);
       const hash = hashText(readFileSync(managedPath, "utf-8"));
@@ -1963,7 +2130,6 @@ export class MemoryPluginRuntime {
         isolatedAt: nowIso(),
         status: "isolated",
       };
-      const existingIndex = nextFiles.findIndex((file) => file.name === name);
       if (existingIndex >= 0) nextFiles.splice(existingIndex, 1, nextFile);
       else nextFiles.push(nextFile);
       action = "isolated";

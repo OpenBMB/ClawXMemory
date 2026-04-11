@@ -18,6 +18,9 @@ function createDefaultRepository() {
       totalProjectMemories: 1,
       totalFeedbackMemories: 1,
       totalUserMemories: 1,
+      tmpTotalFiles: 0,
+      tmpProjectMemories: 0,
+      tmpFeedbackMemories: 0,
       changedFilesSinceLastDream: 2,
       queuedSessions: 0,
       lastRecallMs: 0,
@@ -37,6 +40,9 @@ function createDefaultRepository() {
         totalProjectMemories: 1,
         totalFeedbackMemories: 1,
         totalUserMemories: 1,
+        tmpTotalFiles: 0,
+        tmpProjectMemories: 0,
+        tmpFeedbackMemories: 0,
         changedFilesSinceLastDream: 2,
         queuedSessions: 0,
         lastRecallMs: 0,
@@ -79,15 +85,16 @@ function createDefaultRepository() {
     listMemoryEntries: () => [],
     getMemoryRecordsByIds: () => [],
     getFileMemoryStore: () => ({
-      getUserSummary: () => ({
-        profile: "User profile",
-        preferences: ["TypeScript"],
-        constraints: [],
-        relationships: [],
-        files: [],
-      }),
-      listProjectMetas: () => [
-        {
+        getUserSummary: () => ({
+          profile: "User profile",
+          preferences: ["TypeScript"],
+          constraints: [],
+          relationships: [],
+          files: [],
+        }),
+        getRootDir: () => "/tmp/memory",
+        listProjectMetas: () => [
+          {
           projectId: "proj-a",
           projectName: "Project A",
           description: "Project A description",
@@ -149,6 +156,19 @@ async function startUiServer(
         prunedProfileL1Refs: 0,
         summary: "noop",
       }),
+      clearMemoryNow: async () => ({
+        cleared: {
+          activeTopics: 0,
+          links: 0,
+          l2Project: 0,
+          l2Time: 0,
+          l1: 0,
+          l0: 0,
+          profile: 0,
+          pipelineState: 0,
+        },
+        clearedAt: "2026-04-01T00:00:00.000Z",
+      }),
       exportMemoryBundle: () => ({ exportedAt: "2026-04-01T00:00:00.000Z" }),
       importMemoryBundle: async () => ({ imported: {} }),
       getRuntimeOverview: () => ({
@@ -164,6 +184,8 @@ async function startUiServer(
       getStartupRepairSnapshot: () => undefined,
       listCaseTraces: () => [],
       getCaseTrace: () => undefined,
+      listIndexTraces: () => [],
+      getIndexTrace: () => undefined,
       ...controls,
     } as never,
     {},
@@ -215,7 +237,9 @@ describe("LocalUiServer static assets", () => {
     expect(html).toContain('rel="icon"');
     expect(html).toContain("./assets/brand/logo.png");
     expect(html).toContain('data-page="memory_trace"');
+    expect(html).toContain('data-page="tmp"');
     expect(html).toContain('id="memoryTraceBoard"');
+    expect(html).toContain('id="tmpBoard"');
     expect(html).toContain('id="dreamRunBtn"');
     expect(html).toContain('id="autoIndexIntervalHoursInput"');
     expect(html).toContain('id="autoDreamIntervalHoursInput"');
@@ -318,6 +342,49 @@ describe("LocalUiServer static assets", () => {
     expect(removedResponse.status).toBe(404);
   });
 
+  it("serves recent index traces", async () => {
+    const indexTraceRecord = {
+      indexTraceId: "index-trace-1",
+      sessionKey: "session-a",
+      trigger: "manual_sync",
+      startedAt: "2026-04-01T00:00:00.000Z",
+      finishedAt: "2026-04-01T00:00:01.000Z",
+      status: "completed",
+      batchSummary: {
+        l0Ids: ["l0-1", "l0-2"],
+        segmentCount: 2,
+        focusUserTurnCount: 2,
+        fromTimestamp: "2026-04-01T00:00:00.000Z",
+        toTimestamp: "2026-04-01T00:01:00.000Z",
+      },
+      steps: [],
+      storedResults: [
+        {
+          candidateType: "feedback",
+          candidateName: "delivery-rule",
+          scope: "project",
+          projectId: "_tmp",
+          relativePath: "projects/_tmp/Feedback/delivery-rule.md",
+          storageKind: "tmp_feedback",
+        },
+      ],
+    };
+    const baseUrl = await startUiServer({
+      controls: {
+        listIndexTraces: () => [indexTraceRecord],
+        getIndexTrace: (indexTraceId: string) => (indexTraceId === "index-trace-1" ? indexTraceRecord : undefined),
+      },
+    });
+
+    const listResponse = await fetch(`${baseUrl}/api/index-traces`);
+    expect(listResponse.status).toBe(200);
+    await expect(listResponse.json()).resolves.toEqual([indexTraceRecord]);
+
+    const detailResponse = await fetch(`${baseUrl}/api/index-traces/index-trace-1`);
+    expect(detailResponse.status).toBe(200);
+    await expect(detailResponse.json()).resolves.toEqual(indexTraceRecord);
+  });
+
   it("routes manual Dream runs through POST /api/dream/run", async () => {
     const runDreamNow = vi.fn().mockResolvedValue({
       prepFlush: { l0Captured: 1, l1Created: 1, l2TimeUpdated: 0, l2ProjectUpdated: 1, profileUpdated: 1, failed: 0 },
@@ -393,6 +460,77 @@ describe("LocalUiServer static assets", () => {
     const summaryResponse = await fetch(`${baseUrl}/api/memory/user-summary`);
     expect(summaryResponse.status).toBe(200);
     await expect(summaryResponse.json()).resolves.toEqual(userSummary);
+  });
+
+  it("serves tmp staged memory separately from formal projects", async () => {
+    const tmpProjectRecord = {
+      name: "Aster",
+      description: "Move OpenClaw memory to markdown files",
+      type: "project",
+      scope: "project",
+      projectId: "_tmp",
+      updatedAt: "2026-04-09T11:13:53.477Z",
+      capturedAt: "2026-04-09T11:13:50.000Z",
+      sourceSessionKey: "session-aster",
+      dreamAttempts: 1,
+      file: "aster.md",
+      relativePath: "projects/_tmp/Project/aster.md",
+      absolutePath: "/tmp/memory/projects/_tmp/Project/aster.md",
+      content: "## Current Stage\nMove the memory system to markdown files.",
+      preview: "Move the memory system to markdown files.",
+    };
+    const tmpFeedbackRecord = {
+      name: "collaboration-rule",
+      description: "Status updates should lead with completed work and then risks.",
+      type: "feedback",
+      scope: "project",
+      projectId: "_tmp",
+      updatedAt: "2026-04-09T11:13:53.480Z",
+      capturedAt: "2026-04-09T11:13:51.000Z",
+      sourceSessionKey: "session-aster",
+      dreamAttempts: 2,
+      file: "collaboration-rule.md",
+      relativePath: "projects/_tmp/Feedback/collaboration-rule.md",
+      absolutePath: "/tmp/memory/projects/_tmp/Feedback/collaboration-rule.md",
+      content: "## Rule\nLead with completed work.\n\n## Why\n\n## How to apply\n在这个项目里给我同步进展时\n",
+      preview: "Lead with completed work.",
+    };
+
+    const baseUrl = await startUiServer({
+      repository: {
+        listMemoryEntries: vi.fn().mockImplementation((options: Record<string, unknown>) => {
+          if (options.projectId === "_tmp" && options.includeTmp === true) {
+            return [tmpFeedbackRecord, tmpProjectRecord];
+          }
+          return [];
+        }),
+        getMemoryRecordsByIds: vi.fn().mockReturnValue([tmpProjectRecord, tmpFeedbackRecord]),
+        getFileMemoryStore: () => ({
+          getUserSummary: () => ({
+            profile: "",
+            preferences: [],
+            constraints: [],
+            relationships: [],
+            files: [],
+          }),
+          getRootDir: () => "/tmp/memory",
+          listProjectMetas: () => [],
+        }),
+      },
+    });
+
+    const response = await fetch(`${baseUrl}/api/tmp`);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(
+      expect.objectContaining({
+        manifestPath: "projects/_tmp/MEMORY.md",
+        totalFiles: 2,
+        totalProjects: 1,
+        totalFeedback: 1,
+        projectEntries: [tmpProjectRecord],
+        feedbackEntries: [tmpFeedbackRecord],
+      }),
+    );
   });
 
   it("serves project-centric grouped memory for the dashboard", async () => {
@@ -527,5 +665,44 @@ describe("LocalUiServer static assets", () => {
       autoDreamMinNewL1: 15,
       dreamProjectRebuildTimeoutMs: 0,
     }));
+  });
+});
+
+describe("LocalUiServer API", () => {
+  it("delegates clear requests to runtime controls instead of clearing the repository directly", async () => {
+    const clearMemoryNow = vi.fn().mockResolvedValue({
+      cleared: {
+        activeTopics: 1,
+        links: 2,
+        l2Project: 3,
+        l2Time: 4,
+        l1: 5,
+        l0: 6,
+        profile: 1,
+        pipelineState: 7,
+      },
+      clearedAt: "2026-04-10T00:00:00.000Z",
+    });
+    const repository = {
+      ...createDefaultRepository(),
+      clearAllMemoryData: vi.fn(() => {
+        throw new Error("repository.clearAllMemoryData should not be called directly");
+      }),
+    };
+    const baseUrl = await startUiServer({
+      controls: { clearMemoryNow },
+      repository,
+    });
+
+    const response = await fetch(`${baseUrl}/api/clear`, { method: "POST" });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      clearedAt: "2026-04-10T00:00:00.000Z",
+      cleared: expect.objectContaining({
+        l0: 6,
+        pipelineState: 7,
+      }),
+    });
+    expect(clearMemoryNow).toHaveBeenCalledTimes(1);
   });
 });

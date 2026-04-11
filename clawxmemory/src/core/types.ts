@@ -340,6 +340,68 @@ export interface RetrievalPromptDebug {
   errorMessage?: string;
 }
 
+export type IndexTraceTrigger = "explicit_remember" | "manual_sync" | "scheduled";
+export type IndexTraceStatus = "running" | "completed" | "error";
+export type IndexTraceStorageKind =
+  | "global_user"
+  | "tmp_project"
+  | "tmp_feedback"
+  | "formal_project"
+  | "formal_feedback";
+
+export interface IndexTraceBatchSummary {
+  l0Ids: string[];
+  segmentCount: number;
+  focusUserTurnCount: number;
+  fromTimestamp: string;
+  toTimestamp: string;
+}
+
+export interface IndexTraceStoredResult {
+  candidateType: MemoryRecordType;
+  candidateName: string;
+  scope: MemoryScope;
+  projectId?: string;
+  relativePath: string;
+  storageKind: IndexTraceStorageKind;
+}
+
+export type IndexTraceStepKind =
+  | "index_start"
+  | "batch_loaded"
+  | "focus_turns_selected"
+  | "turn_classified"
+  | "candidate_validated"
+  | "candidate_grouped"
+  | "candidate_persisted"
+  | "user_profile_rewritten"
+  | "index_finished";
+
+export interface IndexTraceStep {
+  stepId: string;
+  kind: IndexTraceStepKind;
+  title: string;
+  status: "info" | "success" | "warning" | "error" | "skipped";
+  inputSummary: string;
+  outputSummary: string;
+  refs?: Record<string, unknown>;
+  metrics?: Record<string, unknown>;
+  details?: RetrievalTraceDetail[];
+  promptDebug?: RetrievalPromptDebug;
+}
+
+export interface IndexTraceRecord {
+  indexTraceId: string;
+  sessionKey: string;
+  trigger: IndexTraceTrigger;
+  startedAt: string;
+  finishedAt?: string;
+  status: IndexTraceStatus;
+  batchSummary: IndexTraceBatchSummary;
+  steps: IndexTraceStep[];
+  storedResults: IndexTraceStoredResult[];
+}
+
 export type RetrievalTraceStepKind =
   | "recall_start"
   | "cache_hit"
@@ -460,6 +522,7 @@ export type StartupRepairStatus = "idle" | "running" | "failed";
 export interface DashboardOverview {
   totalL0: number;
   pendingL0: number;
+  pendingSegments?: number;
   openTopics: number;
   totalL1: number;
   totalL2Time: number;
@@ -469,6 +532,9 @@ export interface DashboardOverview {
   totalUserMemories?: number;
   totalFeedbackMemories?: number;
   totalProjectMemories?: number;
+  tmpTotalFiles?: number;
+  tmpProjectMemories?: number;
+  tmpFeedbackMemories?: number;
   queuedSessions: number;
   lastRecallMs: number;
   recallTimeouts: number;

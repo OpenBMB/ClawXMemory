@@ -106,5 +106,15 @@ describe("plugin entry", () => {
       "memory_flush",
       "memory_dream",
     ]);
+
+    const promptBuilder = registerMemoryPromptSection.mock.calls[0]?.[0] as (input: {
+      availableTools: Set<string>;
+      citationsMode: "off" | "inline";
+    }) => string[];
+    const promptLines = promptBuilder({
+      availableTools: new Set(["memory_search", "memory_get", "memory_overview", "memory_flush", "memory_dream"]),
+      citationsMode: "inline",
+    });
+    expect(promptLines.join("\n")).toContain("Do not create or maintain long-term memory in workspace files such as memory/*.md, USER.md, or MEMORY.md, and do not write directly into ClawXMemory's managed memory directory.");
   });
 });

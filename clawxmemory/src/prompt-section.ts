@@ -33,6 +33,8 @@ export const buildMemoryPromptSection: MemoryPromptSectionBuilder = ({ available
       : undefined,
     "Treat injected ClawXMemory recall context and memory file tools as the authoritative long-term memory source for the current turn.",
     "ClawXMemory uses file-based memory manifests and memory files as its durable memory source.",
+    "Do not create or maintain long-term memory in workspace files such as memory/*.md, USER.md, or MEMORY.md, and do not write directly into ClawXMemory's managed memory directory. Use ClawXMemory's managed memory flow instead.",
+    "Never call write, edit, move, rename, or delete tools on workspace memory files or ClawXMemory-managed memory paths. Those paths are reserved for ClawXMemory runtime ownership.",
   ].filter((line): line is string => Boolean(line));
 
   if (citationsMode === "off") {

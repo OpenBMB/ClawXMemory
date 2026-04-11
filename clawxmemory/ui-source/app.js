@@ -3,6 +3,7 @@
 const LOCALES = {
   zh: {
     "nav.project": "项目记忆",
+    "nav.tmp": "Tmp 暂存",
     "nav.feedback": "协作反馈",
     "nav.user": "用户画像",
     "nav.memory_trace": "记忆追踪",
@@ -70,6 +71,9 @@ const LOCALES = {
     "overview.totalProjectMemories": "Project",
     "overview.totalFeedbackMemories": "Feedback",
     "overview.totalUserMemories": "User",
+    "overview.tmpTotalFiles": "Tmp Files",
+    "overview.tmpProjectMemories": "Tmp Project",
+    "overview.tmpFeedbackMemories": "Tmp Feedback",
     "overview.pendingL0": "待索引会话",
     "overview.changedFilesSinceLastDream": "Dream 后变更文件",
     "overview.queued": "排队 Session",
@@ -123,24 +127,39 @@ const LOCALES = {
     "status.searched": "搜索完成",
     "status.loadFail": "加载失败：{0}",
     "level.project.label": "项目记忆",
+    "level.tmp.label": "Tmp 暂存",
     "level.feedback.label": "协作反馈",
     "level.user.label": "用户画像",
     "level.memory_trace.label": "记忆追踪",
     "level.project.empty": "暂无项目记忆",
+    "level.tmp.empty": "暂无 Tmp 暂存记忆",
     "level.feedback.empty": "暂无协作反馈",
     "level.user.empty": "暂无用户画像记忆",
     "level.memory_trace.empty": "暂无记忆追踪案例",
     "board.project": "项目记忆",
+    "board.tmp": "Tmp 暂存",
     "board.feedback": "协作反馈",
+    "board.tmp.manifest": "_tmp 索引",
+    "board.tmp.projectFiles": "待整理项目文件",
+    "board.tmp.feedbackFiles": "待整理协作反馈",
     "board.user": "用户画像",
     "board.memoryTrace": "记忆追踪",
     "board.user.empty": "暂无可展示的用户画像",
     "board.user.sources": "来源文件",
     "board.memoryTrace.empty": "暂无真实对话案例",
+    "board.memoryTrace.emptyIndex": "暂无索引追溯记录",
     "board.memoryTrace.selectCase": "选择案例",
+    "board.memoryTrace.selectIndexTrace": "选择索引批次",
+    "board.memoryTrace.modeRecall": "Recall",
+    "board.memoryTrace.modeIndex": "Index",
+    "board.memoryTrace.filterAll": "全部触发",
+    "board.memoryTrace.filterExplicitRemember": "显式记住",
+    "board.memoryTrace.filterManualSync": "手动同步",
+    "board.memoryTrace.filterScheduled": "自动定时",
     "board.memoryTrace.query": "问题",
     "board.memoryTrace.session": "Session",
     "board.memoryTrace.mode": "模式",
+    "board.memoryTrace.trigger": "触发来源",
     "board.memoryTrace.status": "状态",
     "board.memoryTrace.injected": "注入",
     "board.memoryTrace.enoughAt": "停止层级",
@@ -152,8 +171,15 @@ const LOCALES = {
     "board.memoryTrace.answer": "最终回答",
     "board.memoryTrace.finalNote": "最终记忆笔记",
     "board.memoryTrace.flow": "推理过程",
+    "board.memoryTrace.batchWindow": "批次时间范围",
+    "board.memoryTrace.storedResults": "最终写入",
+    "board.memoryTrace.focusTurns": "Focus User Turns",
+    "board.memoryTrace.segmentCount": "Segments",
+    "board.memoryTrace.l0Count": "L0 数量",
     "board.memoryTrace.noTrace": "该案例没有可展示的 recall trace。",
-    "board.memoryTrace.noStep": "展开步骤查看结构化细节与完整 prompt。",
+    "board.memoryTrace.noStep": "该步骤没有可展示的结构化细节。",
+    "board.memoryTrace.noPromptDebug": "该步骤没有模型 Prompt 调试数据，通常表示它是本地代码判断步骤。",
+    "board.memoryTrace.promptHint": "完整 Prompt 调试可在下方展开。",
     "board.project.feedbackCount": "{0} 条反馈",
     "board.project.memoryCount": "{0} 条项目记忆",
     "board.memoryTrace.promptDebug": "完整 Prompt 调试",
@@ -165,6 +191,9 @@ const LOCALES = {
     "meta.scope": "Scope",
     "meta.projectId": "Project",
     "meta.updatedAt": "Updated",
+    "meta.capturedAt": "Captured",
+    "meta.sessionKey": "Session",
+    "meta.dreamAttempts": "Dream Attempts",
     "meta.path": "Path",
     "meta.file": "File",
     "meta.counts": "文件数",
@@ -219,10 +248,23 @@ const LOCALES = {
     "trace.step.context_rendered": "Context Rendered",
     "trace.step.recall_skipped": "Recall Skipped",
     "trace.step.cache_hit": "Cache Hit",
+    "trace.step.index_start": "Index Start",
+    "trace.step.batch_loaded": "Batch Loaded",
+    "trace.step.focus_turns_selected": "Focus Turns Selected",
+    "trace.step.turn_classified": "Turn Classified",
+    "trace.step.candidate_validated": "Candidate Validated",
+    "trace.step.candidate_grouped": "Candidate Grouped",
+    "trace.step.candidate_persisted": "Candidate Persisted",
+    "trace.step.user_profile_rewritten": "User Profile Rewritten",
+    "trace.step.index_finished": "Index Finished",
     "trace.step.unknown": "Trace Step",
+    "trigger.explicit_remember": "显式记住",
+    "trigger.manual_sync": "手动同步",
+    "trigger.scheduled": "自动定时",
   },
   en: {
     "nav.project": "Project",
+    "nav.tmp": "Tmp",
     "nav.feedback": "Feedback",
     "nav.user": "User",
     "nav.memory_trace": "Trace",
@@ -290,6 +332,9 @@ const LOCALES = {
     "overview.totalProjectMemories": "Project",
     "overview.totalFeedbackMemories": "Feedback",
     "overview.totalUserMemories": "User",
+    "overview.tmpTotalFiles": "Tmp Files",
+    "overview.tmpProjectMemories": "Tmp Project",
+    "overview.tmpFeedbackMemories": "Tmp Feedback",
     "overview.pendingL0": "Pending Sessions",
     "overview.changedFilesSinceLastDream": "Changed Since Dream",
     "overview.queued": "Queued Sessions",
@@ -343,24 +388,39 @@ const LOCALES = {
     "status.searched": "Search complete",
     "status.loadFail": "Load failed: {0}",
     "level.project.label": "Project Memory",
+    "level.tmp.label": "Tmp Staging",
     "level.feedback.label": "Feedback Rules",
     "level.user.label": "User Portrait",
     "level.memory_trace.label": "Memory Trace",
     "level.project.empty": "No project memories yet",
+    "level.tmp.empty": "No tmp staged memory",
     "level.feedback.empty": "No feedback memories yet",
     "level.user.empty": "No user memories yet",
     "level.memory_trace.empty": "No traced conversations yet",
     "board.project": "Project Memory",
+    "board.tmp": "Tmp Staging",
     "board.feedback": "Feedback Rules",
+    "board.tmp.manifest": "_tmp Manifest",
+    "board.tmp.projectFiles": "Tmp Project Files",
+    "board.tmp.feedbackFiles": "Tmp Feedback Files",
     "board.user": "User Portrait",
     "board.memoryTrace": "Memory Trace",
     "board.user.empty": "No user portrait is available yet",
     "board.user.sources": "Source Files",
     "board.memoryTrace.empty": "No real traced conversations yet",
+    "board.memoryTrace.emptyIndex": "No index trace records yet",
     "board.memoryTrace.selectCase": "Select Case",
+    "board.memoryTrace.selectIndexTrace": "Select Index Batch",
+    "board.memoryTrace.modeRecall": "Recall",
+    "board.memoryTrace.modeIndex": "Index",
+    "board.memoryTrace.filterAll": "All Triggers",
+    "board.memoryTrace.filterExplicitRemember": "Explicit Remember",
+    "board.memoryTrace.filterManualSync": "Manual Sync",
+    "board.memoryTrace.filterScheduled": "Scheduled",
     "board.memoryTrace.query": "Query",
     "board.memoryTrace.session": "Session",
     "board.memoryTrace.mode": "Mode",
+    "board.memoryTrace.trigger": "Trigger",
     "board.memoryTrace.status": "Status",
     "board.memoryTrace.injected": "Injected",
     "board.memoryTrace.enoughAt": "Enough At",
@@ -372,8 +432,15 @@ const LOCALES = {
     "board.memoryTrace.answer": "Final Answer",
     "board.memoryTrace.finalNote": "Final Memory Note",
     "board.memoryTrace.flow": "Trace Flow",
+    "board.memoryTrace.batchWindow": "Batch Window",
+    "board.memoryTrace.storedResults": "Stored Results",
+    "board.memoryTrace.focusTurns": "Focus User Turns",
+    "board.memoryTrace.segmentCount": "Segments",
+    "board.memoryTrace.l0Count": "L0 Count",
     "board.memoryTrace.noTrace": "This case does not contain a retrieval trace.",
-    "board.memoryTrace.noStep": "Expand a step to inspect structured details and prompt debug.",
+    "board.memoryTrace.noStep": "This step does not contain structured details.",
+    "board.memoryTrace.noPromptDebug": "This step has no model prompt debug data, usually because it is a local code decision.",
+    "board.memoryTrace.promptHint": "Prompt debug is available below.",
     "board.project.feedbackCount": "{0} feedback",
     "board.project.memoryCount": "{0} project memories",
     "board.memoryTrace.promptDebug": "Prompt Debug",
@@ -385,6 +452,9 @@ const LOCALES = {
     "meta.scope": "Scope",
     "meta.projectId": "Project",
     "meta.updatedAt": "Updated",
+    "meta.capturedAt": "Captured",
+    "meta.sessionKey": "Session",
+    "meta.dreamAttempts": "Dream Attempts",
     "meta.path": "Path",
     "meta.file": "File",
     "meta.counts": "Counts",
@@ -439,7 +509,19 @@ const LOCALES = {
     "trace.step.context_rendered": "Context Rendered",
     "trace.step.recall_skipped": "Recall Skipped",
     "trace.step.cache_hit": "Cache Hit",
+    "trace.step.index_start": "Index Start",
+    "trace.step.batch_loaded": "Batch Loaded",
+    "trace.step.focus_turns_selected": "Focus Turns Selected",
+    "trace.step.turn_classified": "Turn Classified",
+    "trace.step.candidate_validated": "Candidate Validated",
+    "trace.step.candidate_grouped": "Candidate Grouped",
+    "trace.step.candidate_persisted": "Candidate Persisted",
+    "trace.step.user_profile_rewritten": "User Profile Rewritten",
+    "trace.step.index_finished": "Index Finished",
     "trace.step.unknown": "Trace Step",
+    "trigger.explicit_remember": "Explicit Remember",
+    "trigger.manual_sync": "Manual Sync",
+    "trigger.scheduled": "Scheduled",
   },
 };
 
@@ -451,7 +533,7 @@ const STORAGE = {
   locale: "clawxmemory.ui.locale",
 };
 
-const LEVELS = ["project", "user", "memory_trace"];
+const LEVELS = ["project", "tmp", "user", "memory_trace"];
 const DEFAULT_SETTINGS = {
   reasoningMode: "answer_first",
   recallTopK: 5,
@@ -500,6 +582,7 @@ const fileDetailTitle = document.getElementById("fileDetailTitle");
 const fileDetailSubtitle = document.getElementById("fileDetailSubtitle");
 const fileDetailMeta = document.getElementById("fileDetailMeta");
 const fileDetailBody = document.getElementById("fileDetailBody");
+const tmpBoard = document.getElementById("tmpBoard");
 const userBoard = document.getElementById("userBoard");
 const memoryTraceBoard = document.getElementById("memoryTraceBoard");
 const listSearchRow = document.getElementById("listSearchRow");
@@ -534,10 +617,13 @@ const state = {
   queries: {
     project_list: "",
     project_detail: "",
+    tmp: "",
     memory_trace: "",
   },
   projectGroups: [],
   projectGroupsLoaded: false,
+  tmpSnapshot: null,
+  tmpLoaded: false,
   userSummary: null,
   userSummaryLoaded: false,
   recordCache: new Map(),
@@ -546,9 +632,17 @@ const state = {
   caseDetailCache: new Map(),
   selectedCaseId: "",
   activeTraceStepId: "",
+  indexTraces: [],
+  indexTraceRequestLoaded: false,
+  indexTraceDetailCache: new Map(),
+  selectedIndexTraceId: "",
+  activeIndexTraceStepId: "",
+  traceMode: "recall",
+  indexTraceFilterTrigger: "all",
   selectedProjectId: "",
   selectedFileId: "",
   selectedFileType: "",
+  fileReturnView: "project-list",
   settingsPopoverOpen: false,
   traceSelectorOpen: false,
   modalResolver: null,
@@ -596,11 +690,34 @@ function escapeQueryValue(value) {
   return encodeURIComponent(String(value || ""));
 }
 
+function decodeEscapedTraceText(value) {
+  const raw = String(value ?? "");
+  if (!raw.includes("\\")) return raw;
+  const hasEscapes = /\\u[0-9a-fA-F]{4}|\\[nrt"\\]/.test(raw);
+  if (!hasEscapes) return raw;
+  return raw
+    .replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) => String.fromCharCode(Number.parseInt(hex, 16)))
+    .replace(/\\r/g, "\r")
+    .replace(/\\n/g, "\n")
+    .replace(/\\t/g, "\t")
+    .replace(/\\"/g, "\"")
+    .replace(/\\\\/g, "\\");
+}
+
+function decodeEscapedTraceValue(value) {
+  if (typeof value === "string") return decodeEscapedTraceText(value);
+  if (Array.isArray(value)) return value.map((item) => decodeEscapedTraceValue(item));
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [key, decodeEscapedTraceValue(item)]),
+  );
+}
+
 function safeJson(value) {
   try {
-    return JSON.stringify(value, null, 2);
+    return JSON.stringify(decodeEscapedTraceValue(value), null, 2);
   } catch {
-    return String(value);
+    return decodeEscapedTraceText(String(value));
   }
 }
 
@@ -745,12 +862,18 @@ function getVisibleProjectGroups() {
 }
 
 function getCurrentLevel() {
+  if (state.mainView === "file-detail" && state.fileReturnView === "tmp") return "tmp";
+  if (state.mainView === "file-detail" && state.fileReturnView === "user") return "user";
+  if (state.mainView === "tmp") return "tmp";
   if (state.mainView === "user") return "user";
   if (state.mainView === "memory_trace") return "memory_trace";
   return "project";
 }
 
 function getNavPage() {
+  if (state.mainView === "file-detail" && state.fileReturnView === "tmp") return "tmp";
+  if (state.mainView === "file-detail" && state.fileReturnView === "user") return "user";
+  if (state.mainView === "tmp") return "tmp";
   if (state.mainView === "user") return "user";
   if (state.mainView === "memory_trace") return "memory_trace";
   return "project";
@@ -759,14 +882,16 @@ function getNavPage() {
 function getCurrentSearchKey() {
   if (state.mainView === "project-list") return "project_list";
   if (state.mainView === "project-detail") return "project_detail";
+  if (state.mainView === "tmp") return "tmp";
   if (state.mainView === "memory_trace") return "memory_trace";
   return "";
 }
 
 function getMemoryCount(level) {
   if (level === "project") return state.projectGroups.length;
+  if (level === "tmp") return Number(state.tmpSnapshot?.totalFiles || state.overview.tmpTotalFiles || 0);
   if (level === "user") return safeArray(state.userSummary?.files).length || Number(state.overview.totalUserMemories || 0);
-  if (level === "memory_trace") return state.cases.length;
+  if (level === "memory_trace") return state.traceMode === "index" ? state.indexTraces.length : state.cases.length;
   return 0;
 }
 
@@ -774,6 +899,7 @@ function getViewElement(view) {
   if (view === "project-list") return projectListBoard;
   if (view === "project-detail") return projectDetailBoard;
   if (view === "file-detail") return fileDetailBoard;
+  if (view === "tmp") return tmpBoard;
   if (view === "user") return userBoard;
   return memoryTraceBoard;
 }
@@ -930,9 +1056,25 @@ function extractDownloadFilename(response, fallback) {
 function invalidateMemoryCaches() {
   state.projectGroups = [];
   state.projectGroupsLoaded = false;
+  state.tmpSnapshot = null;
+  state.tmpLoaded = false;
   state.userSummary = null;
   state.userSummaryLoaded = false;
   state.recordCache.clear();
+}
+
+function invalidateTraceCaches() {
+  state.cases = [];
+  state.caseRequestLoaded = false;
+  state.caseDetailCache.clear();
+  state.selectedCaseId = "";
+  state.activeTraceStepId = "";
+  state.indexTraces = [];
+  state.indexTraceRequestLoaded = false;
+  state.indexTraceDetailCache.clear();
+  state.selectedIndexTraceId = "";
+  state.activeIndexTraceStepId = "";
+  state.traceSelectorOpen = false;
 }
 
 async function loadSnapshot({ silent = false } = {}) {
@@ -959,6 +1101,15 @@ async function loadProjectGroups({ force = false } = {}) {
   state.projectGroups = safeArray(await fetchJson(`./api/projects?${params.join("&")}`));
   state.projectGroupsLoaded = true;
   return state.projectGroups;
+}
+
+async function loadTmpSnapshot({ force = false } = {}) {
+  if (state.tmpLoaded && !force) return state.tmpSnapshot;
+  const params = ["limit=200"];
+  if (normalizeText(state.queries.tmp)) params.push(`q=${escapeQueryValue(state.queries.tmp)}`);
+  state.tmpSnapshot = await fetchJson(`./api/tmp?${params.join("&")}`);
+  state.tmpLoaded = true;
+  return state.tmpSnapshot;
 }
 
 async function loadUserSummary({ force = false } = {}) {
@@ -1014,10 +1165,39 @@ async function loadCaseDetail(caseId, { force = false } = {}) {
   return detail;
 }
 
+async function loadIndexTraces({ force = false } = {}) {
+  if (state.indexTraceRequestLoaded && !force) return state.indexTraces;
+  state.indexTraces = safeArray(await fetchJson("./api/index-traces?limit=30"));
+  state.indexTraceRequestLoaded = true;
+  if (!state.selectedIndexTraceId && state.indexTraces[0]) {
+    state.selectedIndexTraceId = state.indexTraces[0].indexTraceId;
+  }
+  if (state.selectedIndexTraceId) {
+    await loadIndexTraceDetail(state.selectedIndexTraceId);
+  }
+  renderNav();
+  return state.indexTraces;
+}
+
+async function loadIndexTraceDetail(indexTraceId, { force = false } = {}) {
+  if (!indexTraceId) return null;
+  if (!force && state.indexTraceDetailCache.has(indexTraceId)) return state.indexTraceDetailCache.get(indexTraceId);
+  const detail = await fetchJson(`./api/index-traces/${encodeURIComponent(indexTraceId)}`);
+  state.indexTraceDetailCache.set(indexTraceId, detail);
+  if (!state.activeIndexTraceStepId) {
+    state.activeIndexTraceStepId = safeArray(detail?.steps)[0]?.stepId || "";
+  }
+  return detail;
+}
+
 async function ensureActiveData({ force = false } = {}) {
   const level = getCurrentLevel();
   if (level === "project") {
     await loadProjectGroups({ force });
+    return;
+  }
+  if (level === "tmp") {
+    await loadTmpSnapshot({ force });
     return;
   }
   if (level === "user") {
@@ -1025,7 +1205,11 @@ async function ensureActiveData({ force = false } = {}) {
     return;
   }
   if (level === "memory_trace") {
-    await loadCases({ force });
+    if (state.traceMode === "index") {
+      await loadIndexTraces({ force });
+    } else {
+      await loadCases({ force });
+    }
   }
 }
 
@@ -1159,8 +1343,8 @@ function createMetricGrid(cells) {
 function renderOverview() {
   if (!overviewCards) return;
   const overview = state.overview || {};
-  const memoryGroup = createOverviewGroup(
-    t("overview.group.memory"),
+  const memoryBody = el("div");
+  memoryBody.append(
     createHeroRow([
       { value: formatNumber(overview.totalMemoryFiles || 0), label: t("overview.totalMemoryFiles") },
       { value: formatNumber(overview.totalProjectMemories || 0), label: t("overview.totalProjectMemories") },
@@ -1169,6 +1353,17 @@ function renderOverview() {
       { value: formatNumber(overview.pendingL0 || 0), label: t("overview.pendingL0") },
       { value: formatNumber(overview.changedFilesSinceLastDream || 0), label: t("overview.changedFilesSinceLastDream") },
     ]),
+  );
+  memoryBody.append(
+    createMetricGrid([
+      { label: t("overview.tmpTotalFiles"), value: formatNumber(overview.tmpTotalFiles || 0) },
+      { label: t("overview.tmpProjectMemories"), value: formatNumber(overview.tmpProjectMemories || 0) },
+      { label: t("overview.tmpFeedbackMemories"), value: formatNumber(overview.tmpFeedbackMemories || 0) },
+    ]),
+  );
+  const memoryGroup = createOverviewGroup(
+    t("overview.group.memory"),
+    memoryBody,
   );
 
   const recallGroup = createOverviewGroup(
@@ -1254,8 +1449,8 @@ function fillRecordDetail(metaNode, bodyNode, record) {
     appendListSection(bodyNode, t("detail.relationships"), readListFromSection(sections.get("Relationships")), { showEmpty: true });
   } else if (record.type === "feedback") {
     appendTextSection(bodyNode, t("detail.rule"), readTextFromSection(sections.get("Rule")) || record.description);
-    appendTextSection(bodyNode, t("detail.why"), readTextFromSection(sections.get("Why")));
-    appendTextSection(bodyNode, t("detail.howToApply"), readTextFromSection(sections.get("How to apply")));
+    appendTextSection(bodyNode, t("detail.why"), readTextFromSection(sections.get("Why")), { showEmpty: true });
+    appendTextSection(bodyNode, t("detail.howToApply"), readTextFromSection(sections.get("How to apply")), { showEmpty: true });
     appendListSection(bodyNode, t("detail.notes"), readListFromSection(sections.get("Notes")));
   } else {
     appendTextSection(bodyNode, t("detail.currentStage"), readTextFromSection(sections.get("Current Stage")) || record.description);
@@ -1282,7 +1477,33 @@ function appendMemoryFileListSection(container, label, entries, projectId) {
       badge: t(`type.${entry.type}`),
       meta: meta.join(" · "),
       active: state.selectedFileId === entry.relativePath,
-      onClick: () => void openMemoryDetail(entry.relativePath, { projectId }),
+      onClick: () => void openMemoryDetail(entry.relativePath, { projectId, originView: "project-detail" }),
+    }));
+  });
+  section.append(list);
+  container.append(section);
+}
+
+function appendTmpFileListSection(container, label, entries) {
+  if (!safeArray(entries).length) return;
+  const section = el("section", "detail-section");
+  section.append(el("h4", "", label));
+  const list = el("div", "entry-stream detail-file-list");
+  safeArray(entries).forEach((record) => {
+    const meta = [
+      formatDateTime(record.updatedAt),
+      record.relativePath || t("common.none"),
+      `${t("meta.capturedAt")}: ${formatDateTime(record.capturedAt)}`,
+      `${t("meta.sessionKey")}: ${normalizeText(record.sourceSessionKey) || t("common.none")}`,
+      `${t("meta.dreamAttempts")}: ${formatNumber(Number(record.dreamAttempts || 0))}`,
+    ];
+    list.append(createEntryCard({
+      title: record.name || record.file || t("common.unknown"),
+      subtitle: record.description || record.preview || t("common.none"),
+      badge: t(`type.${record.type}`),
+      meta: meta.join(" · "),
+      active: state.selectedFileId === record.relativePath,
+      onClick: () => void openMemoryDetail(record.relativePath, { originView: "tmp" }),
     }));
   });
   section.append(list);
@@ -1348,9 +1569,30 @@ function renderProjectDetailView(group) {
   }
 }
 
+function renderTmpBoard() {
+  if (!tmpBoard) return;
+  clearNode(tmpBoard);
+  const snapshot = state.tmpSnapshot;
+  if (!snapshot || !Number(snapshot.totalFiles || 0)) {
+    tmpBoard.append(createEmptyState(t("level.tmp.empty")));
+    return;
+  }
+
+  const page = el("section", "profile-board-card");
+  const manifestSection = el("section", "detail-section");
+  manifestSection.append(el("h4", "", t("board.tmp.manifest")));
+  manifestSection.append(el("p", "", snapshot.manifestPath || t("common.none")));
+  manifestSection.append(el("pre", "memory-trace-code", normalizeText(snapshot.manifestContent) || t("common.none")));
+  page.append(manifestSection);
+
+  appendTmpFileListSection(page, t("board.tmp.projectFiles"), snapshot.projectEntries);
+  appendTmpFileListSection(page, t("board.tmp.feedbackFiles"), snapshot.feedbackEntries);
+  tmpBoard.append(page);
+}
+
 function renderFileDetailView(record) {
   if (!fileDetailTitle || !fileDetailSubtitle || !fileDetailMeta || !fileDetailBody) return;
-  if (fileDetailBackBtn) fileDetailBackBtn.hidden = !state.selectedProjectId;
+  if (fileDetailBackBtn) fileDetailBackBtn.hidden = !state.fileReturnView;
   if (!record) {
     fileDetailTitle.textContent = t("detail.title");
     fileDetailSubtitle.textContent = "";
@@ -1376,12 +1618,13 @@ async function renderCurrentMainView({ force = false } = {}) {
   }
 }
 
-async function openMemoryDetail(id, { projectId = "" } = {}) {
+async function openMemoryDetail(id, { projectId = "", originView = "" } = {}) {
   const record = await getMemoryRecord(id);
   if (!record) return;
   state.selectedProjectId = projectId || normalizeText(record.projectId);
   state.selectedFileId = id;
   state.selectedFileType = normalizeText(record.type);
+  state.fileReturnView = originView || (state.selectedProjectId ? "project-detail" : state.mainView || "project-list");
   state.mainView = "file-detail";
   renderFileDetailView(record);
   renderActiveView();
@@ -1393,6 +1636,7 @@ async function openProjectGroupDetail(projectId) {
   state.selectedProjectId = projectId;
   state.selectedFileId = "";
   state.selectedFileType = "";
+  state.fileReturnView = "project-list";
   state.mainView = "project-detail";
   renderProjectDetailView(group);
   renderActiveView();
@@ -1485,7 +1729,7 @@ function renderUserBoard() {
     files.forEach((entry) => {
       const chip = el("button", "profile-topic-chip", entry.name || entry.file);
       chip.type = "button";
-      chip.addEventListener("click", () => void openMemoryDetail(entry.relativePath));
+      chip.addEventListener("click", () => void openMemoryDetail(entry.relativePath, { originView: "user" }));
       list.append(chip);
     });
     card.append(list);
@@ -1501,10 +1745,10 @@ function getVisibleCases() {
   if (!query) return state.cases;
   return state.cases.filter((item) => {
     const haystack = [
-      item.query,
+      decodeEscapedTraceText(item.query),
       item.sessionKey,
-      item.assistantReply,
-      item.retrieval?.pathSummary,
+      decodeEscapedTraceText(item.assistantReply),
+      decodeEscapedTraceText(item.retrieval?.pathSummary),
     ].join(" ").toLowerCase();
     return haystack.includes(query);
   });
@@ -1522,18 +1766,98 @@ function getSelectedCase() {
   return selected;
 }
 
+function getVisibleIndexTraces() {
+  const query = normalizeText(state.queries.memory_trace).toLowerCase();
+  const filteredByTrigger = state.indexTraceFilterTrigger === "all"
+    ? state.indexTraces
+    : state.indexTraces.filter((item) => item.trigger === state.indexTraceFilterTrigger);
+  if (!query) return filteredByTrigger;
+  return filteredByTrigger.filter((item) => {
+    const haystack = [
+      item.sessionKey,
+      item.trigger,
+      safeArray(item.storedResults).map((result) => [
+        decodeEscapedTraceText(result.candidateName),
+        result.candidateType,
+        result.relativePath,
+        result.projectId,
+      ].join(" ")).join(" "),
+    ].join(" ").toLowerCase();
+    return haystack.includes(query);
+  });
+}
+
+function getSelectedIndexTrace() {
+  const visibleTraces = getVisibleIndexTraces();
+  const selected = state.indexTraceDetailCache.get(state.selectedIndexTraceId)
+    || visibleTraces.find((item) => item.indexTraceId === state.selectedIndexTraceId)
+    || visibleTraces[0]
+    || null;
+  if (selected && state.selectedIndexTraceId !== selected.indexTraceId) {
+    state.selectedIndexTraceId = selected.indexTraceId;
+  }
+  return selected;
+}
+
+function formatIndexTrigger(trigger) {
+  return t(`trigger.${trigger || "manual_sync"}`);
+}
+
+function renderTraceModeControls(container) {
+  const tabs = el("div", "memory-trace-artifact-tabs");
+  [
+    { id: "recall", label: t("board.memoryTrace.modeRecall") },
+    { id: "index", label: t("board.memoryTrace.modeIndex") },
+  ].forEach((item) => {
+    const button = el("button", `memory-trace-artifact-tab${state.traceMode === item.id ? " active" : ""}`, item.label);
+    button.type = "button";
+    button.addEventListener("click", async () => {
+      if (state.traceMode === item.id) return;
+      state.traceMode = item.id;
+      state.traceSelectorOpen = false;
+      await ensureActiveData();
+      renderActiveView();
+    });
+    tabs.append(button);
+  });
+  container.append(tabs);
+}
+
+function renderIndexTriggerFilters(container) {
+  const tabs = el("div", "memory-trace-artifact-tabs");
+  [
+    { id: "all", label: t("board.memoryTrace.filterAll") },
+    { id: "explicit_remember", label: t("board.memoryTrace.filterExplicitRemember") },
+    { id: "manual_sync", label: t("board.memoryTrace.filterManualSync") },
+    { id: "scheduled", label: t("board.memoryTrace.filterScheduled") },
+  ].forEach((item) => {
+    const button = el("button", `memory-trace-artifact-tab${state.indexTraceFilterTrigger === item.id ? " active" : ""}`, item.label);
+    button.type = "button";
+    button.addEventListener("click", () => {
+      if (state.indexTraceFilterTrigger === item.id) return;
+      state.indexTraceFilterTrigger = item.id;
+      state.traceSelectorOpen = false;
+      state.selectedIndexTraceId = "";
+      state.activeIndexTraceStepId = "";
+      renderActiveView();
+    });
+    tabs.append(button);
+  });
+  container.append(tabs);
+}
+
 function createTraceDetailBlock(detail) {
   const block = el("div", `memory-trace-detail-block${detail.kind === "note" ? " is-note" : ""}`);
   block.append(el("div", "memory-trace-debug-title", detail.label));
 
   if (detail.kind === "text" || detail.kind === "note") {
-    block.append(el("pre", "memory-trace-code", detail.text || t("common.none")));
+    block.append(el("pre", "memory-trace-code", decodeEscapedTraceText(detail.text || t("common.none"))));
     return block;
   }
 
   if (detail.kind === "list") {
     const list = el("ul", "memory-trace-detail-list");
-    safeArray(detail.items).forEach((item) => list.append(el("li", "", item)));
+    safeArray(detail.items).forEach((item) => list.append(el("li", "", decodeEscapedTraceText(item))));
     block.append(list);
     return block;
   }
@@ -1543,7 +1867,7 @@ function createTraceDetailBlock(detail) {
     safeArray(detail.entries).forEach((entry) => {
       const row = el("div", "memory-trace-kv-row");
       row.append(el("span", "memory-trace-kv-key", entry.label));
-      row.append(el("span", "memory-trace-kv-value", String(entry.value ?? "")));
+      row.append(el("span", "memory-trace-kv-value", decodeEscapedTraceText(String(entry.value ?? ""))));
       grid.append(row);
     });
     block.append(grid);
@@ -1560,11 +1884,11 @@ function renderPromptDebug(container, promptDebug) {
   wrapper.append(el("summary", "", t("board.memoryTrace.promptDebug")));
   const body = el("div");
   body.append(el("div", "memory-trace-debug-title", t("board.memoryTrace.systemPrompt")));
-  body.append(el("pre", "memory-trace-code", promptDebug.systemPrompt || t("common.none")));
+  body.append(el("pre", "memory-trace-code", decodeEscapedTraceText(promptDebug.systemPrompt || t("common.none"))));
   body.append(el("div", "memory-trace-debug-title", t("board.memoryTrace.userPrompt")));
-  body.append(el("pre", "memory-trace-code", promptDebug.userPrompt || t("common.none")));
+  body.append(el("pre", "memory-trace-code", decodeEscapedTraceText(promptDebug.userPrompt || t("common.none"))));
   body.append(el("div", "memory-trace-debug-title", t("board.memoryTrace.rawOutput")));
-  body.append(el("pre", "memory-trace-code", promptDebug.rawResponse || t("common.none")));
+  body.append(el("pre", "memory-trace-code", decodeEscapedTraceText(promptDebug.rawResponse || t("common.none"))));
   if (promptDebug.parsedResult !== undefined) {
     body.append(el("div", "memory-trace-debug-title", t("board.memoryTrace.parsedResult")));
     body.append(el("pre", "memory-trace-code", safeJson(promptDebug.parsedResult)));
@@ -1573,17 +1897,39 @@ function renderPromptDebug(container, promptDebug) {
   container.append(wrapper);
 }
 
+function pickDefaultTraceStepId(steps) {
+  const normalized = safeArray(steps);
+  const promptStep = normalized.find((step) => step?.promptDebug);
+  if (promptStep?.stepId) return promptStep.stepId;
+  const detailStep = normalized.find((step) => safeArray(step?.details).length > 0);
+  if (detailStep?.stepId) return detailStep.stepId;
+  return normalized[0]?.stepId || "";
+}
+
+function renderTraceStepExpandedContent(expanded, step) {
+  const details = safeArray(step.details);
+  const hasPromptDebug = Boolean(step.promptDebug);
+
+  if (details.length) {
+    details.forEach((detail) => expanded.append(createTraceDetailBlock(detail)));
+  }
+
+  if (hasPromptDebug) {
+    renderPromptDebug(expanded, step.promptDebug);
+  }
+}
+
 function createTraceMetaChip(label, value) {
   const chip = el("div", "memory-trace-meta-chip");
   chip.append(el("div", "memory-trace-meta-label", label));
-  chip.append(el("div", "memory-trace-meta-value", value));
+  chip.append(el("div", "memory-trace-meta-value", decodeEscapedTraceText(value)));
   return chip;
 }
 
 function createTraceSummaryCard(title, bodyText, klass = "") {
   const card = el("section", `memory-trace-summary-card${klass ? ` ${klass}` : ""}`);
   card.append(el("h4", "", title));
-  card.append(el("pre", "memory-trace-note", bodyText || t("common.none")));
+  card.append(el("pre", "memory-trace-note", decodeEscapedTraceText(bodyText || t("common.none"))));
   return card;
 }
 
@@ -1593,7 +1939,7 @@ function traceStepLabel(step) {
   return hasTranslation ? t(key) : (step?.title || t("trace.step.unknown"));
 }
 
-function renderMemoryTrace(host) {
+function renderRecallTrace(host) {
   const cases = getVisibleCases();
   clearNode(host);
   if (!cases.length) {
@@ -1615,7 +1961,7 @@ function renderMemoryTrace(host) {
   const selector = el("div", "memory-trace-selector");
   const trigger = el("button", "memory-trace-selector-trigger");
   trigger.type = "button";
-  trigger.append(el("span", "memory-trace-selector-title", selected.query || selected.caseId));
+  trigger.append(el("span", "memory-trace-selector-title", decodeEscapedTraceText(selected.query || selected.caseId)));
   trigger.append(el("span", "memory-trace-selector-chevron", state.traceSelectorOpen ? "▴" : "▾"));
   trigger.addEventListener("click", () => {
     state.traceSelectorOpen = !state.traceSelectorOpen;
@@ -1628,7 +1974,7 @@ function renderMemoryTrace(host) {
     cases.forEach((item) => {
       const option = el("button", `memory-trace-selector-option${item.caseId === selected.caseId ? " active" : ""}`);
       option.type = "button";
-      option.append(el("div", "memory-trace-selector-option-title", item.query || item.caseId));
+      option.append(el("div", "memory-trace-selector-option-title", decodeEscapedTraceText(item.query || item.caseId)));
       option.append(el("div", "memory-trace-selector-option-meta", `${item.sessionKey} · ${formatDateTime(item.startedAt)}`));
       option.addEventListener("click", async () => {
         state.selectedCaseId = item.caseId;
@@ -1687,16 +2033,161 @@ function renderMemoryTrace(host) {
   }
 
   if (!state.activeTraceStepId || !steps.some((step) => step.stepId === state.activeTraceStepId)) {
-    state.activeTraceStepId = steps[0]?.stepId || "";
+    state.activeTraceStepId = pickDefaultTraceStepId(steps);
   }
 
   const list = el("div", "memory-trace-flow-list");
   steps.forEach((step, index) => {
+    const isActive = step.stepId === state.activeTraceStepId;
     const item = el("div", `memory-trace-step-item${step.stepId === state.activeTraceStepId ? " active" : ""}`);
     const toggle = el("button", "memory-trace-step-toggle");
     toggle.type = "button";
+    toggle.setAttribute("aria-expanded", isActive ? "true" : "false");
     toggle.addEventListener("click", () => {
       state.activeTraceStepId = state.activeTraceStepId === step.stepId ? "" : step.stepId;
+      renderActiveView();
+    });
+
+    toggle.append(el("span", "memory-trace-step-marker", String(index + 1)));
+    const summary = el("div", "memory-trace-step-summary");
+    const head = el("div", "memory-trace-step-head");
+    head.append(el("strong", "", traceStepLabel(step)));
+    head.append(el("span", "memory-trace-kind-badge", step.kind));
+    summary.append(head);
+    summary.append(el("div", "memory-trace-step-line", decodeEscapedTraceText(step.inputSummary || t("common.none"))));
+    summary.append(el("div", "memory-trace-step-line is-output", decodeEscapedTraceText(step.outputSummary || t("common.none"))));
+    toggle.append(summary);
+    toggle.append(el("span", "memory-trace-step-chevron", isActive ? "▴" : "▾"));
+    item.append(toggle);
+
+    if (isActive) {
+      const expanded = el("div", "memory-trace-step-expanded");
+      const meta = el("div", "memory-trace-expanded-meta");
+      meta.append(
+        createTraceMetaChip("status", step.status || t("common.none")),
+        createTraceMetaChip("kind", step.kind || t("common.none")),
+      );
+      expanded.append(meta);
+      renderTraceStepExpandedContent(expanded, step);
+      item.append(expanded);
+    }
+
+    list.append(item);
+  });
+  flow.append(list);
+  page.append(flow);
+  host.append(page);
+}
+
+function renderIndexTrace(host) {
+  const traces = getVisibleIndexTraces();
+  clearNode(host);
+  if (!traces.length) {
+    host.append(createEmptyState(t("board.memoryTrace.emptyIndex")));
+    return;
+  }
+
+  const selected = getSelectedIndexTrace();
+  if (!selected) {
+    host.append(createEmptyState(t("board.memoryTrace.emptyIndex")));
+    return;
+  }
+
+  const page = el("div", "memory-trace-page");
+  const hero = el("section", "memory-trace-hero");
+  const header = el("div", "memory-trace-section-head");
+  header.append(el("h4", "", t("board.memoryTrace.selectIndexTrace")));
+
+  const selector = el("div", "memory-trace-selector");
+  const trigger = el("button", "memory-trace-selector-trigger");
+  trigger.type = "button";
+  trigger.append(el("span", "memory-trace-selector-title", `${formatIndexTrigger(selected.trigger)} · ${selected.sessionKey}`));
+  trigger.append(el("span", "memory-trace-selector-chevron", state.traceSelectorOpen ? "▴" : "▾"));
+  trigger.addEventListener("click", () => {
+    state.traceSelectorOpen = !state.traceSelectorOpen;
+    renderActiveView();
+  });
+  selector.append(trigger);
+
+  if (state.traceSelectorOpen) {
+    const list = el("div", "memory-trace-selector-list");
+    traces.forEach((item) => {
+      const option = el("button", `memory-trace-selector-option${item.indexTraceId === selected.indexTraceId ? " active" : ""}`);
+      option.type = "button";
+      option.append(el("div", "memory-trace-selector-option-title", `${formatIndexTrigger(item.trigger)} · ${item.sessionKey}`));
+      option.append(el(
+        "div",
+        "memory-trace-selector-option-meta",
+        `${formatDateTime(item.startedAt)} · ${item.batchSummary?.segmentCount || 0} seg · ${safeArray(item.storedResults).length} stored`,
+      ));
+      option.addEventListener("click", async () => {
+        state.selectedIndexTraceId = item.indexTraceId;
+        state.traceSelectorOpen = false;
+        await loadIndexTraceDetail(item.indexTraceId);
+        renderActiveView();
+      });
+      list.append(option);
+    });
+    selector.append(list);
+  }
+
+  header.append(selector);
+  hero.append(header);
+
+  const metaGrid = el("div", "memory-trace-meta-grid");
+  metaGrid.append(
+    createTraceMetaChip(t("board.memoryTrace.trigger"), formatIndexTrigger(selected.trigger)),
+    createTraceMetaChip(t("board.memoryTrace.session"), selected.sessionKey || t("common.none")),
+    createTraceMetaChip(t("board.memoryTrace.status"), selected.status || t("common.none")),
+    createTraceMetaChip(t("board.memoryTrace.started"), formatDateTime(selected.startedAt)),
+    createTraceMetaChip(t("board.memoryTrace.finished"), formatDateTime(selected.finishedAt)),
+    createTraceMetaChip(t("board.memoryTrace.segmentCount"), String(selected.batchSummary?.segmentCount || 0)),
+    createTraceMetaChip(t("board.memoryTrace.focusTurns"), String(selected.batchSummary?.focusUserTurnCount || 0)),
+    createTraceMetaChip(t("board.memoryTrace.l0Count"), String(safeArray(selected.batchSummary?.l0Ids).length)),
+  );
+  hero.append(metaGrid);
+
+  const summaryGrid = el("div", "memory-trace-summary-grid");
+  summaryGrid.append(
+    createTraceSummaryCard(
+      t("board.memoryTrace.batchWindow"),
+      `${formatDateTime(selected.batchSummary?.fromTimestamp)} → ${formatDateTime(selected.batchSummary?.toTimestamp)}`,
+      "memory-trace-summary-card--path",
+    ),
+    createTraceSummaryCard(
+      t("board.memoryTrace.storedResults"),
+      safeArray(selected.storedResults).map((item) => `${item.candidateType}:${item.candidateName} -> ${item.relativePath}`).join("\n") || t("common.none"),
+      "memory-trace-summary-card--artifact",
+    ),
+  );
+  hero.append(summaryGrid);
+  page.append(hero);
+
+  const flow = el("section", "memory-trace-flow");
+  const flowHeader = el("div", "memory-trace-section-head");
+  flowHeader.append(el("h4", "", t("board.memoryTrace.flow")));
+  flow.append(flowHeader);
+  const steps = safeArray(selected.steps);
+  if (!steps.length) {
+    flow.append(createEmptyState(t("board.memoryTrace.noTrace")));
+    page.append(flow);
+    host.append(page);
+    return;
+  }
+
+  if (!state.activeIndexTraceStepId || !steps.some((step) => step.stepId === state.activeIndexTraceStepId)) {
+    state.activeIndexTraceStepId = pickDefaultTraceStepId(steps);
+  }
+
+  const list = el("div", "memory-trace-flow-list");
+  steps.forEach((step, index) => {
+    const isActive = step.stepId === state.activeIndexTraceStepId;
+    const item = el("div", `memory-trace-step-item${step.stepId === state.activeIndexTraceStepId ? " active" : ""}`);
+    const toggle = el("button", "memory-trace-step-toggle");
+    toggle.type = "button";
+    toggle.setAttribute("aria-expanded", isActive ? "true" : "false");
+    toggle.addEventListener("click", () => {
+      state.activeIndexTraceStepId = state.activeIndexTraceStepId === step.stepId ? "" : step.stepId;
       renderActiveView();
     });
 
@@ -1709,9 +2200,10 @@ function renderMemoryTrace(host) {
     summary.append(el("div", "memory-trace-step-line", step.inputSummary || t("common.none")));
     summary.append(el("div", "memory-trace-step-line is-output", step.outputSummary || t("common.none")));
     toggle.append(summary);
+    toggle.append(el("span", "memory-trace-step-chevron", isActive ? "▴" : "▾"));
     item.append(toggle);
 
-    if (step.stepId === state.activeTraceStepId) {
+    if (isActive) {
       const expanded = el("div", "memory-trace-step-expanded");
       const meta = el("div", "memory-trace-expanded-meta");
       meta.append(
@@ -1719,15 +2211,7 @@ function renderMemoryTrace(host) {
         createTraceMetaChip("kind", step.kind || t("common.none")),
       );
       expanded.append(meta);
-
-      const details = safeArray(step.details);
-      if (details.length) {
-        details.forEach((detail) => expanded.append(createTraceDetailBlock(detail)));
-      } else {
-        expanded.append(createEmptyState(t("board.memoryTrace.noStep")));
-      }
-
-      renderPromptDebug(expanded, step.promptDebug);
+      renderTraceStepExpandedContent(expanded, step);
       item.append(expanded);
     }
 
@@ -1736,6 +2220,26 @@ function renderMemoryTrace(host) {
   flow.append(list);
   page.append(flow);
   host.append(page);
+}
+
+function renderMemoryTrace(host) {
+  clearNode(host);
+  const page = el("div", "memory-trace-page");
+  const controls = el("section", "memory-trace-hero");
+  const header = el("div", "memory-trace-section-head");
+  header.append(el("h4", "", t("board.memoryTrace")));
+  renderTraceModeControls(header);
+  controls.append(header);
+  if (state.traceMode === "index") {
+    renderIndexTriggerFilters(controls);
+  }
+  page.append(controls);
+  host.append(page);
+
+  const content = el("div");
+  host.append(content);
+  if (state.traceMode === "index") renderIndexTrace(content);
+  else renderRecallTrace(content);
 }
 
 /* ── chrome rendering ──────────────────────────────────── */
@@ -1761,6 +2265,8 @@ function renderBrowserHeader() {
         "stream.items",
         formatNumber(Number(selectedProject.projectCount || 0) + Number(selectedProject.feedbackCount || 0)),
       );
+    } else if (state.mainView === "tmp") {
+      browserMeta.textContent = t("stream.items", formatNumber(state.tmpSnapshot?.totalFiles || 0));
     } else if (state.mainView === "file-detail") {
       browserMeta.textContent = state.selectedFileType ? t(`type.${state.selectedFileType}`) : t("common.none");
     } else {
@@ -1784,13 +2290,14 @@ function renderNav() {
 function renderActiveView() {
   renderNav();
   renderBrowserHeader();
-  ["project-list", "project-detail", "file-detail", "user", "memory_trace"].forEach((view) => {
+  ["project-list", "project-detail", "file-detail", "tmp", "user", "memory_trace"].forEach((view) => {
     const node = getViewElement(view);
     if (node) node.classList.toggle("board-active", view === state.mainView);
   });
   if (state.mainView === "project-list") renderProjectListView();
   else if (state.mainView === "project-detail") renderProjectDetailView(getSelectedProjectGroup());
   else if (state.mainView === "file-detail") renderFileDetailView(state.selectedFileId ? state.recordCache.get(state.selectedFileId) || null : null);
+  else if (state.mainView === "tmp") renderTmpBoard();
   else if (state.mainView === "user") renderUserBoard();
   else renderMemoryTrace(memoryTraceBoard);
 }
@@ -1844,6 +2351,7 @@ async function runIndexNow() {
   const before = { ...state.overview };
   const stats = await postJson("./api/index/run");
   invalidateMemoryCaches();
+  invalidateTraceCaches();
   await loadSnapshot({ silent: true });
   await ensureActiveData({ force: true });
   await renderCurrentMainView({ force: true });
@@ -1870,6 +2378,7 @@ async function runDreamNow() {
   try {
     const result = await postJson("./api/dream/run");
     invalidateMemoryCaches();
+    invalidateTraceCaches();
     await loadSnapshot({ silent: true });
     await ensureActiveData({ force: true });
     await renderCurrentMainView({ force: true });
@@ -1912,6 +2421,7 @@ async function importMemory(file) {
     const parsed = JSON.parse(raw);
     await postJson("./api/import", parsed);
     invalidateMemoryCaches();
+    invalidateTraceCaches();
     await loadSnapshot({ silent: true });
     await ensureActiveData({ force: true });
     await renderCurrentMainView({ force: true });
@@ -1942,15 +2452,12 @@ async function clearMemory() {
   setActivity("status.clearing");
   await postJson("./api/clear");
   invalidateMemoryCaches();
-  state.cases = [];
-  state.caseRequestLoaded = false;
-  state.caseDetailCache.clear();
-  state.selectedCaseId = "";
-  state.activeTraceStepId = "";
+  invalidateTraceCaches();
   state.mainView = "project-list";
   state.selectedProjectId = "";
   state.selectedFileId = "";
   state.selectedFileType = "";
+  state.fileReturnView = "project-list";
   await loadSnapshot({ silent: true });
   await ensureActiveData({ force: true });
   renderActiveView();
@@ -1966,6 +2473,7 @@ async function switchPage(page) {
     state.selectedProjectId = "";
     state.selectedFileId = "";
     state.selectedFileType = "";
+    state.fileReturnView = "project-list";
   }
   await ensureActiveData();
   renderActiveView();
@@ -2028,7 +2536,21 @@ function wireEvents() {
     renderActiveView();
   });
   fileDetailBackBtn?.addEventListener("click", () => {
-    if (!state.selectedProjectId) {
+    if (state.fileReturnView === "tmp") {
+      state.mainView = "tmp";
+      state.selectedFileId = "";
+      state.selectedFileType = "";
+      renderActiveView();
+      return;
+    }
+    if (state.fileReturnView === "user") {
+      state.mainView = "user";
+      state.selectedFileId = "";
+      state.selectedFileType = "";
+      renderActiveView();
+      return;
+    }
+    if (!state.selectedProjectId || state.fileReturnView === "project-list") {
       state.mainView = "project-list";
       state.selectedFileId = "";
       state.selectedFileType = "";

@@ -80,6 +80,24 @@ describe("normalizeTranscriptMessage", () => {
     });
   });
 
+  it("decodes escaped unicode text in transcript content", () => {
+    const normalized = normalizeTranscriptMessage(
+      {
+        role: "user",
+        content: "\\u8fd9\\u4e2a\\u9879\\u76ee\\u5148\\u53eb \\u590f\\u65e5\\u996e\\u54c1\\u6d4b\\u8bc4\\u3002",
+      },
+      {
+        includeAssistant: true,
+        maxMessageChars: 1000,
+      },
+    );
+
+    expect(normalized).toMatchObject({
+      role: "user",
+      content: "这个项目先叫 夏日饮品测评。",
+    });
+  });
+
   it("strips leading ClawXContext state scaffolding from user turns", () => {
     const normalized = normalizeTranscriptMessage(
       {

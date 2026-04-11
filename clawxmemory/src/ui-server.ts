@@ -3,16 +3,20 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  type ClearMemoryResult,
   type CaseTraceRecord,
   type DashboardOverview,
   type DreamRunResult,
   type HeartbeatStats,
+  type IndexTraceRecord,
   type IndexingSettings,
+  type MemoryFileRecord,
   type MemoryManifestEntry,
   MemoryRepository,
   MemoryBundleValidationError,
   type ProjectMetaRecord,
   ReasoningRetriever,
+  TMP_PROJECT_ID,
   type MemoryImportableBundle,
   type MemoryExportBundle,
   type MemoryImportResult,
@@ -36,6 +40,7 @@ export interface UiServerControls {
   saveSettings: (partial: Partial<IndexingSettings>) => IndexingSettings;
   runIndexNow: () => Promise<HeartbeatStats>;
   runDreamNow: () => Promise<DreamRunResult>;
+  clearMemoryNow: () => Promise<ClearMemoryResult> | ClearMemoryResult;
   exportMemoryBundle: () => MemoryExportBundle;
   importMemoryBundle: (bundle: MemoryImportableBundle) => Promise<MemoryImportResult>;
   getRuntimeOverview: () => Pick<
@@ -65,6 +70,8 @@ export interface UiServerControls {
   getStartupRepairSnapshot: (limit: number) => MemoryUiSnapshot | undefined;
   listCaseTraces: (limit: number) => CaseTraceRecord[];
   getCaseTrace: (caseId: string) => CaseTraceRecord | undefined;
+  listIndexTraces: (limit: number) => IndexTraceRecord[];
+  getIndexTrace: (indexTraceId: string) => IndexTraceRecord | undefined;
 }
 
 interface UiProjectGroup {
@@ -78,6 +85,16 @@ interface UiProjectGroup {
   feedbackEntries: MemoryManifestEntry[];
   projectCount: number;
   feedbackCount: number;
+}
+
+interface UiTmpSnapshot {
+  manifestPath: string;
+  manifestContent: string;
+  totalFiles: number;
+  totalProjects: number;
+  totalFeedback: number;
+  projectEntries: MemoryFileRecord[];
+  feedbackEntries: MemoryFileRecord[];
 }
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -233,6 +250,55 @@ function buildProjectGroups(repository: MemoryRepository, options: {
     .slice(offset, offset + limit);
 }
 
+function buildTmpSnapshot(repository: MemoryRepository, options: {
+  query?: string;
+  limit?: number;
+  offset?: number;
+} = {}): UiTmpSnapshot {
+  const store = repository.getFileMemoryStore();
+  const manifestEntries = repository.listMemoryEntries({
+    scope: "project",
+    projectId: TMP_PROJECT_ID,
+    includeTmp: true,
+    limit: 1000,
+  });
+  const records = repository.getMemoryRecordsByIds(
+    manifestEntries.map((entry) => entry.relativePath),
+    5000,
+  ) as MemoryFileRecord[];
+  const query = normalizeSearchText(options.query || "");
+  const filtered = !query
+    ? records
+    : records.filter((record) => normalizeSearchText([
+      record.name,
+      record.description,
+      record.relativePath,
+      record.preview,
+      record.sourceSessionKey ?? "",
+    ].join(" ")).includes(query));
+  const offset = Math.max(0, options.offset ?? 0);
+  const limit = Math.max(1, Math.min(200, options.limit ?? 100));
+  const page = filtered
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+    .slice(offset, offset + limit);
+  const manifestPath = join(store.getRootDir(), "projects", TMP_PROJECT_ID, "MEMORY.md");
+  return {
+    manifestPath: `projects/${TMP_PROJECT_ID}/MEMORY.md`,
+    manifestContent: (() => {
+      try {
+        return readFileSync(manifestPath, "utf-8");
+      } catch {
+        return "";
+      }
+    })(),
+    totalFiles: filtered.length,
+    totalProjects: filtered.filter((record) => record.type === "project").length,
+    totalFeedback: filtered.filter((record) => record.type === "feedback").length,
+    projectEntries: page.filter((record) => record.type === "project"),
+    feedbackEntries: page.filter((record) => record.type === "feedback"),
+  };
+}
+
 function mergeOverview(
   base: DashboardOverview,
   runtime: ReturnType<UiServerControls["getRuntimeOverview"]>,
@@ -357,7 +423,7 @@ export class LocalUiServer {
     };
     if (relativePath === "/api/clear") {
       if (upperMethod !== "POST") return sendMethodNotAllowed(res, "POST");
-      return sendJson(res, this.repository.clearAllMemoryData());
+      return sendJson(res, await this.controls.clearMemoryNow());
     }
     if (relativePath === "/api/export") {
       if (upperMethod !== "GET") return sendMethodNotAllowed(res, "GET");
@@ -444,6 +510,10 @@ export class LocalUiServer {
       if (upperMethod !== "GET") return sendMethodNotAllowed(res, "GET");
       return sendJson(res, buildProjectGroups(this.repository, { query, limit, offset }));
     }
+    if (relativePath === "/api/tmp") {
+      if (upperMethod !== "GET") return sendMethodNotAllowed(res, "GET");
+      return sendJson(res, buildTmpSnapshot(this.repository, { query, limit, offset }));
+    }
     if (relativePath === "/api/l2/time") {
       if (!query.trim()) return sendJson(res, this.repository.listRecentL2Time(limit, offset));
       return sendJson(res, this.repository.searchL2TimeIndexes(query, limit));
@@ -480,6 +550,18 @@ export class LocalUiServer {
       const caseId = decodeURIComponent(relativePath.slice("/api/cases/".length));
       if (!caseId.trim()) return sendNotFound(res);
       const record = this.controls.getCaseTrace(caseId);
+      if (!record) return sendNotFound(res);
+      return sendJson(res, record);
+    }
+    if (relativePath === "/api/index-traces") {
+      if (upperMethod !== "GET") return sendMethodNotAllowed(res, "GET");
+      return sendJson(res, this.controls.listIndexTraces(parseLimit(url.searchParams.get("limit"), 12)));
+    }
+    if (relativePath.startsWith("/api/index-traces/")) {
+      if (upperMethod !== "GET") return sendMethodNotAllowed(res, "GET");
+      const indexTraceId = decodeURIComponent(relativePath.slice("/api/index-traces/".length));
+      if (!indexTraceId.trim()) return sendNotFound(res);
+      const record = this.controls.getIndexTrace(indexTraceId);
       if (!record) return sendNotFound(res);
       return sendJson(res, record);
     }

@@ -34,6 +34,7 @@ const ARCHIVE_DIR = "Archive";
 const MANIFEST_FILE = "MEMORY.md";
 const PROJECT_META_FILE = "project.meta.md";
 export const TMP_PROJECT_ID = "_tmp";
+const STABLE_FORMAL_PROJECT_ID_PATTERN = /^project_[a-z0-9]+$/;
 
 function ensureDir(path: string): void {
   mkdirSync(path, { recursive: true });
@@ -50,12 +51,40 @@ function normalizeProjectId(value: string | undefined): string {
   return trimmed.toLowerCase().replace(/[^a-z0-9_-]+/g, "_").replace(/^_+|_+$/g, "") || "";
 }
 
+function isStableFormalProjectId(value: string | undefined): boolean {
+  const normalized = normalizeProjectId(value);
+  return Boolean(normalized && normalized !== TMP_PROJECT_ID && STABLE_FORMAL_PROJECT_ID_PATTERN.test(normalized));
+}
+
 function slugify(value: string): string {
   const normalized = normalizeWhitespace(value)
     .toLowerCase()
     .replace(/[^a-z0-9\u4e00-\u9fff]+/g, "-")
     .replace(/^-+|-+$/g, "");
   return normalized || "memory-item";
+}
+
+function normalizeIdentityText(value: string | undefined): string {
+  return normalizeWhitespace(value ?? "").toLowerCase();
+}
+
+function isProjectAliasCandidate(value: string | undefined): boolean {
+  const normalized = normalizeWhitespace(value ?? "");
+  if (!normalized) return false;
+  if (normalized.length > 80) return false;
+  if (/[。！？!?]/.test(normalized)) return false;
+  if (/(先给|再给|封面文案|正文|标题|汇报时|同步进展|怎么协作|怎么交付|怎么汇报)/i.test(normalized)) {
+    return false;
+  }
+  return true;
+}
+
+function sanitizeProjectAliases(items: readonly string[] | undefined, fallbackProjectName?: string): string[] {
+  const aliases = [
+    ...(items ?? []),
+    ...(fallbackProjectName ? [fallbackProjectName] : []),
+  ].filter((item): item is string => typeof item === "string");
+  return uniqueItems(aliases.filter((item) => isProjectAliasCandidate(item)), 50);
 }
 
 function uniqueItems(items: readonly string[] | undefined, maxItems = 12): string[] {
@@ -229,6 +258,23 @@ function renderFixedListSection(title: string, items: readonly string[] | undefi
   return [`## ${title}`, ...normalized.map((item) => `- ${item}`), ""].join("\n");
 }
 
+function sanitizeFeedbackSectionText(value: string | undefined): string {
+  const normalized = normalizeWhitespace(value ?? "");
+  if (!normalized) return "";
+  if ([
+    /explicit project collaboration preference captured from the user/i,
+    /project anchor is not formalized yet/i,
+    /project-local collaboration instruction without a formal project id yet/i,
+    /project-local collaboration rule rather than a standalone project memory/i,
+    /follow this collaboration rule in future project replies unless the user overrides it/i,
+    /apply this rule only after dream attaches it to a formal project context/i,
+    /keep it in temporary project memory until dream can attach it to the right project/i,
+  ].some((pattern) => pattern.test(normalized))) {
+    return "";
+  }
+  return normalized;
+}
+
 function selectTypeDirectory(type: MemoryRecordType): string {
   if (type === "user") return USER_DIR;
   if (type === "feedback") return FEEDBACK_DIR;
@@ -335,10 +381,7 @@ function parseProjectMeta(absolutePath: string): ProjectMetaRecord | undefined {
     projectId,
     projectName,
     description,
-    aliases: uniqueItems([
-      ...parseStringArray(values.aliases),
-      projectName,
-    ], 50),
+    aliases: sanitizeProjectAliases(parseStringArray(values.aliases), projectName),
     status: normalizeWhitespace(values.status || "active") || "active",
     createdAt: values.created_at || nowIso(),
     updatedAt: values.updated_at || nowIso(),
@@ -352,6 +395,9 @@ export interface FileMemoryOverview {
   totalUserMemories: number;
   totalFeedbackMemories: number;
   totalProjectMemories: number;
+  tmpTotalFiles: number;
+  tmpFeedbackMemories: number;
+  tmpProjectMemories: number;
   changedFilesSinceLastDream: number;
 }
 
@@ -363,6 +409,8 @@ export interface TmpCleanupResult {
 }
 
 export class FileMemoryStore {
+  private repairingFormalProjectLayout = false;
+
   constructor(private readonly rootDir: string) {
     this.ensureLayout();
   }
@@ -379,6 +427,7 @@ export class FileMemoryStore {
     ensureDir(this.projectRoot(TMP_PROJECT_ID));
     ensureDir(join(this.projectRoot(TMP_PROJECT_ID), PROJECT_DIR));
     ensureDir(join(this.projectRoot(TMP_PROJECT_ID), FEEDBACK_DIR));
+    this.ensureFormalProjectLayout();
   }
 
   private globalManifestPath(): string {
@@ -395,6 +444,173 @@ export class FileMemoryStore {
 
   private projectMetaPath(projectId: string): string {
     return join(this.projectRoot(projectId), PROJECT_META_FILE);
+  }
+
+  private scanProjectDirs(): string[] {
+    const dir = join(this.rootDir, PROJECTS_DIR);
+    if (!existsSync(dir)) return [];
+    return readdirSync(dir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort();
+  }
+
+  private listProjectMarkdownFiles(projectId: string): string[] {
+    const root = this.projectRoot(projectId);
+    return [
+      ...findMarkdownFiles(join(root, PROJECT_DIR)),
+      ...findMarkdownFiles(join(root, FEEDBACK_DIR)),
+    ];
+  }
+
+  private projectSeedFromDir(projectId: string): {
+    projectName: string;
+    description: string;
+    aliases: string[];
+    createdAt?: string;
+    updatedAt?: string;
+  } | undefined {
+    const meta = parseProjectMeta(this.projectMetaPath(projectId));
+    if (meta) {
+      return {
+        projectName: meta.projectName,
+        description: meta.description,
+        aliases: meta.aliases,
+        createdAt: meta.createdAt,
+        updatedAt: meta.updatedAt,
+      };
+    }
+    const files = this.listProjectMarkdownFiles(projectId);
+    const record = files.length > 0 ? this.readRecordFromPath(files[0]!) : undefined;
+    if (!record) return undefined;
+    return {
+      projectName: normalizeWhitespace(record.name || projectId) || projectId,
+      description: normalizeWhitespace(record.description || record.preview || record.name || projectId) || projectId,
+      aliases: sanitizeProjectAliases([record.name, projectId], normalizeWhitespace(record.name || projectId) || projectId),
+      createdAt: record.capturedAt || record.updatedAt,
+      updatedAt: record.updatedAt,
+    };
+  }
+
+  private rewriteProjectRecordId(absolutePath: string, projectId: string): void {
+    const raw = readFileSync(absolutePath, "utf-8");
+    const { frontmatter, body } = parseFrontmatter(raw);
+    const nextFrontmatter: MemoryFileFrontmatter = {
+      ...frontmatter,
+      scope: "project",
+      projectId,
+      updatedAt: frontmatter.updatedAt || nowIso(),
+    };
+    writeFileSync(absolutePath, `${renderFrontmatter(nextFrontmatter)}${body}\n`, "utf-8");
+  }
+
+  private ensureFormalProjectLayout(): void {
+    if (this.repairingFormalProjectLayout) return;
+    this.repairingFormalProjectLayout = true;
+    try {
+      for (const rawProjectId of this.scanProjectDirs()) {
+        if (rawProjectId === TMP_PROJECT_ID) continue;
+        const seed = this.projectSeedFromDir(rawProjectId);
+        if (!seed) continue;
+        const canonicalProjectId = isStableFormalProjectId(rawProjectId)
+          ? rawProjectId
+          : this.createStableProjectId([
+            seed.projectName,
+            seed.description,
+            seed.createdAt || seed.updatedAt || rawProjectId,
+          ].join("|"));
+        const sourceRoot = this.projectRoot(rawProjectId);
+        const targetRoot = this.projectRoot(canonicalProjectId);
+
+        if (rawProjectId !== canonicalProjectId) {
+          if (!existsSync(targetRoot)) {
+            renameSync(sourceRoot, targetRoot);
+          } else {
+            this.upsertProjectMeta({
+              projectId: canonicalProjectId,
+              projectName: seed.projectName,
+              description: seed.description,
+              aliases: seed.aliases,
+            });
+            ensureDir(join(targetRoot, PROJECT_DIR));
+            ensureDir(join(targetRoot, FEEDBACK_DIR));
+            for (const file of this.listProjectMarkdownFiles(rawProjectId)) {
+              const record = this.readRecordFromPath(file);
+              const targetFile = join(targetRoot, selectTypeDirectory(record.type), sanitizeFileName(record.file, slugify(record.name || record.type)));
+              if (!existsSync(targetFile)) {
+                renameSync(file, targetFile);
+              } else {
+                const candidate = this.toCandidate(record);
+                this.upsertCandidate({
+                  ...candidate,
+                  scope: "project",
+                  projectId: canonicalProjectId,
+                });
+                unlinkSync(file);
+              }
+            }
+            rmSync(sourceRoot, { recursive: true, force: true });
+          }
+        }
+
+        this.upsertProjectMeta({
+          projectId: canonicalProjectId,
+          projectName: seed.projectName,
+          description: seed.description,
+          aliases: seed.aliases,
+        });
+
+        for (const file of this.listProjectMarkdownFiles(canonicalProjectId)) {
+          this.rewriteProjectRecordId(file, canonicalProjectId);
+        }
+        this.rebuildManifest("project", canonicalProjectId);
+      }
+      this.dedupeFormalProjectsByName();
+    } finally {
+      this.repairingFormalProjectLayout = false;
+    }
+  }
+
+  private dedupeFormalProjectsByName(): void {
+    const groups = new Map<string, ProjectMetaRecord[]>();
+    for (const meta of this.listProjectMetas()) {
+      const key = normalizeIdentityText(meta.projectName);
+      if (!key) continue;
+      const bucket = groups.get(key) ?? [];
+      bucket.push(meta);
+      groups.set(key, bucket);
+    }
+
+    for (const metas of groups.values()) {
+      if (metas.length <= 1) continue;
+      const sorted = [...metas].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+      const primary = sorted[0]!;
+      const secondary = sorted.slice(1);
+      this.upsertProjectMeta({
+        projectId: primary.projectId,
+        projectName: primary.projectName,
+        description: primary.description,
+      aliases: uniqueItems([
+        ...primary.aliases,
+        ...secondary.flatMap((meta) => meta.aliases),
+        ...secondary.map((meta) => meta.projectName),
+      ].filter((alias) => isProjectAliasCandidate(alias)), 50),
+    });
+      for (const meta of secondary) {
+        for (const file of this.listProjectMarkdownFiles(meta.projectId)) {
+          const record = this.readRecordFromPath(file);
+          const candidate = this.toCandidate(record);
+          this.upsertCandidate({
+            ...candidate,
+            scope: "project",
+            projectId: primary.projectId,
+          });
+          unlinkSync(file);
+        }
+        rmSync(this.projectRoot(meta.projectId), { recursive: true, force: true });
+      }
+      this.rebuildManifest("project", primary.projectId);
+    }
   }
 
   private readRecordFromPath(absolutePath: string): MemoryFileRecord {
@@ -475,7 +691,7 @@ export class FileMemoryStore {
     return sortEntriesByUpdatedAt(all);
   }
 
-  listMemoryEntries(options: {
+  private collectMemoryEntries(options: {
     kinds?: MemoryRecordType[];
     query?: string;
     limit?: number;
@@ -528,9 +744,32 @@ export class FileMemoryStore {
     } else {
       entries = sortEntriesByUpdatedAt(entries);
     }
+    return entries;
+  }
+
+  listMemoryEntries(options: {
+    kinds?: MemoryRecordType[];
+    query?: string;
+    limit?: number;
+    offset?: number;
+    scope?: MemoryScope;
+    projectId?: string;
+    includeTmp?: boolean;
+  } = {}): MemoryManifestEntry[] {
+    const entries = this.collectMemoryEntries(options);
     const offset = Math.max(0, options.offset ?? 0);
     const limit = Math.max(1, Math.min(500, options.limit ?? 50));
     return entries.slice(offset, offset + limit);
+  }
+
+  countMemoryEntries(options: {
+    kinds?: MemoryRecordType[];
+    query?: string;
+    scope?: MemoryScope;
+    projectId?: string;
+    includeTmp?: boolean;
+  } = {}): number {
+    return this.collectMemoryEntries(options).length;
   }
 
   getMemoryRecordsByIds(ids: string[], maxLines = 80): MemoryFileRecord[] {
@@ -583,12 +822,10 @@ export class FileMemoryStore {
   }
 
   listProjectIds(options: { includeTmp?: boolean } = {}): string[] {
-    const dir = join(this.rootDir, PROJECTS_DIR);
-    if (!existsSync(dir)) return [];
-    return readdirSync(dir, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => entry.name)
+    this.ensureLayout();
+    return this.scanProjectDirs()
       .filter((projectId) => options.includeTmp || projectId !== TMP_PROJECT_ID)
+      .filter((projectId) => projectId === TMP_PROJECT_ID || Boolean(parseProjectMeta(this.projectMetaPath(projectId))))
       .sort();
   }
 
@@ -670,7 +907,7 @@ export class FileMemoryStore {
       projectId,
       projectName: normalizeWhitespace(record.projectName) || projectId,
       description: normalizeWhitespace(record.description || record.projectName || projectId),
-      aliases: uniqueItems(record.aliases, 50),
+      aliases: sanitizeProjectAliases(record.aliases, normalizeWhitespace(record.projectName) || projectId),
       status: normalizeWhitespace(record.status || "active") || "active",
       createdAt: record.createdAt || nowIso(),
       updatedAt: record.updatedAt || nowIso(),
@@ -769,7 +1006,7 @@ export class FileMemoryStore {
         projectId,
         projectName: record.name || projectId,
         description: record.description || record.name || projectId,
-        aliases: [record.name, record.description].filter(Boolean) as string[],
+        aliases: [record.name].filter(Boolean) as string[],
       });
     }
 
@@ -804,11 +1041,11 @@ export class FileMemoryStore {
       projectId,
       projectName: normalizeWhitespace(input.projectName) || existing?.projectName || projectId,
       description: normalizeWhitespace(input.description || "") || existing?.description || input.projectName || projectId,
-      aliases: uniqueItems([
+      aliases: sanitizeProjectAliases([
         ...(existing?.aliases ?? []),
         ...(input.aliases ?? []),
         input.projectName,
-      ], 50),
+      ], normalizeWhitespace(input.projectName) || existing?.projectName || projectId),
       status: normalizeWhitespace(input.status || existing?.status || "active") || "active",
       createdAt,
       updatedAt: nowIso(),
@@ -823,7 +1060,7 @@ export class FileMemoryStore {
     const normalized = normalizeWhitespace(seed) || nowIso();
     let candidate = `project_${hashText(normalized)}`;
     let counter = 1;
-    while (existsSync(this.projectRoot(candidate)) && !existsSync(this.projectMetaPath(candidate))) {
+    while (existsSync(this.projectRoot(candidate))) {
       candidate = `project_${hashText(`${normalized}:${counter}`)}`;
       counter += 1;
     }
@@ -858,13 +1095,15 @@ export class FileMemoryStore {
     }
     if (candidate.type === "feedback") {
       const existingRule = (sections.get("Rule") ?? []).join("\n");
-      const existingWhy = (sections.get("Why") ?? []).join("\n");
-      const existingHow = (sections.get("How to apply") ?? []).join("\n");
+      const existingWhy = sanitizeFeedbackSectionText((sections.get("Why") ?? []).join("\n"));
+      const existingHow = sanitizeFeedbackSectionText((sections.get("How to apply") ?? []).join("\n"));
       const existingNotes = (sections.get("Notes") ?? []).map((line) => line.replace(/^- /, "").trim());
+      const nextWhy = mergeSectionText(existingWhy, sanitizeFeedbackSectionText(candidate.why ?? ""));
+      const nextHow = mergeSectionText(existingHow, sanitizeFeedbackSectionText(candidate.howToApply ?? ""));
       return [
         renderTextSection("Rule", pickLongest(existingRule, candidate.rule ?? candidate.summary ?? "")),
-        renderTextSection("Why", mergeSectionText(existingWhy, candidate.why ?? "")),
-        renderTextSection("How to apply", mergeSectionText(existingHow, candidate.howToApply ?? "")),
+        renderFixedTextSection("Why", nextWhy),
+        renderFixedTextSection("How to apply", nextHow),
         renderListSection("Notes", uniqueItems([...existingNotes, ...(candidate.notes ?? [])], 20)),
       ].filter(Boolean).join("\n").trim();
     }
@@ -909,12 +1148,15 @@ export class FileMemoryStore {
       };
     }
 
-    const projectId = normalizeProjectId(candidate.projectId) || TMP_PROJECT_ID;
+    const explicitProjectId = normalizeProjectId(candidate.projectId);
+    const projectId = isStableFormalProjectId(explicitProjectId) && this.getProjectMeta(explicitProjectId)
+      ? explicitProjectId
+      : TMP_PROJECT_ID;
     const typeDir = selectTypeDirectory(candidate.type);
     const baseDir = join(this.projectRoot(projectId), typeDir);
     ensureDir(baseDir);
     const normalizedName = candidate.type === "project"
-      ? normalizeWhitespace(candidate.name || "overview")
+      ? normalizeWhitespace(candidate.name || candidate.description || candidate.stage || "project-note")
       : normalizeWhitespace(candidate.name || "memory-item");
     const absolutePath = join(
       baseDir,
@@ -964,14 +1206,14 @@ export class FileMemoryStore {
             projectId: location.projectId,
             projectName: candidate.name || existingMeta?.projectName || location.projectId,
             description: candidate.description || candidate.summary || candidate.stage || existingMeta?.description || location.projectId,
-            aliases: [candidate.name, candidate.description].filter(Boolean) as string[],
+            aliases: [candidate.name].filter(Boolean) as string[],
           });
         } else if (!existingMeta) {
           this.upsertProjectMeta({
             projectId: location.projectId,
             projectName: location.projectId,
             description: candidate.description || candidate.rule || location.projectId,
-            aliases: [candidate.name, candidate.description].filter(Boolean) as string[],
+            aliases: [candidate.name].filter(Boolean) as string[],
           });
         }
       }
@@ -1132,18 +1374,27 @@ export class FileMemoryStore {
   }
 
   getOverview(lastDreamAt?: string): FileMemoryOverview {
-    const entries = this.listMemoryEntries({ limit: 1000 });
-    const totalUserMemories = entries.filter((entry) => entry.type === "user").length;
-    const totalFeedbackMemories = entries.filter((entry) => entry.type === "feedback").length;
-    const totalProjectMemories = entries.filter((entry) => entry.type === "project").length;
+    const formalEntries = [
+      ...this.buildManifestEntriesForScope("global"),
+      ...this.listProjectIds().flatMap((projectId) => this.buildManifestEntriesForScope("project", projectId)),
+    ];
+    const tmpEntries = this.buildManifestEntriesForScope("project", TMP_PROJECT_ID);
+    const totalUserMemories = formalEntries.filter((entry) => entry.type === "user").length;
+    const totalFeedbackMemories = formalEntries.filter((entry) => entry.type === "feedback").length;
+    const totalProjectMemories = formalEntries.filter((entry) => entry.type === "project").length;
+    const tmpFeedbackMemories = tmpEntries.filter((entry) => entry.type === "feedback").length;
+    const tmpProjectMemories = tmpEntries.filter((entry) => entry.type === "project").length;
     return {
-      totalMemoryFiles: entries.length,
+      totalMemoryFiles: formalEntries.length,
       totalUserMemories,
       totalFeedbackMemories,
       totalProjectMemories,
+      tmpTotalFiles: tmpEntries.length,
+      tmpFeedbackMemories,
+      tmpProjectMemories,
       changedFilesSinceLastDream: lastDreamAt
-        ? entries.filter((entry) => entry.updatedAt > lastDreamAt).length
-        : entries.length,
+        ? [...formalEntries, ...tmpEntries].filter((entry) => entry.updatedAt > lastDreamAt).length
+        : formalEntries.length + tmpEntries.length,
     };
   }
 
@@ -1156,6 +1407,9 @@ export class FileMemoryStore {
       totalUserMemories: overview.totalUserMemories,
       totalFeedbackMemories: overview.totalFeedbackMemories,
       totalProjectMemories: overview.totalProjectMemories,
+      tmpTotalFiles: overview.tmpTotalFiles,
+      tmpFeedbackMemories: overview.tmpFeedbackMemories,
+      tmpProjectMemories: overview.tmpProjectMemories,
       projectMetaCount: this.listProjectMetas().length,
       latest,
       latestProjectMeta,

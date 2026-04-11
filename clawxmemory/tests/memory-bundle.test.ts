@@ -26,6 +26,12 @@ async function seedFileMemory(repository: MemoryRepository): Promise<void> {
     profile: "Prefers concise updates and TypeScript-first examples.",
     preferences: ["TypeScript", "Lead with the outcome"],
   });
+  store.upsertProjectMeta({
+    projectId: "project_alpha",
+    projectName: "Alpha Retrieval",
+    description: "Alpha retrieval refactor",
+    aliases: ["Alpha Retrieval"],
+  });
   store.upsertCandidate({
     type: "project",
     scope: "project",

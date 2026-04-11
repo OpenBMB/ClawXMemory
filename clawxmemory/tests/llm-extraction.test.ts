@@ -67,10 +67,19 @@ afterEach(() => {
 });
 
 describe("LlmMemoryExtractor hop debug trace", () => {
-  it("routes explicit collaboration rules without a project id into temporary project feedback", async () => {
+  it("accepts explicit collaboration-rule feedback from the model without forcing a formal project id", async () => {
     const extractor = createExtractor();
     vi.spyOn(extractor as never as { callStructuredJson: (input: unknown) => Promise<string> }, "callStructuredJson")
-      .mockResolvedValue(JSON.stringify({ items: [] }));
+      .mockResolvedValue(JSON.stringify({
+        items: [{
+          type: "feedback",
+          name: "collaboration-rule",
+          description: "以后回答我时先给结论再展开；代码示例优先 TypeScript。",
+          rule: "以后回答我时先给结论再展开；代码示例优先 TypeScript。",
+          why: "",
+          how_to_apply: "",
+        }],
+      }));
 
     const result = await extractor.extractFileMemoryCandidates({
       timestamp: "2026-04-09T09:22:53.260Z",
@@ -95,10 +104,164 @@ describe("LlmMemoryExtractor hop debug trace", () => {
     expect(result[0]?.rule).toContain("以后回答我时先给结论再展开");
   });
 
+  it("normalizes feedback candidates from rule-only model output", async () => {
+    const extractor = createExtractor();
+    vi.spyOn(extractor as never as { callStructuredJson: (input: unknown) => Promise<string> }, "callStructuredJson")
+      .mockResolvedValue(JSON.stringify({
+        items: [{
+          type: "feedback",
+          rule: "每次给我交付时都先给3个标题，再给正文，再给封面文案。",
+          why: "",
+          how_to_apply: "在这个项目里交付小红书文案时应用。",
+        }],
+      }));
+
+    const result = await extractor.extractFileMemoryCandidates({
+      timestamp: "2026-04-11T08:22:53.260Z",
+      sessionKey: "session-delivery-rule",
+      explicitRemember: true,
+      messages: [
+        {
+          role: "user",
+          content: "记住，在这个小红书文案项目里，你每次给我交付时都先给3个标题，再给正文，再给封面文案。",
+        },
+      ],
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      type: "feedback",
+      scope: "project",
+      name: "delivery-rule",
+      description: "每次给我交付时都先给3个标题，再给正文，再给封面文案。",
+      rule: "每次给我交付时都先给3个标题，再给正文，再给封面文案。",
+      howToApply: "在这个项目里交付小红书文案时应用。",
+    });
+  });
+
+  it("discards feedback candidates that do not contain a rule", async () => {
+    const extractor = createExtractor();
+    const decisionTrace = vi.fn();
+    vi.spyOn(extractor as never as { callStructuredJson: (input: unknown) => Promise<string> }, "callStructuredJson")
+      .mockResolvedValue(JSON.stringify({
+        items: [{
+          type: "feedback",
+          name: "delivery-rule",
+          description: "每次给我交付时都先给3个标题，再给正文，再给封面文案。",
+          why: "",
+          how_to_apply: "",
+        }],
+      }));
+
+    const result = await extractor.extractFileMemoryCandidates({
+      timestamp: "2026-04-11T08:23:53.260Z",
+      sessionKey: "session-invalid-feedback",
+      explicitRemember: true,
+      messages: [
+        {
+          role: "user",
+          content: "记住，在这个小红书文案项目里，你每次给我交付时都先给3个标题，再给正文，再给封面文案。",
+        },
+      ],
+      decisionTrace,
+    });
+
+    expect(result).toEqual([]);
+    expect(decisionTrace).toHaveBeenCalledWith(expect.objectContaining({
+      discarded: expect.arrayContaining([
+        expect.objectContaining({
+          reason: "invalid_schema",
+          candidateType: "feedback",
+          summary: "Feedback candidate missing a non-empty rule.",
+        }),
+      ]),
+    }));
+  });
+
+  it("keeps explicit project feedback how_to_apply semantic when the model returns a structured answer", async () => {
+    const extractor = createExtractor();
+    vi.spyOn(extractor as never as { callStructuredJson: (input: unknown) => Promise<string> }, "callStructuredJson")
+      .mockResolvedValue(JSON.stringify({
+        items: [{
+          type: "feedback",
+          name: "collaboration-rule",
+          description: "你给我汇报时要先说完成了什么，再说风险。",
+          rule: "你给我汇报时要先说完成了什么，再说风险。",
+          why: "",
+          how_to_apply: "在这个项目里做进展汇报或状态同步时应用。",
+        }],
+      }));
+
+    const result = await extractor.extractFileMemoryCandidates({
+      timestamp: "2026-04-10T06:56:46.718Z",
+      sessionKey: "session-boreal-1",
+      explicitRemember: true,
+      messages: [
+        {
+          role: "user",
+          content: "记住，在这个项目里，你给我汇报时要先说完成了什么，再说风险。",
+        },
+      ],
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      type: "feedback",
+      scope: "project",
+      name: "collaboration-rule",
+      howToApply: "在这个项目里做进展汇报或状态同步时应用。",
+    });
+  });
+
+  it("drops pure project-local collaboration rules when the model misclassifies them as project memory", async () => {
+    const extractor = createExtractor();
+    const decisionTrace = vi.fn();
+    vi.spyOn(extractor as never as { callStructuredJson: (input: unknown) => Promise<string> }, "callStructuredJson")
+      .mockResolvedValue(JSON.stringify({
+        items: [{
+          type: "project",
+          name: "春日穿搭爆文",
+          description: "每次给我交付时都先给3个标题，再给正文，再给封面文案。",
+          stage: "",
+        }],
+      }));
+
+    const result = await extractor.extractFileMemoryCandidates({
+      timestamp: "2026-04-10T06:56:46.718Z",
+      sessionKey: "session-xhs-1",
+      explicitRemember: true,
+      messages: [
+        {
+          role: "user",
+          content: "记住，在这个小红书文案项目里，你每次给我交付时都先给3个标题，再给正文，再给封面文案。",
+        },
+      ],
+      decisionTrace,
+    });
+
+    expect(result).toEqual([]);
+    expect(decisionTrace).toHaveBeenCalledWith(expect.objectContaining({
+      discarded: expect.arrayContaining([
+        expect.objectContaining({
+          reason: "violates_feedback_project_boundary",
+          candidateType: "project",
+        }),
+      ]),
+    }));
+  });
+
   it("keeps explicit user identity or long-term personal preference in global user memory", async () => {
     const extractor = createExtractor();
     vi.spyOn(extractor as never as { callStructuredJson: (input: unknown) => Promise<string> }, "callStructuredJson")
-      .mockResolvedValue(JSON.stringify({ items: [] }));
+      .mockResolvedValue(JSON.stringify({
+        items: [{
+          type: "user",
+          name: "user-profile",
+          description: "长期偏好中文交流，住在北京。",
+          profile: "我长期偏好中文交流，而且我住在北京。",
+          preferences: ["长期偏好中文交流"],
+        }],
+      }));
 
     const result = await extractor.extractFileMemoryCandidates({
       timestamp: "2026-04-09T09:22:53.260Z",
@@ -142,7 +305,15 @@ describe("LlmMemoryExtractor hop debug trace", () => {
   it("treats '我现在常用 TypeScript 和 Node.js' as a durable user preference update", async () => {
     const extractor = createExtractor();
     vi.spyOn(extractor as never as { callStructuredJson: (input: unknown) => Promise<string> }, "callStructuredJson")
-      .mockResolvedValue(JSON.stringify({ items: [] }));
+      .mockResolvedValue(JSON.stringify({
+        items: [{
+          type: "user",
+          name: "user-profile",
+          description: "常用 TypeScript 和 Node.js。",
+          profile: "用户现在常用 TypeScript 和 Node.js。",
+          preferences: ["我现在常用 TypeScript 和 Node.js。"],
+        }],
+      }));
 
     const result = await extractor.extractFileMemoryCandidates({
       timestamp: "2026-04-10T02:35:00.000Z",
@@ -238,10 +409,78 @@ describe("LlmMemoryExtractor hop debug trace", () => {
     ]));
   });
 
-  it("falls back to both project and feedback memories for explicit project remembers", async () => {
+  it("removes profile and relationship duplicates from user preferences during rewrite", async () => {
     const extractor = createExtractor();
     vi.spyOn(extractor as never as { callStructuredJson: (input: unknown) => Promise<string> }, "callStructuredJson")
-      .mockResolvedValue(JSON.stringify({ items: [] }));
+      .mockResolvedValue(JSON.stringify({
+        profile: "用户从事AI产品工作，长期居住在北京，主要使用Mac设备，习惯使用中文进行交流。",
+        preferences: [
+          "我平时更习惯中文交流",
+          "我主要用 Mac",
+          "我是做 AI 产品的，长期住在北京",
+          "长期与产品经理Alice合作",
+          "技术栈常用TypeScript和Node.js",
+          "我现在常用 TypeScript 和 Node.js。",
+        ],
+        constraints: [],
+        relationships: ["长期与产品经理Alice合作"],
+      }));
+
+    const result = await extractor.rewriteUserProfile({
+      existingProfile: {
+        profile: "",
+        preferences: [],
+        constraints: [],
+        relationships: [],
+        files: [],
+      },
+      candidates: [{
+        type: "user",
+        scope: "global",
+        name: "user-profile",
+        description: "我是做 AI 产品的，长期住在北京；我平时更习惯中文交流；我主要用 Mac；我长期和产品经理 Alice 一起合作；我现在常用 TypeScript 和 Node.js。",
+        profile: "我是做 AI 产品的，长期住在北京。",
+        preferences: ["我平时更习惯中文交流", "我主要用 Mac", "我现在常用 TypeScript 和 Node.js。"],
+        relationships: ["长期与产品经理Alice合作"],
+        capturedAt: "2026-04-10T02:36:13.474Z",
+      }],
+    });
+
+    expect(result?.preferences).toEqual(expect.arrayContaining([
+      "我平时更习惯中文交流",
+      "我主要用 Mac",
+      expect.stringMatching(/TypeScript/i),
+    ]));
+    expect(result?.preferences).not.toEqual(expect.arrayContaining([
+      "我是做 AI 产品的，长期住在北京",
+      "长期与产品经理Alice合作",
+    ]));
+    expect(result?.relationships).toEqual(["长期与产品经理Alice合作"]);
+  });
+
+  it("accepts both project and feedback memories for explicit project remembers when the model extracts them", async () => {
+    const extractor = createExtractor();
+    vi.spyOn(extractor as never as { callStructuredJson: (input: unknown) => Promise<string> }, "callStructuredJson")
+      .mockResolvedValue(JSON.stringify({
+        items: [
+          {
+            type: "project",
+            name: "Aster",
+            description: "把 OpenClaw 的记忆系统改成文件式 memory。",
+            stage: "目标是把 OpenClaw 的记忆系统改成文件式 memory。",
+            blockers: ["导入导出还沿用旧 sqlite 结构"],
+            timeline: ["2026-04-20 要出可演示版本", "2026-05-05 要给团队试用"],
+          },
+          {
+            type: "feedback",
+            name: "collaboration-rule",
+            description: "同步进展时先说完成了什么，再说风险。",
+            rule: "同步进展时先说完成了什么，再说风险，不要写成泛泛总结。",
+            why: "",
+            how_to_apply: "在这个项目里做状态同步或进展汇报时应用。",
+          },
+        ],
+      }));
 
     const result = await extractor.extractFileMemoryCandidates({
       timestamp: "2026-04-09T09:25:13.007Z",
@@ -265,7 +504,8 @@ describe("LlmMemoryExtractor hop debug trace", () => {
       name: "Aster",
       scope: "project",
       timeline: expect.arrayContaining([
-        "2026-04-20 要出可演示版本，2026-05-05 要给团队试用。",
+        "2026-04-20 要出可演示版本",
+        "2026-05-05 要给团队试用",
       ]),
       blockers: expect.arrayContaining(["导入导出还沿用旧 sqlite 结构"]),
     });
@@ -276,10 +516,83 @@ describe("LlmMemoryExtractor hop debug trace", () => {
     });
   });
 
+  it("does not fabricate a feedback candidate when the model only returns the project item", async () => {
+    const extractor = createExtractor();
+    vi.spyOn(extractor as never as { callStructuredJson: (input: unknown) => Promise<string> }, "callStructuredJson")
+      .mockResolvedValue(JSON.stringify({
+        items: [{
+          type: "project",
+          name: "Aster",
+          description: "把 OpenClaw 的记忆系统改成文件式 memory。",
+          stage: "目标是把 OpenClaw 的记忆系统改成文件式 memory。",
+        }],
+      }));
+
+    const result = await extractor.extractFileMemoryCandidates({
+      timestamp: "2026-04-09T09:25:13.007Z",
+      sessionKey: "session-aster-project-only",
+      explicitRemember: true,
+      messages: [
+        {
+          role: "user",
+          content: [
+            "我最近在做一个项目，先叫它 Aster。目标是把 OpenClaw 的记忆系统改成文件式 memory。",
+            "另外记住，在这个项目里，你给我同步进展时要非常工程化：先说完成了什么，再说风险，不要写成泛泛总结。",
+          ].join("\n"),
+        },
+      ],
+    });
+
+    expect(result.map((item) => item.type)).toEqual(["project"]);
+  });
+
+  it("does not trust a human-readable model project_id as a formal project id", async () => {
+    const extractor = createExtractor();
+    vi.spyOn(extractor as never as { callStructuredJson: (input: unknown) => Promise<string> }, "callStructuredJson")
+      .mockResolvedValue(JSON.stringify({
+        items: [{
+          type: "project",
+          project_id: "Boreal",
+          name: "Boreal",
+          description: "本地知识库整理工具",
+          stage: "目前还在设计阶段",
+        }],
+      }));
+
+    const result = await extractor.extractFileMemoryCandidates({
+      timestamp: "2026-04-10T06:57:17.011Z",
+      sessionKey: "session-boreal-2",
+      explicitRemember: false,
+      messages: [
+        {
+          role: "user",
+          content: "这个项目先叫 Boreal。它是一个本地知识库整理工具，目前还在设计阶段。",
+        },
+      ],
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      type: "project",
+      name: "Boreal",
+      description: "本地知识库整理工具",
+    });
+    expect(result[0]?.projectId).toBeUndefined();
+  });
+
   it("does not create a fake project overview for a project-local collaboration rule without concrete project facts", async () => {
     const extractor = createExtractor();
     vi.spyOn(extractor as never as { callStructuredJson: (input: unknown) => Promise<string> }, "callStructuredJson")
-      .mockResolvedValue(JSON.stringify({ items: [] }));
+      .mockResolvedValue(JSON.stringify({
+        items: [{
+          type: "feedback",
+          name: "collaboration-rule",
+          description: "你给我汇报时要先说完成了什么，再说风险。",
+          rule: "你给我汇报时要先说完成了什么，再说风险。",
+          why: "",
+          how_to_apply: "",
+        }],
+      }));
 
     const result = await extractor.extractFileMemoryCandidates({
       timestamp: "2026-04-09T11:12:40.389Z",
@@ -300,9 +613,209 @@ describe("LlmMemoryExtractor hop debug trace", () => {
       name: "collaboration-rule",
       sourceSessionKey: "session-project-feedback",
     });
+    expect(result[0]?.why || "").toBe("");
+    expect(result[0]?.howToApply || "").toBe("");
   });
 
-  it("does not let the model narrow a mixed file-memory route into a single route", async () => {
+  it("does not fabricate a project candidate when the model misses an implicit project definition", async () => {
+    const extractor = createExtractor();
+    vi.spyOn(extractor as never as { callStructuredJson: (input: unknown) => Promise<string> }, "callStructuredJson")
+      .mockResolvedValue(JSON.stringify({ items: [] }));
+
+    const result = await extractor.extractFileMemoryCandidates({
+      timestamp: "2026-04-10T06:57:17.011Z",
+      sessionKey: "session-boreal",
+      explicitRemember: false,
+      messages: [
+        {
+          role: "user",
+          content: "这个项目先叫 Boreal。它是一个本地知识库整理工具，目前还在设计阶段。",
+        },
+      ],
+    });
+
+    expect(result).toHaveLength(0);
+  });
+
+  it("does not backfill a project candidate for a vague project mention without definition signals", async () => {
+    const extractor = createExtractor();
+    vi.spyOn(extractor as never as { callStructuredJson: (input: unknown) => Promise<string> }, "callStructuredJson")
+      .mockResolvedValue(JSON.stringify({ items: [] }));
+
+    const result = await extractor.extractFileMemoryCandidates({
+      timestamp: "2026-04-10T06:58:00.000Z",
+      sessionKey: "session-vague-project",
+      explicitRemember: false,
+      messages: [
+        {
+          role: "user",
+          content: "这个项目我们后面再说，先不展开。",
+        },
+      ],
+    });
+
+    expect(result).toHaveLength(0);
+  });
+
+  it("does not fabricate feedback from project stage text that merely mentions 风格摸索阶段", async () => {
+    const extractor = createExtractor();
+    vi.spyOn(extractor as never as { callStructuredJson: (input: unknown) => Promise<string> }, "callStructuredJson")
+      .mockResolvedValue(JSON.stringify({
+        items: [{
+          type: "project",
+          name: "春日穿搭爆文",
+          description: "帮博主批量生成春日穿搭小红书文案的项目",
+          stage: "目前还在选题和风格摸索阶段。",
+        }],
+      }));
+
+    const result = await extractor.extractFileMemoryCandidates({
+      timestamp: "2026-04-11T02:55:34.467Z",
+      sessionKey: "session-xhs-stage",
+      explicitRemember: false,
+      messages: [
+        {
+          role: "user",
+          content: "这个项目先叫 春日穿搭爆文。它是一个帮博主批量生成春日穿搭小红书文案的项目，目前还在选题和风格摸索阶段。",
+        },
+      ],
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      type: "project",
+      name: "春日穿搭爆文",
+    });
+  });
+
+  it("allows a generic anchor to attach concrete project memory when the batch context has a unique project", async () => {
+    const extractor = createExtractor();
+    vi.spyOn(extractor as never as { callStructuredJson: (input: unknown) => Promise<string> }, "callStructuredJson")
+      .mockResolvedValue(JSON.stringify({
+        items: [{
+          type: "project",
+          name: "Boreal",
+          description: "第一版先别碰知识库。",
+          stage: "目前还在设计阶段。",
+        }],
+      }));
+
+    const result = await extractor.extractFileMemoryCandidates({
+      timestamp: "2026-04-10T07:05:00.000Z",
+      sessionKey: "session-boreal-batch",
+      explicitRemember: false,
+      batchContextMessages: [
+        { role: "user", content: "这个项目先叫 Boreal。它是一个本地知识库整理工具，目前还在设计阶段。" },
+        { role: "assistant", content: "好的，我记下这个项目了。" },
+        { role: "user", content: "帮我记住这个项目，第一版先别碰知识库。" },
+      ],
+      messages: [
+        { role: "user", content: "帮我记住这个项目，第一版先别碰知识库。" },
+      ],
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      type: "project",
+      name: "Boreal",
+      description: "第一版先别碰知识库。",
+    });
+  });
+
+  it("does not create a project candidate for a generic anchor when batch context contains multiple project names", async () => {
+    const extractor = createExtractor();
+    vi.spyOn(extractor as never as { callStructuredJson: (input: unknown) => Promise<string> }, "callStructuredJson")
+      .mockResolvedValue(JSON.stringify({ items: [] }));
+
+    const result = await extractor.extractFileMemoryCandidates({
+      timestamp: "2026-04-10T07:06:00.000Z",
+      sessionKey: "session-multi-project",
+      explicitRemember: false,
+      batchContextMessages: [
+        { role: "user", content: "这个项目先叫 Aster。它是一个记忆系统重构项目。" },
+        { role: "assistant", content: "好的。" },
+        { role: "user", content: "我还有一个项目叫 Northwind，是一个本地知识库整理工具。" },
+        { role: "assistant", content: "明白。" },
+        { role: "user", content: "帮我记住这个项目。" },
+      ],
+      messages: [
+        { role: "user", content: "帮我记住这个项目。" },
+      ],
+    });
+
+    expect(result).toHaveLength(0);
+  });
+
+  it("leaves why and how_to_apply empty when feedback evidence is too weak", async () => {
+    const extractor = createExtractor();
+    vi.spyOn(extractor as never as { callStructuredJson: (input: unknown) => Promise<string> }, "callStructuredJson")
+      .mockResolvedValue(JSON.stringify({
+        items: [{
+          type: "feedback",
+          name: "collaboration-rule",
+          description: "先说完成了什么，再说风险。",
+          rule: "先说完成了什么，再说风险。",
+          why: "",
+          how_to_apply: "",
+        }],
+      }));
+
+    const result = await extractor.extractFileMemoryCandidates({
+      timestamp: "2026-04-10T03:10:00.000Z",
+      sessionKey: "session-feedback-weak",
+      explicitRemember: true,
+      messages: [
+        {
+          role: "user",
+          content: "记住：先说完成了什么，再说风险。",
+        },
+      ],
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      type: "feedback",
+      scope: "project",
+      name: "collaboration-rule",
+    });
+    expect(result[0]?.why || "").toBe("");
+    expect(result[0]?.howToApply || "").toBe("");
+  });
+
+  it("sanitizes generic why and how_to_apply template text from model output", async () => {
+    const extractor = createExtractor();
+    vi.spyOn(extractor as never as { callStructuredJson: (input: unknown) => Promise<string> }, "callStructuredJson")
+      .mockResolvedValue(JSON.stringify({
+        items: [
+          {
+            type: "feedback",
+            name: "collaboration-rule",
+            description: "Status updates should lead with completed work and risks.",
+            rule: "先说完成了什么，再说风险。",
+            why: "Explicit project collaboration preference captured from the user.",
+            how_to_apply: "Follow this collaboration rule in future project replies unless the user overrides it.",
+          },
+        ],
+      }));
+
+    const result = await extractor.extractFileMemoryCandidates({
+      timestamp: "2026-04-10T03:11:00.000Z",
+      sessionKey: "session-feedback-sanitize",
+      explicitRemember: true,
+      messages: [
+        {
+          role: "user",
+          content: "记住，在这个项目里先说完成了什么，再说风险。",
+        },
+      ],
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0]?.why || "").toBe("");
+    expect(result[0]?.howToApply || "").toBe("");
+  });
+
+  it("normalizes queries that ask for both project state and collaboration rules to mixed", async () => {
     const extractor = createExtractor();
     vi.spyOn(extractor as never as { callStructuredJson: (input: unknown) => Promise<string> }, "callStructuredJson")
       .mockResolvedValue(JSON.stringify({ route: "project" }));

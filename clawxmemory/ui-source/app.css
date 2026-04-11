@@ -3006,6 +3006,20 @@ body[data-panel="retrieve"] #retrievePanel {
   min-width: 0;
 }
 
+.memory-trace-step-chevron {
+  flex: 0 0 auto;
+  align-self: center;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--text-2);
+  transition: color 0.15s ease;
+}
+
+.memory-trace-step-toggle:hover .memory-trace-step-chevron,
+.memory-trace-step-item.active .memory-trace-step-chevron {
+  color: var(--accent);
+}
+
 .memory-trace-step-head,
 .memory-trace-tool-head {
   display: flex;
@@ -3034,6 +3048,12 @@ body[data-panel="retrieve"] #retrievePanel {
 
 .memory-trace-expanded-meta {
   grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+}
+
+.memory-trace-inline-note {
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--text-2);
 }
 
 /* ── Detail & debug blocks — flat bg-inset ───────────── */

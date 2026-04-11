@@ -1,11 +1,20 @@
 import type {
+  IndexTraceRecord,
+  IndexTraceStep,
+  IndexTraceStoredResult,
   IndexingSettings,
   L0SessionRecord,
+  MemoryCandidate,
+  MemoryFileRecord,
   MemoryMessage,
+  MemoryRecordType,
+  RetrievalPromptDebug,
 } from "../types.js";
-import { LlmMemoryExtractor } from "../skills/llm-extraction.js";
+import { LlmMemoryExtractor, type FileMemoryExtractionDebug } from "../skills/llm-extraction.js";
 import { MemoryRepository } from "../storage/sqlite.js";
-import { buildL0IndexId, nowIso } from "../utils/id.js";
+import { TMP_PROJECT_ID } from "../file-memory.js";
+import { buildL0IndexId, hashText, nowIso } from "../utils/id.js";
+import { decodeEscapedUnicodeText, decodeEscapedUnicodeValue } from "../utils/text.js";
 import { hasExplicitRememberIntent } from "../../message-utils.js";
 
 const LAST_INDEXED_AT_STATE_KEY = "lastIndexedAt" as const;
@@ -58,6 +67,117 @@ function emptyStats(): HeartbeatStats {
     l2ProjectUpdated: 0,
     profileUpdated: 0,
     failed: 0,
+  };
+}
+
+function flattenBatchMessages(sessions: L0SessionRecord[]): MemoryMessage[] {
+  return sessions.flatMap((session) => session.messages);
+}
+
+function buildIndexTraceId(sessionKey: string, startedAt: string, l0Ids: string[]): string {
+  return `index_trace_${hashText(`${sessionKey}:${startedAt}:${l0Ids.join(",")}`)}`;
+}
+
+function normalizeTrigger(reason: string | undefined): IndexTraceRecord["trigger"] {
+  const normalized = (reason ?? "").trim().toLowerCase();
+  if (normalized.includes("explicit_remember")) return "explicit_remember";
+  if (normalized.includes("scheduled")) return "scheduled";
+  return "manual_sync";
+}
+
+function previewText(text: string, maxChars = 220): string {
+  const normalized = decodeEscapedUnicodeText(text, true).replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxChars) return normalized;
+  return `${normalized.slice(0, maxChars)}...`;
+}
+
+function describeCandidate(candidate: MemoryCandidate): string {
+  return `${candidate.type}:${candidate.name} — ${previewText(candidate.description, 120)}`;
+}
+
+function inferStorageKind(record: MemoryFileRecord): IndexTraceStoredResult["storageKind"] {
+  if (record.type === "user") return "global_user";
+  if (record.projectId === TMP_PROJECT_ID) {
+    return record.type === "feedback" ? "tmp_feedback" : "tmp_project";
+  }
+  return record.type === "feedback" ? "formal_feedback" : "formal_project";
+}
+
+function inferGroupingLabel(
+  repository: MemoryRepository,
+  candidate: MemoryCandidate,
+): { projectId?: string; storageKind: IndexTraceStoredResult["storageKind"]; label: string } {
+  if (candidate.type === "user") {
+    return { storageKind: "global_user", label: "global user profile" };
+  }
+  const store = repository.getFileMemoryStore();
+  const formalProjectId = candidate.projectId?.trim() && store.getProjectMeta(candidate.projectId)
+    ? candidate.projectId.trim()
+    : "";
+  if (formalProjectId) {
+    return {
+      projectId: formalProjectId,
+      storageKind: candidate.type === "feedback" ? "formal_feedback" : "formal_project",
+      label: `formal:${formalProjectId}`,
+    };
+  }
+  return {
+    projectId: TMP_PROJECT_ID,
+    storageKind: candidate.type === "feedback" ? "tmp_feedback" : "tmp_project",
+    label: candidate.type === "feedback" ? "tmp feedback (no unique project anchor)" : "tmp project",
+  };
+}
+
+function createStep(
+  trace: IndexTraceRecord,
+  kind: IndexTraceStep["kind"],
+  title: string,
+  status: IndexTraceStep["status"],
+  inputSummary: string,
+  outputSummary: string,
+  options: {
+    refs?: Record<string, unknown>;
+    metrics?: Record<string, unknown>;
+    details?: IndexTraceStep["details"];
+    promptDebug?: RetrievalPromptDebug;
+  } = {},
+): void {
+  trace.steps.push({
+    stepId: `${trace.indexTraceId}:step:${trace.steps.length + 1}`,
+    kind,
+    title,
+    status,
+    inputSummary,
+    outputSummary,
+    ...(options.refs ? { refs: options.refs } : {}),
+    ...(options.metrics ? { metrics: options.metrics } : {}),
+    ...(options.details ? { details: options.details } : {}),
+    ...(options.promptDebug ? { promptDebug: options.promptDebug } : {}),
+  });
+}
+
+function createBatchTrace(sessionKey: string, sessions: L0SessionRecord[], trigger: IndexTraceRecord["trigger"]): IndexTraceRecord {
+  const startedAt = nowIso();
+  const timestamps = sessions.map((session) => session.timestamp).filter(Boolean).sort();
+  const focusUserTurnCount = sessions.reduce(
+    (count, session) => count + session.messages.filter((message) => message.role === "user").length,
+    0,
+  );
+  return {
+    indexTraceId: buildIndexTraceId(sessionKey, startedAt, sessions.map((session) => session.l0IndexId)),
+    sessionKey,
+    trigger,
+    startedAt,
+    status: "running",
+    batchSummary: {
+      l0Ids: sessions.map((session) => session.l0IndexId),
+      segmentCount: sessions.length,
+      focusUserTurnCount,
+      fromTimestamp: timestamps[0] ?? "",
+      toTimestamp: timestamps[timestamps.length - 1] ?? "",
+    },
+    steps: [],
+    storedResults: [],
   };
 }
 
@@ -115,54 +235,419 @@ export class HeartbeatIndexer {
 
   async runHeartbeat(options: HeartbeatRunOptions = {}): Promise<HeartbeatStats> {
     const stats = emptyStats();
-    const sessions = this.repository.listUnindexedL0Sessions(
+    const sessionKeys = this.repository.listPendingSessionKeys(
       Math.max(1, options.batchSize ?? this.batchSize),
       options.sessionKeys,
     );
-    if (sessions.length === 0) return stats;
+    if (sessionKeys.length === 0) return stats;
 
-    const processedIds: string[] = [];
-    for (const session of sessions) {
-      try {
-        const store = this.repository.getFileMemoryStore();
-        const candidates = await this.extractor.extractFileMemoryCandidates({
-          timestamp: session.timestamp,
-          sessionKey: session.sessionKey,
-          messages: session.messages,
-          explicitRemember: hasExplicitRememberIntent(session.messages),
-        });
-        const userCandidates = candidates.filter((candidate) => candidate.type === "user");
-        const fileCandidates = candidates.filter((candidate) => candidate.type !== "user");
+    const store = this.repository.getFileMemoryStore();
+    for (const sessionKey of sessionKeys) {
+      const sessions = this.repository.listUnindexedL0BySession(sessionKey);
+      if (sessions.length === 0) continue;
 
-        for (const candidate of fileCandidates) {
-          store.upsertCandidate(candidate);
-          stats.l1Created += 1;
-          if (candidate.type === "project" || candidate.type === "feedback") {
-            stats.l2ProjectUpdated += 1;
+      const batchContextMessages = flattenBatchMessages(sessions);
+      const trace = createBatchTrace(sessionKey, sessions, normalizeTrigger(options.reason));
+      createStep(
+        trace,
+        "index_start",
+        "Index Started",
+        "info",
+        `trigger=${trace.trigger}`,
+        `Preparing batch indexing for ${sessionKey}.`,
+      );
+      createStep(
+        trace,
+        "batch_loaded",
+        "Batch Loaded",
+        "info",
+        `${trace.batchSummary.segmentCount} segments from ${trace.batchSummary.fromTimestamp || "n/a"} to ${trace.batchSummary.toTimestamp || "n/a"}`,
+        `${batchContextMessages.length} messages loaded into batch context.`,
+        {
+          metrics: {
+            segmentCount: trace.batchSummary.segmentCount,
+            focusUserTurnCount: trace.batchSummary.focusUserTurnCount,
+          },
+          details: [
+            {
+              key: "batch-summary",
+              label: "Batch Summary",
+              kind: "kv",
+              entries: [
+                { label: "sessionKey", value: sessionKey },
+                { label: "from", value: trace.batchSummary.fromTimestamp || "" },
+                { label: "to", value: trace.batchSummary.toTimestamp || "" },
+                { label: "l0Ids", value: trace.batchSummary.l0Ids.join(", ") || "none" },
+              ],
+            },
+            {
+              key: "batch-context",
+              label: "Batch Context",
+              kind: "json",
+              json: decodeEscapedUnicodeValue(batchContextMessages.map((message, index) => ({
+                index,
+                role: message.role,
+                content: message.content,
+              })), true),
+            },
+          ],
+        },
+      );
+      createStep(
+        trace,
+        "focus_turns_selected",
+        "Focus Turns Selected",
+        trace.batchSummary.focusUserTurnCount > 0 ? "success" : "warning",
+        `${trace.batchSummary.focusUserTurnCount} user turns in this batch.`,
+        trace.batchSummary.focusUserTurnCount > 0
+          ? "User turns will be classified one by one."
+          : "No user turns found; this batch will be marked indexed without storing memory.",
+        {
+          details: [
+            {
+              key: "focus-turn-selection-summary",
+              label: "Focus Selection Summary",
+              kind: "kv",
+              entries: [
+                { label: "userTurns", value: String(trace.batchSummary.focusUserTurnCount) },
+                { label: "assistantMessagesInContext", value: String(batchContextMessages.filter((message) => message.role === "assistant").length) },
+                { label: "assistantUsedAsContextOnly", value: "yes" },
+              ],
+            },
+            ...sessions.flatMap((session) => session.messages)
+              .filter((message) => message.role === "user")
+              .map((message, index) => ({
+                key: `focus-turn-${index + 1}`,
+                label: `Focus Turn ${index + 1}`,
+                kind: "text" as const,
+                text: decodeEscapedUnicodeText(message.content, true),
+              })),
+          ],
+        },
+      );
+      this.repository.saveIndexTrace(trace);
+
+      const processedIds: string[] = [];
+      const userCandidates: MemoryCandidate[] = [];
+      let userRewriteDebug: RetrievalPromptDebug | undefined;
+      let sessionHadError = false;
+
+      for (const session of sessions) {
+        try {
+          const focusUserTurns = session.messages.filter((message) => message.role === "user");
+          if (focusUserTurns.length === 0) {
+            processedIds.push(session.l0IndexId);
+            stats.l0Captured += 1;
+            continue;
           }
+
+          for (const focusTurn of focusUserTurns) {
+            let extractionPromptDebug: RetrievalPromptDebug | undefined;
+            let extractionDebug: FileMemoryExtractionDebug | undefined;
+            const candidates = await this.extractor.extractFileMemoryCandidates({
+              timestamp: session.timestamp,
+              sessionKey: session.sessionKey,
+              messages: [focusTurn],
+              batchContextMessages,
+              explicitRemember: hasExplicitRememberIntent([focusTurn]),
+              debugTrace: (debug) => {
+                extractionPromptDebug = debug;
+              },
+              decisionTrace: (debug) => {
+                extractionDebug = debug;
+              },
+            });
+            const finalCandidates = extractionDebug?.finalCandidates ?? candidates;
+            const normalizedCandidates = extractionDebug?.normalizedCandidates ?? finalCandidates;
+            const discarded = extractionDebug?.discarded ?? [];
+            const candidateTypes = Array.from(new Set(finalCandidates.map((candidate) => candidate.type)));
+            createStep(
+              trace,
+              "turn_classified",
+              "Turn Classified",
+              finalCandidates.length > 0 ? "success" : "warning",
+              previewText(focusTurn.content, 220),
+              finalCandidates.length > 0
+                ? `classified=${candidateTypes.join(", ")}`
+                : "classified=discarded",
+              {
+                refs: {
+                  classification: finalCandidates.length > 0 ? candidateTypes : ["discarded"],
+                },
+                details: [
+                  {
+                    key: `focus-turn-text-${session.l0IndexId}`,
+                    label: "Focus User Turn",
+                    kind: "text",
+                    text: decodeEscapedUnicodeText(focusTurn.content, true),
+                  },
+                  {
+                    key: `classification-result-${session.l0IndexId}`,
+                    label: "Classification Result",
+                    kind: "kv",
+                    entries: [
+                      { label: "sessionKey", value: session.sessionKey },
+                      { label: "timestamp", value: session.timestamp },
+                      { label: "result", value: finalCandidates.length > 0 ? candidateTypes.join(", ") : "discarded" },
+                    ],
+                  },
+                  {
+                    key: `classification-candidates-${session.l0IndexId}`,
+                    label: "Classifier Candidates",
+                    kind: "json",
+                    json: decodeEscapedUnicodeValue(finalCandidates, true),
+                  },
+                  ...(discarded.length > 0
+                    ? [{
+                        key: `discarded-reasons-${session.l0IndexId}`,
+                        label: "Discarded Reasons",
+                        kind: "json" as const,
+                        json: decodeEscapedUnicodeValue(discarded, true),
+                      }]
+                    : []),
+                ],
+                ...(extractionPromptDebug ? { promptDebug: extractionPromptDebug } : {}),
+              },
+            );
+
+            createStep(
+              trace,
+              "candidate_validated",
+              "Candidate Validated",
+              normalizedCandidates.length > 0 || discarded.length === 0 ? "success" : "warning",
+              `${normalizedCandidates.length} normalized candidates, ${discarded.length} discarded.`,
+              finalCandidates.length > 0
+                ? `${finalCandidates.length} candidates survived validation.`
+                : "No candidates survived validation.",
+              {
+                details: [
+                  {
+                    key: `raw-candidates-${session.l0IndexId}`,
+                    label: "Raw Candidates",
+                    kind: "json",
+                    json: decodeEscapedUnicodeValue(finalCandidates, true),
+                  },
+                  {
+                    key: `normalized-candidates-${session.l0IndexId}`,
+                    label: "Normalized Candidates",
+                    kind: "list",
+                    items: normalizedCandidates.map((candidate) => describeCandidate(candidate)),
+                  },
+                  {
+                    key: `discarded-candidates-${session.l0IndexId}`,
+                    label: "Discarded Candidates",
+                    kind: "json",
+                    json: decodeEscapedUnicodeValue(discarded, true),
+                  },
+                ],
+              },
+            );
+
+            createStep(
+              trace,
+              "candidate_grouped",
+              "Candidate Grouped",
+              finalCandidates.length > 0 ? "success" : "skipped",
+              `${finalCandidates.length} validated candidates ready for grouping.`,
+              finalCandidates.length > 0
+                ? "Resolved storage groups for validated candidates."
+                : "No validated candidates to group.",
+              {
+                details: [{
+                  key: `grouped-candidates-${session.l0IndexId}`,
+                  label: "Grouping Result",
+                  kind: "json",
+                  json: decodeEscapedUnicodeValue(finalCandidates.map((candidate) => {
+                    const grouping = inferGroupingLabel(this.repository, candidate);
+                    return {
+                      candidateType: candidate.type,
+                      candidateName: candidate.name,
+                      candidateDescription: candidate.description,
+                      grouping: grouping.label,
+                      projectId: grouping.projectId ?? null,
+                      storageKind: grouping.storageKind,
+                    };
+                  }), true),
+                }],
+              },
+            );
+
+            const batchUserCandidates = finalCandidates.filter((candidate) => candidate.type === "user");
+            const fileCandidates = finalCandidates.filter((candidate) => candidate.type !== "user");
+            const persistedRecords: MemoryFileRecord[] = [];
+
+            for (const candidate of fileCandidates) {
+              const record = store.upsertCandidate(candidate);
+              persistedRecords.push(record);
+              trace.storedResults.push({
+                candidateType: candidate.type,
+                candidateName: candidate.name,
+                scope: candidate.scope,
+                ...(record.projectId ? { projectId: record.projectId } : {}),
+                relativePath: record.relativePath,
+                storageKind: inferStorageKind(record),
+              });
+              stats.l1Created += 1;
+              if (candidate.type === "project" || candidate.type === "feedback") {
+                stats.l2ProjectUpdated += 1;
+              }
+            }
+            createStep(
+              trace,
+              "candidate_persisted",
+              "Candidate Persisted",
+              persistedRecords.length > 0 ? "success" : "skipped",
+              `${fileCandidates.length} file candidates ready to persist.`,
+              persistedRecords.length > 0
+                ? `${persistedRecords.length} memory files written.`
+                : "No project or feedback files were written for this turn.",
+              {
+                details: [{
+                  key: `persisted-files-${session.l0IndexId}`,
+                  label: "Persisted Files",
+                  kind: "json",
+                  json: decodeEscapedUnicodeValue(persistedRecords.map((record) => ({
+                    type: record.type,
+                    name: record.name,
+                    projectId: record.projectId ?? null,
+                    relativePath: record.relativePath,
+                    storageKind: inferStorageKind(record),
+                  })), true),
+                }],
+              },
+            );
+            userCandidates.push(...batchUserCandidates);
+          }
+          processedIds.push(session.l0IndexId);
+          stats.l0Captured += 1;
+          this.repository.setPipelineState(LAST_INDEXED_AT_STATE_KEY, session.timestamp);
+          this.repository.setPipelineState(`lastIndexedCursor:${session.sessionKey}`, session.timestamp);
+        } catch (error) {
+          stats.failed += 1;
+          sessionHadError = true;
+          createStep(
+            trace,
+            "index_finished",
+            "Index Error",
+            "error",
+            session.l0IndexId,
+            error instanceof Error ? error.message : String(error),
+            {
+              details: [{
+                key: `index-error-${session.l0IndexId}`,
+                label: "Index Error",
+                kind: "note",
+                text: error instanceof Error ? error.message : String(error),
+              }],
+            },
+          );
+          this.logger?.warn?.(`[clawxmemory] heartbeat file-memory extraction failed for ${session.l0IndexId}: ${String(error)}`);
         }
-        if (userCandidates.length > 0) {
+      }
+
+      if (userCandidates.length > 0) {
+        try {
+          const existingUserProfile = store.getUserSummary();
           const rewrittenUser = await this.extractor.rewriteUserProfile({
-            existingProfile: store.getUserSummary(),
+            existingProfile: existingUserProfile,
             candidates: userCandidates,
+            debugTrace: (debug) => {
+              userRewriteDebug = debug;
+            },
           });
           if (rewrittenUser) {
-            store.upsertCandidate(rewrittenUser);
+            const record = store.upsertCandidate(rewrittenUser);
+            trace.storedResults.push({
+              candidateType: "user",
+              candidateName: rewrittenUser.name,
+              scope: rewrittenUser.scope,
+              relativePath: record.relativePath,
+              storageKind: inferStorageKind(record),
+            });
             stats.l1Created += 1;
             stats.profileUpdated += 1;
+            createStep(
+              trace,
+              "user_profile_rewritten",
+              "User Profile Rewritten",
+              "success",
+              `${userCandidates.length} user candidates merged.`,
+              `Stored user profile at ${record.relativePath}.`,
+              {
+                details: [{
+                  key: "user-profile-result",
+                  label: "User Profile Result",
+                  kind: "json",
+                  json: {
+                    before: {
+                      profile: existingUserProfile.profile,
+                      preferences: existingUserProfile.preferences,
+                      constraints: existingUserProfile.constraints,
+                      relationships: existingUserProfile.relationships,
+                    },
+                    after: {
+                    profile: rewrittenUser.profile ?? "",
+                    preferences: rewrittenUser.preferences ?? [],
+                    constraints: rewrittenUser.constraints ?? [],
+                    relationships: rewrittenUser.relationships ?? [],
+                    },
+                    relativePath: record.relativePath,
+                  },
+                }],
+                ...(userRewriteDebug ? { promptDebug: userRewriteDebug } : {}),
+              },
+            );
           }
+        } catch (error) {
+          stats.failed += 1;
+          sessionHadError = true;
+          createStep(
+            trace,
+            "user_profile_rewritten",
+            "User Profile Rewritten",
+            "error",
+            `${userCandidates.length} user candidates merged.`,
+            error instanceof Error ? error.message : String(error),
+            {
+              details: [{
+                key: "user-profile-error",
+                label: "User Rewrite Error",
+                kind: "note",
+                text: error instanceof Error ? error.message : String(error),
+              }],
+              ...(userRewriteDebug ? { promptDebug: userRewriteDebug } : {}),
+            },
+          );
+          this.logger?.warn?.(`[clawxmemory] heartbeat user-profile rewrite failed for ${sessionKey}: ${String(error)}`);
         }
-        processedIds.push(session.l0IndexId);
-        stats.l0Captured += 1;
-        this.repository.setPipelineState(LAST_INDEXED_AT_STATE_KEY, session.timestamp);
-      } catch (error) {
-        stats.failed += 1;
-        this.logger?.warn?.(`[clawxmemory] heartbeat file-memory extraction failed for ${session.l0IndexId}: ${String(error)}`);
       }
-    }
 
-    if (processedIds.length > 0) {
-      this.repository.markL0Indexed(processedIds);
+      if (processedIds.length > 0) {
+        this.repository.markL0Indexed(processedIds);
+      }
+      trace.finishedAt = nowIso();
+      trace.status = sessionHadError ? "error" : "completed";
+      createStep(
+        trace,
+        "index_finished",
+        "Index Finished",
+        sessionHadError ? "warning" : "success",
+        `segments=${trace.batchSummary.segmentCount}`,
+        `stored=${trace.storedResults.length}, failed=${sessionHadError ? 1 : 0}`,
+        {
+          metrics: {
+            storedResults: trace.storedResults.length,
+            failed: sessionHadError ? 1 : 0,
+          },
+          details: [{
+            key: "stored-results",
+            label: "Stored Results",
+            kind: "json",
+            json: trace.storedResults,
+          }],
+        },
+      );
+      this.repository.saveIndexTrace(trace);
     }
     return stats;
   }

@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { homedir, tmpdir } from "node:os";
+import { join, relative } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryPluginRuntime, applyManagedMemoryBoundaryConfig } from "../src/runtime.js";
 
@@ -370,6 +370,22 @@ describe("MemoryPluginRuntime", () => {
       "MEMORY.md:isolated",
     ]);
 
+    await writeFile(join(workspaceDir, "USER.md"), "recreated user memory\n", "utf-8");
+    expect((runtime as never as { reconcileManagedWorkspaceBoundary: () => string }).reconcileManagedWorkspaceBoundary()).toBe("conflict");
+    await expect(readFile(join(workspaceDir, "USER.md"), "utf-8")).rejects.toThrow();
+
+    const conflictState = (runtime as never as {
+      readManagedBoundaryState: (workspaceDir: string) => { files: Array<{ name: string; status: string; conflictPath?: string }> } | undefined;
+    }).readManagedBoundaryState(workspaceDir);
+    const userConflict = conflictState?.files.find((file) => file.name === "USER.md");
+    expect(userConflict).toMatchObject({
+      name: "USER.md",
+      status: "conflict",
+      conflictPath: expect.stringContaining("USER.clawxmemory-conflict-active-"),
+    });
+    const userConflictPath = userConflict?.conflictPath;
+    expect(userConflictPath).toBeTruthy();
+
     await writeFile(configPath, `${JSON.stringify({
       plugins: {
         slots: { memory: "memory-core" },
@@ -384,6 +400,7 @@ describe("MemoryPluginRuntime", () => {
 
     await expect(readFile(join(workspaceDir, "USER.md"), "utf-8")).resolves.toBe("legacy user memory\n");
     await expect(readFile(join(workspaceDir, "MEMORY.md"), "utf-8")).resolves.toBe("legacy workspace memory\n");
+    await expect(readFile(userConflictPath!, "utf-8")).resolves.toBe("recreated user memory\n");
     expect((runtime as never as { readManagedBoundaryState: (workspaceDir: string) => unknown }).readManagedBoundaryState(workspaceDir)).toBeUndefined();
   });
 
@@ -597,6 +614,195 @@ describe("MemoryPluginRuntime", () => {
     runtime.stop();
   });
 
+  it("blocks tool writes to workspace or plugin-managed memory files and records the blocked tool event", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "clawxmemory-runtime-"));
+    const workspaceDir = await mkdtemp(join(homedir(), "clawxmemory-workspace-"));
+    const managedMemoryDir = join(dir, "managed-memory");
+    cleanupPaths.push(dir);
+    cleanupPaths.push(workspaceDir);
+    await mkdir(managedMemoryDir, { recursive: true });
+
+    const runtime = new MemoryPluginRuntime({
+      apiConfig: {
+        agents: {
+          defaults: {
+            workspace: workspaceDir,
+          },
+        },
+      },
+      pluginRuntime: undefined,
+      pluginConfig: {
+        dbPath: join(dir, "memory.sqlite"),
+        memoryDir: managedMemoryDir,
+        uiEnabled: false,
+      },
+      logger: undefined,
+    });
+    runtimes.push(runtime);
+
+    runtime.handleBeforeMessageWrite(
+      {
+        message: {
+          role: "user",
+          content: "记住这件事。",
+        },
+      } as never,
+      { sessionKey: "session-boundary" } as never,
+    );
+
+    const blockedUser = runtime.handleBeforeToolCall(
+      {
+        toolName: "write",
+        params: { path: "USER.md", content: "bad" },
+        toolCallId: "tool-user",
+      } as never,
+      { sessionKey: "session-boundary" } as never,
+    );
+    expect(blockedUser).toMatchObject({
+      block: true,
+      blockReason: expect.stringContaining("USER.md"),
+    });
+
+    const blockedManifest = runtime.handleBeforeToolCall(
+      {
+        toolName: "edit",
+        params: { file_path: "MEMORY.md", old_string: "", new_string: "bad" },
+        toolCallId: "tool-manifest",
+      } as never,
+      { sessionKey: "session-boundary" } as never,
+    );
+    expect(blockedManifest).toMatchObject({
+      block: true,
+      blockReason: expect.stringContaining("MEMORY.md"),
+    });
+
+    const blockedMemoryFile = runtime.handleBeforeToolCall(
+      {
+        toolName: "write",
+        params: { path: "memory/2026-04-10.md", content: "bad" },
+        toolCallId: "tool-memory",
+      } as never,
+      { sessionKey: "session-boundary" } as never,
+    );
+    expect(blockedMemoryFile).toMatchObject({
+      block: true,
+      blockReason: expect.stringContaining("memory/2026-04-10.md"),
+    });
+
+    const tildeWorkspaceMemoryPath = `~/${relative(homedir(), join(workspaceDir, "memory", "2026-04-10.md")).replace(/\\/g, "/")}`;
+    const blockedTildeWorkspaceMemory = runtime.handleBeforeToolCall(
+      {
+        toolName: "write",
+        params: { path: tildeWorkspaceMemoryPath, content: "bad" },
+        toolCallId: "tool-memory-tilde",
+      } as never,
+      { sessionKey: "session-boundary" } as never,
+    );
+    expect(blockedTildeWorkspaceMemory).toMatchObject({
+      block: true,
+      blockReason: expect.stringContaining("memory/2026-04-10.md"),
+    });
+
+    const blockedManagedMemory = runtime.handleBeforeToolCall(
+      {
+        toolName: "write",
+        params: { path: join(managedMemoryDir, "projects", "_tmp", "Project", "memory-item.md"), content: "bad" },
+        toolCallId: "tool-managed-memory",
+      } as never,
+      { sessionKey: "session-boundary" } as never,
+    );
+    expect(blockedManagedMemory).toMatchObject({
+      block: true,
+      blockReason: expect.stringContaining("managed-memory/projects/_tmp/Project/memory-item.md"),
+    });
+
+    const records = (runtime as never as {
+      listRecentCaseTraces: (limit: number) => Array<Record<string, unknown>>;
+    }).listRecentCaseTraces(10);
+    expect(records).toHaveLength(1);
+    expect((records[0]?.toolEvents as Array<Record<string, unknown>>)?.map((event) => [event.phase, event.status])).toEqual([
+      ["start", "running"],
+      ["result", "error"],
+      ["start", "running"],
+      ["result", "error"],
+      ["start", "running"],
+      ["result", "error"],
+      ["start", "running"],
+      ["result", "error"],
+      ["start", "running"],
+      ["result", "error"],
+    ]);
+    expect((records[0]?.toolEvents as Array<Record<string, unknown>>)?.map((event) => event.resultPreview)).toEqual([
+      undefined,
+      "Blocked path: USER.md",
+      undefined,
+      "Blocked path: MEMORY.md",
+      undefined,
+      "Blocked path: memory/2026-04-10.md",
+      undefined,
+      "Blocked path: memory/2026-04-10.md",
+      undefined,
+      "Blocked path: managed-memory/projects/_tmp/Project/memory-item.md",
+    ]);
+
+    runtime.stop();
+  });
+
+  it("allows tool writes to normal workspace files outside the managed memory boundary", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "clawxmemory-runtime-"));
+    const workspaceDir = join(dir, "workspace");
+    cleanupPaths.push(dir);
+    await mkdir(workspaceDir, { recursive: true });
+
+    const runtime = new MemoryPluginRuntime({
+      apiConfig: {
+        agents: {
+          defaults: {
+            workspace: workspaceDir,
+          },
+        },
+      },
+      pluginRuntime: undefined,
+      pluginConfig: {
+        dbPath: join(dir, "memory.sqlite"),
+        uiEnabled: false,
+      },
+      logger: undefined,
+    });
+    runtimes.push(runtime);
+
+    runtime.handleBeforeMessageWrite(
+      {
+        message: {
+          role: "user",
+          content: "帮我更新项目文档。",
+        },
+      } as never,
+      { sessionKey: "session-allowed-write" } as never,
+    );
+
+    const allowed = runtime.handleBeforeToolCall(
+      {
+        toolName: "write",
+        params: { path: "docs/plan.md", content: "# plan" },
+        toolCallId: "tool-doc",
+      } as never,
+      { sessionKey: "session-allowed-write" } as never,
+    );
+
+    expect(allowed).toBeUndefined();
+
+    const records = (runtime as never as {
+      listRecentCaseTraces: (limit: number) => Array<Record<string, unknown>>;
+    }).listRecentCaseTraces(10);
+    expect(records).toHaveLength(1);
+    expect((records[0]?.toolEvents as Array<Record<string, unknown>>)?.map((event) => [event.phase, event.status, event.summary])).toEqual([
+      ["start", "running", "write started."],
+    ]);
+
+    runtime.stop();
+  });
+
   it("merges control-ui metadata prompts and cleaned user messages into one case", async () => {
     const dir = await mkdtemp(join(tmpdir(), "clawxmemory-runtime-"));
     cleanupPaths.push(dir);
@@ -766,6 +972,81 @@ describe("MemoryPluginRuntime", () => {
       "recall_skipped",
     ]);
 
+    runtime.stop();
+  });
+
+  it("captures normal turns without immediate indexing and flushes explicit remember turns immediately", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "clawxmemory-runtime-"));
+    cleanupPaths.push(dir);
+
+    const runtime = new MemoryPluginRuntime({
+      apiConfig: {},
+      pluginRuntime: undefined,
+      pluginConfig: {
+        dbPath: join(dir, "memory.sqlite"),
+        uiEnabled: false,
+      },
+      logger: undefined,
+    });
+    runtimes.push(runtime);
+
+    const requestIndexRun = vi.spyOn(runtime as never as {
+      requestIndexRun: (reason: string, sessionKeys?: string[]) => Promise<unknown>;
+    }, "requestIndexRun").mockResolvedValue({
+      l0Captured: 0,
+      l1Created: 0,
+      l2TimeUpdated: 0,
+      l2ProjectUpdated: 0,
+      profileUpdated: 0,
+      failed: 0,
+    });
+
+    runtime.handleBeforeMessageWrite(
+      {
+        message: {
+          role: "user",
+          content: "这个项目先叫 Boreal。它是一个本地知识库整理工具，目前还在设计阶段。",
+        },
+      } as never,
+      { sessionKey: "session-batch" } as never,
+    );
+
+    await runtime.handleAgentEnd(
+      {
+        success: true,
+        messages: [
+          { role: "user", content: "这个项目先叫 Boreal。它是一个本地知识库整理工具，目前还在设计阶段。" },
+          { role: "assistant", content: "好的，我记下 Boreal 了。" },
+        ],
+      } as never,
+      { sessionKey: "session-batch" } as never,
+    );
+
+    expect(requestIndexRun).not.toHaveBeenCalled();
+    expect(runtime.repository.listPendingSessionKeys()).toEqual(["session-batch"]);
+
+    runtime.handleBeforeMessageWrite(
+      {
+        message: {
+          role: "user",
+          content: "记住，在这个项目里，你给我汇报时要先说完成了什么，再说风险。",
+        },
+      } as never,
+      { sessionKey: "session-batch" } as never,
+    );
+
+    await runtime.handleAgentEnd(
+      {
+        success: true,
+        messages: [
+          { role: "user", content: "记住，在这个项目里，你给我汇报时要先说完成了什么，再说风险。" },
+          { role: "assistant", content: "好的，我记住这条项目内规则。" },
+        ],
+      } as never,
+      { sessionKey: "session-batch" } as never,
+    );
+
+    expect(requestIndexRun).toHaveBeenCalledWith("explicit_remember", ["session-batch"]);
     runtime.stop();
   });
 
@@ -1691,16 +1972,13 @@ describe("MemoryPluginRuntime", () => {
     (runtime as never as { queuePromise: Promise<unknown> }).queuePromise = pendingQueue.promise;
 
     const prepFlush = {
-      l0Captured: 1,
-      l1Created: 1,
+      l0Captured: 0,
+      l1Created: 0,
       l2TimeUpdated: 0,
       l2ProjectUpdated: 0,
       profileUpdated: 0,
       failed: 0,
     };
-    const flushSpy = vi.spyOn(runtime as never as {
-      flushAllNow: (reason: string, options?: { allowWhileDream?: boolean }) => Promise<typeof prepFlush>;
-    }, "flushAllNow").mockResolvedValue(prepFlush);
     const dreamOutcome = {
       reviewedL1: 3,
       rewrittenProjects: 1,
@@ -1719,7 +1997,6 @@ describe("MemoryPluginRuntime", () => {
     const dreamPromise = (runtime as never as {
       runDreamNow: (trigger: "manual") => Promise<Record<string, unknown>>;
     }).runDreamNow("manual");
-    expect(flushSpy).not.toHaveBeenCalled();
     expect(dreamSpy).not.toHaveBeenCalled();
 
     pendingQueue.resolve({
@@ -1732,14 +2009,10 @@ describe("MemoryPluginRuntime", () => {
     });
 
     await vi.waitFor(() => {
-      expect(flushSpy).toHaveBeenCalledWith("dream_prep", { allowWhileDream: true });
-    });
-    await vi.waitFor(() => {
       expect(dreamSpy).toHaveBeenCalledTimes(1);
     });
 
     const result = await dreamPromise;
-    expect(flushSpy.mock.invocationCallOrder[0]).toBeLessThan(dreamSpy.mock.invocationCallOrder[0]);
     expect(result).toMatchObject({
       prepFlush,
       reviewedL1: 3,
@@ -1762,18 +2035,6 @@ describe("MemoryPluginRuntime", () => {
     });
     runtimes.push(runtime);
 
-    const prepFlush = {
-      l0Captured: 0,
-      l1Created: 0,
-      l2TimeUpdated: 0,
-      l2ProjectUpdated: 0,
-      profileUpdated: 0,
-      failed: 0,
-    };
-    vi.spyOn(runtime as never as {
-      flushAllNow: (reason: string, options?: { allowWhileDream?: boolean }) => Promise<typeof prepFlush>;
-    }, "flushAllNow").mockResolvedValue(prepFlush);
-
     const dreamDeferred = deferred<{
       reviewedL1: number;
       rewrittenProjects: number;
@@ -1790,8 +2051,15 @@ describe("MemoryPluginRuntime", () => {
     }).dreamRewriter, "run").mockImplementation(() => dreamDeferred.promise);
 
     const drainSpy = vi.spyOn(runtime as never as {
-      drainIndexQueue: () => Promise<typeof prepFlush>;
-    }, "drainIndexQueue").mockResolvedValue(prepFlush);
+      drainIndexQueue: () => Promise<Record<string, number>>;
+    }, "drainIndexQueue").mockResolvedValue({
+      l0Captured: 0,
+      l1Created: 0,
+      l2TimeUpdated: 0,
+      l2ProjectUpdated: 0,
+      profileUpdated: 0,
+      failed: 0,
+    });
 
     const dreamPromise = (runtime as never as {
       runDreamNow: (trigger: "manual") => Promise<unknown>;
@@ -1927,9 +2195,6 @@ describe("MemoryPluginRuntime", () => {
       profileUpdated: 0,
       failed: 0,
     };
-    vi.spyOn(runtime as never as {
-      flushAllNow: (reason: string, options?: { allowWhileDream?: boolean }) => Promise<typeof prepFlush>;
-    }, "flushAllNow").mockResolvedValue(prepFlush);
     const indexer = (runtime as never as {
       indexer: { getSettings: () => Record<string, unknown> };
     }).indexer;
@@ -2001,9 +2266,6 @@ describe("MemoryPluginRuntime", () => {
       profileUpdated: 0,
       failed: 0,
     };
-    vi.spyOn(runtime as never as {
-      flushAllNow: (reason: string, options?: { allowWhileDream?: boolean }) => Promise<typeof prepFlush>;
-    }, "flushAllNow").mockResolvedValue(prepFlush);
     const dreamSpy = vi.spyOn((runtime as never as {
       dreamRewriter: { run: () => Promise<unknown> };
     }).dreamRewriter, "run").mockResolvedValue({
@@ -2071,9 +2333,6 @@ describe("MemoryPluginRuntime", () => {
       profileUpdated: 0,
       failed: 0,
     };
-    vi.spyOn(runtime as never as {
-      flushAllNow: (reason: string, options?: { allowWhileDream?: boolean }) => Promise<typeof prepFlush>;
-    }, "flushAllNow").mockResolvedValue(prepFlush);
     const dreamSpy = vi.spyOn((runtime as never as {
       dreamRewriter: { run: () => Promise<unknown> };
     }).dreamRewriter, "run").mockResolvedValue({

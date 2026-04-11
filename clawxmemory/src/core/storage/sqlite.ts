@@ -8,6 +8,8 @@ import type {
   DreamPipelineStatus,
   FactCandidate,
   GlobalProfileRecord,
+  IndexTraceRecord,
+  IndexTraceStepKind,
   IndexingSettings,
   IndexLinkRecord,
   LegacyMemoryExportBundle,
@@ -28,6 +30,8 @@ import type {
   MemoryTransferCounts,
   MemoryUiSnapshot,
   ProjectStatus,
+  RetrievalPromptDebug,
+  RetrievalTraceDetail,
 } from "../types.js";
 import { LEGACY_MEMORY_EXPORT_FORMAT_VERSION, MEMORY_EXPORT_FORMAT_VERSION } from "../types.js";
 import { FileMemoryStore } from "../file-memory.js";
@@ -45,6 +49,7 @@ const LAST_DREAM_STATUS_STATE_KEY = "lastDreamStatus" as const;
 const LAST_DREAM_SUMMARY_STATE_KEY = "lastDreamSummary" as const;
 const LAST_DREAM_L1_ENDED_AT_STATE_KEY = "lastDreamL1EndedAt" as const;
 const RECENT_CASE_TRACES_STATE_KEY = "recentCaseTraces" as const;
+const RECENT_INDEX_TRACES_STATE_KEY = "recentIndexTraces" as const;
 
 export class MemoryBundleValidationError extends Error {
   constructor(message: string) {
@@ -115,6 +120,111 @@ function parseCaseTraceRecord(value: unknown): CaseTraceRecord | null {
     ...(retrieval ? { retrieval } : {}),
     toolEvents: Array.isArray(value.toolEvents) ? value.toolEvents as CaseTraceRecord["toolEvents"] : [],
     assistantReply: typeof value.assistantReply === "string" ? value.assistantReply : "",
+  };
+}
+
+function isIndexTraceStepKind(value: string): value is IndexTraceStepKind {
+  return [
+    "index_start",
+    "batch_loaded",
+    "focus_turns_selected",
+    "turn_classified",
+    "candidate_validated",
+    "candidate_grouped",
+    "candidate_persisted",
+    "user_profile_rewritten",
+    "index_finished",
+  ].includes(value);
+}
+
+function parseIndexTraceRecord(value: unknown): IndexTraceRecord | null {
+  if (!isRecord(value)) return null;
+  if (typeof value.indexTraceId !== "string" || !value.indexTraceId.trim()) return null;
+  if (typeof value.sessionKey !== "string" || !value.sessionKey.trim()) return null;
+  if (typeof value.startedAt !== "string" || !value.startedAt.trim()) return null;
+  if (!isRecord(value.batchSummary)) return null;
+  const trigger = typeof value.trigger === "string" ? value.trigger : "";
+  if (!["explicit_remember", "manual_sync", "scheduled"].includes(trigger)) return null;
+  const status = typeof value.status === "string" ? value.status : "";
+  if (!["running", "completed", "error"].includes(status)) return null;
+  const batchSummary = {
+    l0Ids: Array.isArray(value.batchSummary.l0Ids)
+      ? value.batchSummary.l0Ids.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+      : [],
+    segmentCount: typeof value.batchSummary.segmentCount === "number" && Number.isFinite(value.batchSummary.segmentCount)
+      ? Math.max(0, Math.floor(value.batchSummary.segmentCount))
+      : 0,
+    focusUserTurnCount: typeof value.batchSummary.focusUserTurnCount === "number" && Number.isFinite(value.batchSummary.focusUserTurnCount)
+      ? Math.max(0, Math.floor(value.batchSummary.focusUserTurnCount))
+      : 0,
+    fromTimestamp: typeof value.batchSummary.fromTimestamp === "string" ? value.batchSummary.fromTimestamp : "",
+    toTimestamp: typeof value.batchSummary.toTimestamp === "string" ? value.batchSummary.toTimestamp : "",
+  };
+  const steps = Array.isArray(value.steps)
+    ? value.steps
+        .map((step): IndexTraceRecord["steps"][number] | null => {
+          if (!isRecord(step)) return null;
+          if (typeof step.stepId !== "string" || !step.stepId.trim()) return null;
+          if (typeof step.kind !== "string" || !isIndexTraceStepKind(step.kind)) return null;
+          const stepStatus = typeof step.status === "string" ? step.status : "";
+          if (!["info", "success", "warning", "error", "skipped"].includes(stepStatus)) return null;
+          const nextStep: IndexTraceRecord["steps"][number] = {
+            stepId: step.stepId,
+            kind: step.kind,
+            title: typeof step.title === "string" ? step.title : step.kind,
+            status: stepStatus as IndexTraceRecord["steps"][number]["status"],
+            inputSummary: typeof step.inputSummary === "string" ? step.inputSummary : "",
+            outputSummary: typeof step.outputSummary === "string" ? step.outputSummary : "",
+          };
+          if (isRecord(step.refs)) {
+            nextStep.refs = step.refs;
+          }
+          if (isRecord(step.metrics)) {
+            nextStep.metrics = step.metrics;
+          }
+          if (Array.isArray(step.details)) {
+            nextStep.details = step.details as RetrievalTraceDetail[];
+          }
+          if (isRecord(step.promptDebug)) {
+            nextStep.promptDebug = step.promptDebug as unknown as RetrievalPromptDebug;
+          }
+          return nextStep;
+        })
+        .filter((step): step is IndexTraceRecord["steps"][number] => Boolean(step))
+    : [];
+  const storedResults = Array.isArray(value.storedResults)
+    ? value.storedResults
+        .map((item): IndexTraceRecord["storedResults"][number] | null => {
+          if (!isRecord(item)) return null;
+          if (typeof item.candidateType !== "string" || !["user", "feedback", "project"].includes(item.candidateType)) return null;
+          if (typeof item.candidateName !== "string") return null;
+          if (typeof item.scope !== "string" || !["global", "project"].includes(item.scope)) return null;
+          if (typeof item.relativePath !== "string" || !item.relativePath.trim()) return null;
+          if (typeof item.storageKind !== "string" || !["global_user", "tmp_project", "tmp_feedback", "formal_project", "formal_feedback"].includes(item.storageKind)) return null;
+          const candidateType = item.candidateType as IndexTraceRecord["storedResults"][number]["candidateType"];
+          const scope = item.scope as IndexTraceRecord["storedResults"][number]["scope"];
+          const storageKind = item.storageKind as IndexTraceRecord["storedResults"][number]["storageKind"];
+          return {
+            candidateType,
+            candidateName: item.candidateName,
+            scope,
+            ...(typeof item.projectId === "string" && item.projectId.trim() ? { projectId: item.projectId } : {}),
+            relativePath: item.relativePath,
+            storageKind,
+          };
+        })
+        .filter((item): item is IndexTraceRecord["storedResults"][number] => Boolean(item))
+    : [];
+  return {
+    indexTraceId: value.indexTraceId,
+    sessionKey: value.sessionKey,
+    trigger: trigger as IndexTraceRecord["trigger"],
+    startedAt: value.startedAt,
+    ...(typeof value.finishedAt === "string" && value.finishedAt.trim() ? { finishedAt: value.finishedAt } : {}),
+    status: status as IndexTraceRecord["status"],
+    batchSummary,
+    steps,
+    storedResults,
   };
 }
 
@@ -671,7 +781,7 @@ export class MemoryRepository {
   }
 
   private buildLegacyProjectId(projectIndex: L2ProjectIndexRecord): string {
-    return `legacy_${hashText(`${projectIndex.projectKey}:${projectIndex.projectName}`)}`;
+    return `project_${hashText(`${projectIndex.projectKey}:${projectIndex.projectName}`)}`;
   }
 
   private importLegacyBundleIntoFileMemory(bundle: LegacyMemoryExportBundle): MemoryTransferCounts {
@@ -1126,6 +1236,41 @@ export class MemoryRepository {
       ${limitSql}
     `);
     const rows = stmt.all(...params) as DbRow[];
+    return rows.map(parseL0Row);
+  }
+
+  listPendingSessionKeys(limit = 20, sessionKeys?: string[]): string[] {
+    const keys = Array.isArray(sessionKeys) ? sessionKeys.filter(Boolean) : [];
+    const whereParts = ["indexed = 0"];
+    const params: Array<string | number> = [];
+    if (keys.length > 0) {
+      whereParts.push(`session_key IN (${keys.map(() => "?").join(", ")})`);
+      params.push(...keys);
+    }
+    const limitSql = Number.isFinite(limit) ? "LIMIT ?" : "";
+    if (Number.isFinite(limit)) params.push(limit);
+    const stmt = this.db.prepare(`
+      SELECT session_key, MIN(timestamp) AS first_timestamp
+      FROM l0_sessions
+      WHERE ${whereParts.join(" AND ")}
+      GROUP BY session_key
+      ORDER BY first_timestamp ASC
+      ${limitSql}
+    `);
+    return (stmt.all(...params) as Array<{ session_key?: string }>)
+      .map((row) => (typeof row.session_key === "string" ? row.session_key.trim() : ""))
+      .filter(Boolean);
+  }
+
+  listUnindexedL0BySession(sessionKey: string): L0SessionRecord[] {
+    const trimmed = sessionKey.trim();
+    if (!trimmed) return [];
+    const stmt = this.db.prepare(`
+      SELECT * FROM l0_sessions
+      WHERE indexed = 0 AND session_key = ?
+      ORDER BY timestamp ASC
+    `);
+    const rows = stmt.all(trimmed) as DbRow[];
     return rows.map(parseL0Row);
   }
 
@@ -1659,6 +1804,11 @@ export class MemoryRepository {
     const overview: DashboardOverview = {
       totalL0: count("l0_sessions"),
       pendingL0: (() => {
+        const stmt = this.db.prepare("SELECT COUNT(DISTINCT session_key) AS total FROM l0_sessions WHERE indexed = 0");
+        const row = stmt.get() as { total?: number } | undefined;
+        return Number(row?.total ?? 0);
+      })(),
+      pendingSegments: (() => {
         const stmt = this.db.prepare("SELECT COUNT(1) AS total FROM l0_sessions WHERE indexed = 0");
         const row = stmt.get() as { total?: number } | undefined;
         return Number(row?.total ?? 0);
@@ -1672,6 +1822,9 @@ export class MemoryRepository {
       totalUserMemories: fileOverview.totalUserMemories,
       totalFeedbackMemories: fileOverview.totalFeedbackMemories,
       totalProjectMemories: fileOverview.totalProjectMemories,
+      tmpTotalFiles: fileOverview.tmpTotalFiles,
+      tmpProjectMemories: fileOverview.tmpProjectMemories,
+      tmpFeedbackMemories: fileOverview.tmpFeedbackMemories,
       queuedSessions: 0,
       lastRecallMs: 0,
       recallTimeouts: 0,
@@ -1737,6 +1890,34 @@ export class MemoryRepository {
     next.unshift(normalized);
     this.setPipelineState(
       RECENT_CASE_TRACES_STATE_KEY,
+      JSON.stringify(next.slice(0, Math.max(1, Math.min(200, maxRecords)))),
+    );
+  }
+
+  listRecentIndexTraces(limit: number): IndexTraceRecord[] {
+    const raw = this.getPipelineState(RECENT_INDEX_TRACES_STATE_KEY);
+    if (!raw) return [];
+    const parsed = safeJsonParse<unknown[]>(raw, []);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map(parseIndexTraceRecord)
+      .filter((record): record is IndexTraceRecord => Boolean(record))
+      .slice(0, Math.max(1, Math.min(200, limit)));
+  }
+
+  getIndexTrace(indexTraceId: string): IndexTraceRecord | undefined {
+    if (!indexTraceId.trim()) return undefined;
+    return this.listRecentIndexTraces(200).find((record) => record.indexTraceId === indexTraceId.trim());
+  }
+
+  saveIndexTrace(record: IndexTraceRecord, maxRecords = 30): void {
+    const normalized = parseIndexTraceRecord(record);
+    if (!normalized) return;
+    const next = this.listRecentIndexTraces(Math.max(1, Math.min(200, maxRecords + 20)))
+      .filter((item) => item.indexTraceId !== normalized.indexTraceId);
+    next.unshift(normalized);
+    this.setPipelineState(
+      RECENT_INDEX_TRACES_STATE_KEY,
       JSON.stringify(next.slice(0, Math.max(1, Math.min(200, maxRecords)))),
     );
   }
@@ -2126,6 +2307,16 @@ export class MemoryRepository {
     includeTmp?: boolean;
   } = {}): MemoryManifestEntry[] {
     return this.fileMemory.listMemoryEntries(options);
+  }
+
+  countMemoryEntries(options: {
+    kinds?: Array<"user" | "feedback" | "project">;
+    query?: string;
+    scope?: "global" | "project";
+    projectId?: string;
+    includeTmp?: boolean;
+  } = {}): number {
+    return this.fileMemory.countMemoryEntries(options);
   }
 
   getMemoryRecordsByIds(ids: string[], maxLines = 80): MemoryFileRecord[] {

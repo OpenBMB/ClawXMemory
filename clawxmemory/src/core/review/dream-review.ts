@@ -61,6 +61,7 @@ const GENERIC_TMP_NAMES = new Set([
   "feedback-item",
   "project-item",
   "overview",
+  "project-note",
   "project",
   "feedback",
   "rule",
@@ -88,6 +89,26 @@ function uniqueStrings(values: Array<string | undefined>, max = 20): string[] {
   )).slice(0, max);
 }
 
+function isProjectAliasCandidate(value: string | undefined): boolean {
+  const normalized = normalizeText(value);
+  if (!normalized) return false;
+  if (normalized.length > 80) return false;
+  if (/[。！？!?]/.test(normalized)) return false;
+  if (/(先给|再给|封面文案|正文|标题|汇报时|同步进展|怎么协作|怎么交付|怎么汇报)/i.test(normalized)) {
+    return false;
+  }
+  return true;
+}
+
+function sanitizeProjectAliases(values: Array<string | undefined>, fallbackProjectName?: string): string[] {
+  return uniqueStrings(
+    [...values, fallbackProjectName]
+      .filter((value): value is string => typeof value === "string")
+      .filter((value) => isProjectAliasCandidate(value)),
+    50,
+  );
+}
+
 function deriveProjectName(analysis: TmpAnalysis): string {
   const candidates = [
     analysis.projectName,
@@ -101,6 +122,11 @@ function deriveProjectName(analysis: TmpAnalysis): string {
     if (!GENERIC_TMP_NAMES.has(candidate.toLowerCase())) return candidate;
   }
   return candidates[0] ?? "project";
+}
+
+function hasExplicitProjectIdentity(value: string): boolean {
+  const normalized = normalizeText(value).toLowerCase();
+  return Boolean(normalized) && !GENERIC_TMP_NAMES.has(normalized);
 }
 
 function countByType(entries: MemoryManifestEntry[], type: "user" | "feedback" | "project"): number {
@@ -162,6 +188,22 @@ function scoreGroup(group: TmpGroup, analysis: TmpAnalysis): number {
   return contentScore + temporalScore;
 }
 
+function scoreProjectGroupIdentity(group: TmpGroup, analysis: TmpAnalysis): number {
+  if (
+    hasExplicitProjectIdentity(group.projectName)
+    && hasExplicitProjectIdentity(analysis.projectName)
+    && normalizeText(group.projectName).toLowerCase() !== normalizeText(analysis.projectName).toLowerCase()
+  ) {
+    return 0;
+  }
+  const haystack = [
+    group.projectName,
+    group.description,
+    ...Array.from(group.aliases),
+  ].join(" ");
+  return scoreTokenOverlap(haystack, analysis.searchText);
+}
+
 function chooseBestMatch<T>(items: T[], scoreFn: (item: T) => number): { item?: T; score: number } {
   const scored = items
     .map((item) => ({ item, score: scoreFn(item) }))
@@ -180,12 +222,10 @@ function analyzeTmpRecord(record: MemoryFileRecord, repository: MemoryRepository
       record,
       projectName: normalizeText(candidate.name || record.name || record.description) || "project",
       description: normalizeText(candidate.description || candidate.stage || record.description || record.preview),
-      aliases: uniqueStrings([
+      aliases: sanitizeProjectAliases([
         candidate.name,
-        candidate.description,
-        ...(candidate.decisions ?? []).slice(0, 2),
-        ...(candidate.notes ?? []).slice(0, 2),
-      ]),
+        record.name,
+      ], normalizeText(candidate.name || record.name || record.description) || "project"),
       capturedAt: record.capturedAt || record.updatedAt,
       sourceSessionKey: record.sourceSessionKey || "",
       searchText: [
@@ -207,17 +247,14 @@ function analyzeTmpRecord(record: MemoryFileRecord, repository: MemoryRepository
     record,
     projectName: normalizeText(candidate.name || record.name),
     description: normalizeText(candidate.description || candidate.rule || record.description || record.preview),
-      aliases: uniqueStrings([
-        candidate.name,
-        candidate.description,
-        candidate.rule,
-        ...(candidate.notes ?? []).slice(0, 2),
-      ]),
-      capturedAt: record.capturedAt || record.updatedAt,
-      sourceSessionKey: record.sourceSessionKey || "",
-      searchText: [
-        candidate.name,
-        candidate.description,
+    // Feedback file names like "delivery-rule" are not project identities and must
+    // never bleed into formal project aliases.
+    aliases: [],
+    capturedAt: record.capturedAt || record.updatedAt,
+    sourceSessionKey: record.sourceSessionKey || "",
+    searchText: [
+      candidate.name,
+      candidate.description,
       candidate.rule,
       candidate.why,
       candidate.howToApply,
@@ -283,7 +320,7 @@ export class DreamRewriteRunner {
             projectId: formal.item.projectId,
             projectName: formal.item.projectName,
             description: formal.item.description,
-            aliases: new Set(formal.item.aliases),
+        aliases: new Set(formal.item.aliases),
             entries: [],
           };
           groups.push(group);
@@ -292,7 +329,10 @@ export class DreamRewriteRunner {
         continue;
       }
 
-      const local = chooseBestMatch(groups.filter((item) => !item.projectId), (group) => scoreGroup(group, analysis));
+      const local = chooseBestMatch(
+        groups.filter((item) => !item.projectId),
+        (group) => scoreProjectGroupIdentity(group, analysis),
+      );
       if (local.item && local.score > 0) {
         attachAnalysis(local.item, analysis);
         continue;
@@ -328,17 +368,7 @@ export class DreamRewriteRunner {
         attachAnalysis(local.item, analysis);
         continue;
       }
-      const derivedName = deriveProjectName(analysis);
-      if (!derivedName && !analysis.description) {
-        unresolved.push(analysis);
-        continue;
-      }
-      groups.push({
-        projectName: derivedName || "project",
-        description: analysis.description || derivedName || "project",
-        aliases: new Set(analysis.aliases.concat(derivedName || "")),
-        entries: [analysis],
-      });
+      unresolved.push(analysis);
     }
 
     const touchedProjectIds = new Set<string>();
@@ -352,7 +382,7 @@ export class DreamRewriteRunner {
         projectId,
         projectName: normalizeText(primary.projectName || group.projectName) || projectId,
         description: normalizeText(group.description || primary.description || primary.record.description) || projectId,
-        aliases: uniqueStrings([...Array.from(group.aliases), primary.projectName, primary.description], 50),
+        aliases: sanitizeProjectAliases([...Array.from(group.aliases), primary.projectName], normalizeText(primary.projectName || group.projectName) || projectId),
       });
       touchedProjectIds.add(projectId);
       for (const analysis of group.entries) {
