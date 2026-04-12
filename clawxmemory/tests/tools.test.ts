@@ -11,19 +11,19 @@ import { buildPluginTools } from "../src/tools.js";
 
 const retrievalResult: RetrievalResult = {
   query: "project status",
-  intent: "project",
+  intent: "project_memory",
   enoughAt: "file",
   profile: null,
   evidenceNote: "Selected 1 memory files from 2 manifest entries.",
   l2Results: [],
   l1Results: [],
   l0Results: [],
-  context: "## ClawXMemory Recall\nroute=project",
+  context: "## ClawXMemory Recall\nroute=project_memory",
   debug: {
     mode: "llm",
     elapsedMs: 42,
     cacheHit: false,
-    route: "project",
+    route: "project_memory",
     manifestCount: 2,
     selectedFileIds: ["projects/clawxmemory/Project/current-stage.md"],
   },
@@ -162,7 +162,7 @@ describe("buildPluginTools", () => {
     const searchResult = await tools[0]!.execute("call-1", { query: "project status", limit: 5 });
     expect(searchResult.details).toMatchObject({
       ok: true,
-      route: "project",
+      route: "project_memory",
       enoughAt: "file",
       refs: {
         files: ["projects/clawxmemory/Project/current-stage.md"],

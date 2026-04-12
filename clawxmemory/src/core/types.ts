@@ -6,7 +6,7 @@ export interface MemoryMessage {
   content: string;
 }
 
-export type MemoryRoute = "none" | "user" | "feedback" | "project" | "mixed";
+export type MemoryRoute = "none" | "user" | "project_memory";
 export type MemoryRecordType = "user" | "feedback" | "project";
 export type MemoryScope = "global" | "project";
 
@@ -32,6 +32,31 @@ export interface MemoryManifestEntry extends MemoryFileFrontmatter {
 export interface MemoryFileRecord extends MemoryManifestEntry {
   content: string;
   preview: string;
+}
+
+export interface RecallHeaderEntry {
+  name: string;
+  description: string;
+  type: MemoryRecordType;
+  scope: MemoryScope;
+  projectId?: string;
+  updatedAt: string;
+  file: string;
+  relativePath: string;
+  absolutePath: string;
+}
+
+export interface ProjectShortlistCandidate {
+  projectId: string;
+  projectName: string;
+  description: string;
+  aliases: string[];
+  status: string;
+  updatedAt: string;
+  score: number;
+  exact: number;
+  source: "query" | "recent";
+  matchedText: string;
 }
 
 export interface MemoryUserSummary {
@@ -486,8 +511,9 @@ export type RetrievalTraceStepKind =
   | "hop4_decision"
   | "memory_gate"
   | "user_base_loaded"
-  | "project_resolved"
-  | "manifest_built"
+  | "project_shortlist_built"
+  | "project_selected"
+  | "manifest_scanned"
   | "manifest_selected"
   | "files_loaded"
   | "context_rendered"

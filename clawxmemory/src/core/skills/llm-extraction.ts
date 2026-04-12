@@ -16,7 +16,10 @@ import type {
   MemoryRoute,
   MemoryUserSummary,
   ProjectDetail,
+  ProjectMetaRecord,
   ProjectStatus,
+  ProjectShortlistCandidate,
+  RecallHeaderEntry,
   RetrievalResult,
   RetrievalPromptDebug,
 } from "../types.js";
@@ -1004,8 +1007,13 @@ Rules:
 - If the supplied evidence is mainly Chinese, write summaries, project_name, description, aliases, and any other natural-language output in Chinese.
 - Keys and enums must remain in English.
 - Different explicit user-named projects must remain separate by default.
+- Similar project names, shared prefixes, or small wording differences do NOT imply the same project.
 - Shared domain, shared workflow, shared delivery rules, or the same user are NOT sufficient evidence for a merge.
 - Do not create a broader umbrella project that absorbs multiple more specific user-named projects.
+- If two explicit project names can both stand on their own as valid user projects, keep them separate unless the evidence explicitly shows rename, alias equivalence, or duplicate formal identity.
+- duplicate_formal_project is only for multiple already-existing formal project identities that are actually duplicates. Do not use duplicate_formal_project for two tmp-only project groups.
+- If two tmp project groups have different explicit project names, keep them separate unless the evidence explicitly proves rename or alias equivalence.
+- Example of keep-separate: "城市咖啡探店爆文" and "城市咖啡馆探店爆文" are two different projects unless the supplied files explicitly say one was renamed from the other or that they are aliases of the same project.
 - You may:
   - attach tmp files to an existing formal project
   - merge two formal projects into one surviving formal project
@@ -1014,6 +1022,7 @@ Rules:
 - If you merge entries from multiple distinct explicit project names into one final project, you must provide:
   - merge_reason: one of rename, alias_equivalence, duplicate_formal_project
   - evidence_entry_ids: retained entry ids that directly support the merge
+- evidence_entry_ids must point to explicit rename, alias, or duplicate-identity evidence, not merely overlapping topics, same domain, shared workflow, or shared feedback.
 - If you are not fully sure a merge is warranted, keep the projects separate.
 - Each retained entry id must appear in exactly one output project.
 - deleted_entry_ids should only include files that are redundant, superseded, or absorbed by other rewritten files.
@@ -1773,12 +1782,29 @@ function buildDreamGlobalProfileRewritePrompt(input: LlmDreamGlobalProfileRewrit
 }
 
 function buildDreamFileGlobalPlanPrompt(input: LlmDreamFileGlobalPlanInput): string {
+  const formalProjectNames = Array.from(new Set(
+    input.currentProjects
+      .map((project) => normalizeWhitespace(project.projectName))
+      .filter(Boolean),
+  ));
+  const tmpProjectNames = Array.from(new Set(
+    input.records
+      .filter((record) => record.isTmp && record.type === "project")
+      .map((record) => normalizeWhitespace(record.name))
+      .filter(Boolean),
+  ));
   return JSON.stringify({
     governance_scope: {
       mode: "dream_file_global_plan",
       primary_truth: "existing_file_memories_only",
       writable_targets: ["project.meta.md", "Project/*.md", "Feedback/*.md"],
       forbidden_outputs: ["Project/overview.md", "new summary layer"],
+    },
+    merge_constraints: {
+      formal_project_names: formalProjectNames,
+      tmp_project_names: tmpProjectNames,
+      duplicate_formal_project_requires_multiple_formal_identities: true,
+      distinct_tmp_project_names_remain_separate_by_default: true,
     },
     current_projects: input.currentProjects.map((project) => ({
       project_id: project.projectId,
@@ -2654,7 +2680,7 @@ function sanitizeFeedbackSectionText(value: string | undefined): string {
 
 function normalizeIntent(value: unknown): IntentType {
   if (value === "time" || value === "project" || value === "fact" || value === "general") return value;
-  if (value === "none" || value === "user" || value === "feedback" || value === "mixed") return value;
+  if (value === "none" || value === "user" || value === "project_memory") return value;
   return "general";
 }
 
@@ -2664,29 +2690,10 @@ function normalizeEnoughAt(value: unknown): RetrievalResult["enoughAt"] {
 }
 
 function normalizeMemoryRoute(value: unknown): MemoryRoute {
-  if (value === "user" || value === "feedback" || value === "project" || value === "mixed" || value === "none") {
+  if (value === "user" || value === "project_memory" || value === "none") {
     return value;
   }
   return "none";
-}
-
-function queryAsksProjectState(query: string): boolean {
-  const normalized = normalizeWhitespace(query);
-  if (!normalized) return false;
-  return /(当前阶段|阶段|进度|进展|关键约束|约束|下一步|目标|卡点|里程碑|status|progress|stage|next step|next steps)/i.test(normalized);
-}
-
-function queryAsksProjectFeedback(query: string): boolean {
-  const normalized = normalizeWhitespace(query);
-  if (!normalized) return false;
-  return /(怎么和我协作|如何和我协作|怎么给我交付|如何给我交付|怎么交付|如何交付|怎么汇报|如何汇报|协作方式|交付方式|汇报方式|输出格式|format)/i.test(normalized);
-}
-
-function normalizeRouteForQuery(route: MemoryRoute, query: string): MemoryRoute {
-  const asksProject = queryAsksProjectState(query);
-  const asksFeedback = queryAsksProjectFeedback(query);
-  if (asksProject && asksFeedback) return "mixed";
-  return route;
 }
 
 function normalizeBoolean(value: unknown, fallback = false): boolean {
@@ -3920,8 +3927,10 @@ export class LlmMemoryExtractor {
         systemPrompt: [
           "You decide whether the current query should trigger long-term memory recall.",
           "Return JSON only with a single field route.",
-          "Valid route values: none, user, feedback, project, mixed.",
+          "Valid route values: none, user, project_memory.",
           "Use none unless the query clearly needs long-term memory.",
+          "Use user when the query is only asking about stable user preferences, profile, constraints, or relationships.",
+          "Use project_memory when the query needs any project memory at all, including project status, project facts, collaboration rules, delivery style, or both.",
         ].join("\n"),
         userPrompt: JSON.stringify({
           query: input.query,
@@ -3936,17 +3945,79 @@ export class LlmMemoryExtractor {
         ...(input.debugTrace ? { debugTrace: input.debugTrace } : {}),
         parse: (raw) => JSON.parse(extractFirstJsonObject(raw)) as { route?: unknown },
       });
-      return normalizeRouteForQuery(normalizeMemoryRoute(parsed.route) || "none", input.query);
+      return normalizeMemoryRoute(parsed.route) || "none";
     } catch (error) {
       this.logger?.warn?.(`[clawxmemory] file memory gate fallback: ${String(error)}`);
       return "none";
     }
   }
 
+  async selectRecallProject(input: {
+    query: string;
+    recentUserMessages?: MemoryMessage[];
+    shortlist: ProjectShortlistCandidate[];
+    agentId?: string;
+    timeoutMs?: number;
+    debugTrace?: PromptDebugSink;
+  }): Promise<{ projectId?: string; reason?: string }> {
+    if (input.shortlist.length === 0) return {};
+    try {
+      const parsed = await this.callStructuredJsonWithDebug<{ selected_project_id?: unknown; reason?: unknown }>({
+        systemPrompt: [
+          "You choose the single most relevant formal project for long-term memory recall.",
+          "Return JSON only with selected_project_id and reason.",
+          "Select at most one project from the provided shortlist.",
+          "Use the current query first, then recent user messages only for continuation/disambiguation.",
+          "Do not infer a project from assistant wording.",
+          "Similar project names are distinct by default; shared domain, shared workflow, or shared feedback do not make them the same project.",
+          "If the query explicitly names one shortlist project, prefer that exact project instead of broadening to a nearby or umbrella project.",
+          "If multiple shortlist projects remain plausible and the evidence is not decisive, return an empty selected_project_id.",
+          "If no shortlist project is clearly relevant, return an empty selected_project_id.",
+        ].join("\n"),
+        userPrompt: JSON.stringify({
+          query: input.query,
+          recent_user_messages: (input.recentUserMessages ?? []).slice(-4).map((message) => truncateForPrompt(message.content, 220)),
+          shortlist: input.shortlist.map((project) => ({
+            project_id: project.projectId,
+            project_name: project.projectName,
+            description: truncateForPrompt(project.description, 180),
+            aliases: project.aliases.slice(0, 12),
+            status: project.status,
+            updated_at: project.updatedAt,
+            shortlist_score: project.score,
+            shortlist_exact: project.exact,
+            shortlist_source: project.source,
+            matched_text: truncateForPrompt(project.matchedText, 180),
+          })),
+        }, null, 2),
+        requestLabel: "File memory project selection",
+        timeoutMs: input.timeoutMs ?? 5_000,
+        ...(input.agentId ? { agentId: input.agentId } : {}),
+        ...(input.debugTrace ? { debugTrace: input.debugTrace } : {}),
+        parse: (raw) => JSON.parse(extractFirstJsonObject(raw)) as { selected_project_id?: unknown; reason?: unknown },
+      });
+      const selectedProjectId = typeof parsed.selected_project_id === "string"
+        ? parsed.selected_project_id.trim()
+        : "";
+      const matched = input.shortlist.find((project) => project.projectId === selectedProjectId);
+      return {
+        ...(matched ? { projectId: matched.projectId } : {}),
+        ...(typeof parsed.reason === "string" && parsed.reason.trim()
+          ? { reason: truncateForPrompt(parsed.reason, 220) }
+          : {}),
+      };
+    } catch (error) {
+      this.logger?.warn?.(`[clawxmemory] file memory project selection fallback: ${String(error)}`);
+      return {};
+    }
+  }
+
   async selectFileManifestEntries(input: {
     query: string;
     route: MemoryRoute;
-    manifest: MemoryManifestEntry[];
+    recentUserMessages?: MemoryMessage[];
+    projectMeta?: ProjectMetaRecord;
+    manifest: RecallHeaderEntry[];
     limit?: number;
     agentId?: string;
     timeoutMs?: number;
@@ -3962,6 +4033,16 @@ export class LlmMemoryExtractor {
         userPrompt: JSON.stringify({
           query: input.query,
           route: input.route,
+          recent_user_messages: (input.recentUserMessages ?? []).slice(-4).map((message) => truncateForPrompt(message.content, 220)),
+          project: input.projectMeta
+            ? {
+                project_id: input.projectMeta.projectId,
+                project_name: input.projectMeta.projectName,
+                description: truncateForPrompt(input.projectMeta.description, 180),
+                aliases: input.projectMeta.aliases.slice(0, 12),
+                status: input.projectMeta.status,
+              }
+            : null,
           manifest: input.manifest.slice(0, 200).map((entry) => ({
             id: entry.relativePath,
             type: entry.type,

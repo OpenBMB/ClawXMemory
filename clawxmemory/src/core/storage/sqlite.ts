@@ -106,7 +106,11 @@ function parseCaseTraceRecord(value: unknown): CaseTraceRecord | null {
         : null,
     };
     if (typeof value.retrieval.intent === "string") {
-      next.intent = value.retrieval.intent as "time" | "project" | "fact" | "general";
+      next.intent = value.retrieval.intent as CaseTraceRecord["retrieval"] extends infer Retrieval
+        ? Retrieval extends { intent?: infer Intent }
+          ? Intent
+          : never
+        : never;
     }
     if (typeof value.retrieval.enoughAt === "string") {
       next.enoughAt = value.retrieval.enoughAt as "profile" | "l2" | "l1" | "l0" | "none";

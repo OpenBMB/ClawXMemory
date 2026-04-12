@@ -457,7 +457,7 @@ function deriveCasePathSummary(
   if (!trace?.steps?.length) return enoughAt ?? "none";
   const stepKinds = new Set(trace.steps.map((step) => step.kind));
   if (stepKinds.has("files_loaded")) return "manifest->files";
-  if (stepKinds.has("manifest_selected") || stepKinds.has("manifest_built")) return "manifest";
+  if (stepKinds.has("manifest_selected") || stepKinds.has("manifest_scanned")) return "manifest";
   if (stepKinds.has("hop4_decision") || stepKinds.has("l0_candidates")) return "l2->l1->l0";
   if (stepKinds.has("hop3_decision") || stepKinds.has("l1_candidates")) return "l2->l1";
   if (stepKinds.has("hop2_decision") || stepKinds.has("l2_candidates")) return "l2";

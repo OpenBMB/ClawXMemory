@@ -909,16 +909,16 @@ describe("LlmMemoryExtractor hop debug trace", () => {
     expect(result[0]?.howToApply || "").toBe("");
   });
 
-  it("normalizes queries that ask for both project state and collaboration rules to mixed", async () => {
+  it("maps project-related recall queries to project_memory without query-side semantic rewriting", async () => {
     const extractor = createExtractor();
     vi.spyOn(extractor as never as { callStructuredJson: (input: unknown) => Promise<string> }, "callStructuredJson")
-      .mockResolvedValue(JSON.stringify({ route: "project" }));
+      .mockResolvedValue(JSON.stringify({ route: "project_memory" }));
 
     const route = await extractor.decideFileMemoryRoute({
       query: "我们继续聊 Aster。这个项目现在的阶段、关键约束、下一步，以及你应该怎么和我协作？",
     });
 
-    expect(route).toBe("mixed");
+    expect(route).toBe("project_memory");
   });
 
   it("emits full prompt debug on successful hop1 parsing", async () => {
@@ -1412,5 +1412,122 @@ describe("LlmMemoryExtractor hop debug trace", () => {
       ],
       l1Issues: [],
     })).rejects.toThrow();
+  });
+
+  it("uses a stricter recall project-selection prompt for similar project names", async () => {
+    const extractor = createExtractor();
+    const callStructuredJsonWithDebug = vi.spyOn(
+      extractor as never as { callStructuredJsonWithDebug: (input: unknown) => Promise<unknown> },
+      "callStructuredJsonWithDebug",
+    ).mockResolvedValue({
+      selected_project_id: "project_citycoffee",
+      reason: "The query explicitly names the exact project.",
+    });
+
+    await extractor.selectRecallProject({
+      query: "我们继续聊 城市咖啡探店爆文。",
+      shortlist: [
+        {
+          projectId: "project_citycoffee",
+          projectName: "城市咖啡探店爆文",
+          description: "本地生活探店内容",
+          aliases: ["城市咖啡探店爆文"],
+          status: "active",
+          score: 12,
+          exact: 1,
+          updatedAt: "2026-04-12T00:00:00.000Z",
+          source: "query",
+          matchedText: "城市咖啡探店爆文",
+        },
+        {
+          projectId: "project_citycafe",
+          projectName: "城市咖啡馆探店爆文",
+          description: "精品咖啡馆探店内容",
+          aliases: ["城市咖啡馆探店爆文"],
+          status: "active",
+          score: 10,
+          exact: 0,
+          updatedAt: "2026-04-12T00:00:01.000Z",
+          source: "query",
+          matchedText: "城市咖啡",
+        },
+      ],
+    });
+
+    expect(callStructuredJsonWithDebug).toHaveBeenCalledWith(expect.objectContaining({
+      requestLabel: "File memory project selection",
+      systemPrompt: expect.stringContaining("Similar project names are distinct by default"),
+    }));
+    expect(callStructuredJsonWithDebug.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+      systemPrompt: expect.stringContaining("If the query explicitly names one shortlist project, prefer that exact project"),
+    }));
+  });
+
+  it("uses a stricter Dream global-plan prompt for explicit project-boundary merges", async () => {
+    const extractor = createExtractor();
+    const callStructuredJsonWithDebug = vi.spyOn(
+      extractor as never as { callStructuredJsonWithDebug: (input: unknown) => Promise<unknown> },
+      "callStructuredJsonWithDebug",
+    ).mockResolvedValue({
+      summary: "Keep projects separate.",
+      duplicate_topic_count: 0,
+      conflict_topic_count: 0,
+      projects: [],
+      deleted_project_ids: [],
+      deleted_entry_ids: [],
+    });
+
+    await extractor.planDreamFileMemory({
+      currentProjects: [
+        {
+          projectId: "project_citycoffee",
+          projectName: "城市咖啡探店爆文",
+          description: "本地生活探店内容",
+          aliases: ["城市咖啡探店爆文"],
+          status: "active",
+          updatedAt: "2026-04-12T00:00:00.000Z",
+        },
+      ],
+      records: [
+        {
+          entryId: "projects/project_citycoffee/Project/current-stage.md",
+          relativePath: "projects/project_citycoffee/Project/current-stage.md",
+          type: "project",
+          scope: "project",
+          projectId: "project_citycoffee",
+          isTmp: false,
+          name: "current-stage",
+          description: "当前阶段",
+          updatedAt: "2026-04-12T00:00:00.000Z",
+          content: "## Current Stage\n还在测试中。",
+          project: {
+            stage: "测试中",
+            decisions: [],
+            constraints: [],
+            nextSteps: [],
+            blockers: [],
+            timeline: [],
+            notes: [],
+          },
+        },
+      ],
+    });
+
+    expect(callStructuredJsonWithDebug).toHaveBeenCalledWith(expect.objectContaining({
+      requestLabel: "Dream file global plan",
+      systemPrompt: expect.stringContaining("Similar project names, shared prefixes, or small wording differences do NOT imply the same project."),
+    }));
+    expect(callStructuredJsonWithDebug.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+      systemPrompt: expect.stringContaining("duplicate_formal_project is only for multiple already-existing formal project identities"),
+    }));
+    expect(callStructuredJsonWithDebug.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+      systemPrompt: expect.stringContaining("evidence_entry_ids must point to explicit rename, alias, or duplicate-identity evidence"),
+    }));
+    expect(callStructuredJsonWithDebug.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+      userPrompt: expect.stringContaining("\"duplicate_formal_project_requires_multiple_formal_identities\": true"),
+    }));
+    expect(callStructuredJsonWithDebug.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+      userPrompt: expect.stringContaining("\"distinct_tmp_project_names_remain_separate_by_default\": true"),
+    }));
   });
 });

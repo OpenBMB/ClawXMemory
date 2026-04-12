@@ -1,7 +1,10 @@
 import {
+  closeSync,
   existsSync,
   mkdirSync,
+  openSync,
   readFileSync,
+  readSync,
   readdirSync,
   renameSync,
   rmSync,
@@ -21,6 +24,7 @@ import type {
   MemoryUserSummary,
   ProjectMetaExportRecord,
   ProjectMetaRecord,
+  RecallHeaderEntry,
 } from "./types.js";
 import { hashText, nowIso } from "./utils/id.js";
 import { truncate } from "./utils/text.js";
@@ -35,6 +39,8 @@ const MANIFEST_FILE = "MEMORY.md";
 const PROJECT_META_FILE = "project.meta.md";
 export const TMP_PROJECT_ID = "_tmp";
 const STABLE_FORMAL_PROJECT_ID_PATTERN = /^project_[a-z0-9]+$/;
+const RECALL_HEADER_SCAN_LINE_LIMIT = 30;
+const RECALL_HEADER_SCAN_BYTE_LIMIT = 16_384;
 
 function ensureDir(path: string): void {
   mkdirSync(path, { recursive: true });
@@ -349,6 +355,28 @@ function previewText(body: string): string {
   );
 }
 
+function readFileHeadLines(absolutePath: string, maxLines = RECALL_HEADER_SCAN_LINE_LIMIT, maxBytes = RECALL_HEADER_SCAN_BYTE_LIMIT): string {
+  const fd = openSync(absolutePath, "r");
+  try {
+    const chunks: Buffer[] = [];
+    let bytesReadTotal = 0;
+    let newlineCount = 0;
+    const buffer = Buffer.alloc(2048);
+    while (bytesReadTotal < maxBytes && newlineCount < maxLines) {
+      const remaining = Math.min(buffer.length, maxBytes - bytesReadTotal);
+      const bytesRead = readSync(fd, buffer, 0, remaining, bytesReadTotal);
+      if (bytesRead <= 0) break;
+      const chunk = Buffer.from(buffer.subarray(0, bytesRead));
+      chunks.push(chunk);
+      bytesReadTotal += bytesRead;
+      newlineCount += chunk.toString("utf-8").split("\n").length - 1;
+    }
+    return Buffer.concat(chunks).toString("utf-8").split("\n").slice(0, Math.max(1, maxLines)).join("\n");
+  } finally {
+    closeSync(fd);
+  }
+}
+
 function renderProjectMeta(record: ProjectMetaRecord): string {
   const lines = [
     "---",
@@ -585,6 +613,22 @@ export class FileMemoryStore {
     };
   }
 
+  private readRecallHeaderEntryFromPath(absolutePath: string, maxLines = RECALL_HEADER_SCAN_LINE_LIMIT): RecallHeaderEntry {
+    const raw = readFileHeadLines(absolutePath, maxLines);
+    const { frontmatter, body } = parseFrontmatter(raw);
+    return {
+      name: frontmatter.name,
+      description: frontmatter.description,
+      type: frontmatter.type,
+      scope: frontmatter.scope,
+      ...(frontmatter.projectId ? { projectId: frontmatter.projectId } : {}),
+      updatedAt: frontmatter.updatedAt,
+      file: absolutePath.split("/").pop() ?? "unknown.md",
+      relativePath: relative(this.rootDir, absolutePath),
+      absolutePath,
+    };
+  }
+
   private buildManifestEntriesForScope(scope: MemoryScope, projectId?: string): MemoryManifestEntry[] {
     const baseDir = scope === "global"
       ? join(this.rootDir, GLOBAL_DIR)
@@ -737,6 +781,16 @@ export class FileMemoryStore {
       .filter((item): item is MemoryFileRecord => Boolean(item));
   }
 
+  getFullMemoryRecordsByIds(ids: string[]): MemoryFileRecord[] {
+    return ids
+      .map((id) => {
+        const absolutePath = join(this.rootDir, id);
+        if (!existsSync(absolutePath)) return undefined;
+        return this.readRecordFromPath(absolutePath);
+      })
+      .filter((item): item is MemoryFileRecord => Boolean(item));
+  }
+
   getMemoryRecord(id: string, maxLines = 80): MemoryFileRecord | undefined {
     const absolutePath = join(this.rootDir, id);
     if (!existsSync(absolutePath)) return undefined;
@@ -778,6 +832,29 @@ export class FileMemoryStore {
         absolutePath: record.absolutePath,
       }],
     };
+  }
+
+  scanRecallHeaderEntries(options: {
+    projectId: string;
+    kinds?: MemoryRecordType[];
+    limit?: number;
+    maxLines?: number;
+  }): RecallHeaderEntry[] {
+    this.ensureLayout();
+    const projectId = normalizeProjectId(options.projectId);
+    if (!projectId || projectId === TMP_PROJECT_ID) return [];
+    const kinds = new Set(options.kinds?.length ? options.kinds : ["project", "feedback"]);
+    const dirs: string[] = [];
+    if (kinds.has("project")) dirs.push(join(this.projectRoot(projectId), PROJECT_DIR));
+    if (kinds.has("feedback")) dirs.push(join(this.projectRoot(projectId), FEEDBACK_DIR));
+    const entries = dirs
+      .flatMap((dir) => findMarkdownFiles(dir))
+      .map((file) => this.readRecallHeaderEntryFromPath(file, options.maxLines))
+      .sort((left, right) =>
+        right.updatedAt.localeCompare(left.updatedAt)
+        || left.relativePath.localeCompare(right.relativePath)
+      );
+    return entries.slice(0, Math.max(1, Math.min(1000, options.limit ?? 200)));
   }
 
   listProjectIds(options: { includeTmp?: boolean } = {}): string[] {

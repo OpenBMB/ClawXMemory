@@ -1,10 +1,11 @@
 import type {
   IndexingSettings,
-  MemoryManifestEntry,
   MemoryMessage,
   MemoryRoute,
   MemoryUserSummary,
   ProjectMetaRecord,
+  ProjectShortlistCandidate,
+  RecallHeaderEntry,
   RetrievalPromptDebug,
   RetrievalTrace,
   RetrievalTraceDetail,
@@ -20,7 +21,8 @@ import type { SkillsRuntime } from "../skills/types.js";
 const RECALL_CACHE_TTL_MS = 30_000;
 const DEFAULT_RECALL_TOP_K = 5;
 const MANIFEST_LIMIT = 200;
-const FILE_LINE_LIMIT = 80;
+const RECALL_FILE_MAX_CHARS = 12_000;
+const RECALL_TOTAL_MAX_CHARS = 30_000;
 
 export interface RetrievalOptions {
   l2Limit?: number;
@@ -54,43 +56,27 @@ interface RecallCacheEntry {
   result: RetrievalResult;
 }
 
-interface ProjectResolutionCandidateScore {
-  projectId: string;
-  projectName: string;
-  score: number;
-  exact: number;
-  updatedAt: string;
-}
-
-interface ProjectResolutionAttempt {
-  source: "query" | "recent";
-  text: string;
-  projectId?: string;
-  score: number;
-  exact: number;
-  candidates: ProjectResolutionCandidateScore[];
-}
-
-interface ProjectResolutionResult {
-  projectId?: string;
-  score: number;
-  exact: number;
-  source: "query" | "recent" | "none";
-  matchedText?: string;
-  workspaceToken: string;
-  recentUserTexts: string[];
-  attempts: ProjectResolutionAttempt[];
-}
-
 interface ProjectManifestSelection {
   allCount: number;
-  entries: MemoryManifestEntry[];
+  entries: RecallHeaderEntry[];
   kinds: Array<"feedback" | "project">;
   limit: number;
 }
 
-function projectManifestPriority(entry: MemoryManifestEntry): number {
-  return entry.type === "project" ? 0 : 1;
+interface ProjectShortlistBuildResult {
+  workspaceToken: string;
+  recentUserTexts: string[];
+  candidates: ProjectShortlistCandidate[];
+}
+
+interface RecallLoadedRecord {
+  relativePath: string;
+  type: string;
+  updatedAt: string;
+  content: string;
+  truncated: boolean;
+  originalChars: number;
+  loadedChars: number;
 }
 
 function normalizeQueryKey(query: string): string {
@@ -224,13 +210,11 @@ function buildEmptyResult(query: string, trace: RetrievalTrace, elapsedMs: numbe
 }
 
 function routeNeedsProjectMemory(route: MemoryRoute): boolean {
-  return route === "feedback" || route === "project" || route === "mixed";
+  return route === "project_memory";
 }
 
 function kindsForRoute(route: MemoryRoute): Array<"feedback" | "project"> {
-  if (route === "feedback") return ["feedback"];
-  if (route === "project") return ["project"];
-  if (route === "mixed") return ["feedback", "project"];
+  if (route === "project_memory") return ["feedback", "project"];
   return [];
 }
 
@@ -261,16 +245,21 @@ function rankProjects(
   projects: ProjectMetaRecord[],
   text: string,
   workspaceToken: string,
-): ProjectResolutionCandidateScore[] {
+): ProjectShortlistCandidate[] {
   const normalized = text.toLowerCase().trim();
   if (!normalized) return [];
   return projects
     .map((project) => ({
       projectId: project.projectId,
       projectName: project.projectName,
+      description: project.description,
+      aliases: project.aliases,
+      status: project.status,
       score: scoreProjectMeta(project, normalized, workspaceToken),
       exact: hasExactProjectMention(project, normalized) ? 1 : 0,
       updatedAt: project.updatedAt,
+      source: "query" as const,
+      matchedText: normalized,
     }))
     .sort((left, right) =>
       right.exact - left.exact
@@ -309,42 +298,12 @@ function hasExactProjectMention(project: ProjectMetaRecord, text: string): boole
   return candidates.some((candidate) => text.includes(candidate));
 }
 
-function resolveProjectFromText(
-  projects: ProjectMetaRecord[],
-  text: string,
-  workspaceToken: string,
-): { projectId?: string; score: number; exact: number; candidates: ProjectResolutionCandidateScore[] } {
-  const normalized = text.toLowerCase().trim();
-  if (!normalized) return { score: 0, exact: 0, candidates: [] };
-  const candidates = rankProjects(projects, normalized, workspaceToken);
-  const best = candidates[0];
-  if (!best || best.score <= 0) return { score: 0, exact: 0, candidates };
-  const competing = candidates.filter((item) => item.score === best.score && item.exact === best.exact);
-  if (competing.length > 1) {
-    const canonicalNames = new Set(
-      competing.map((item) => item.projectName.toLowerCase().trim()).filter(Boolean),
-    );
-    if (canonicalNames.size > 1) return { score: 0, exact: 0, candidates };
-  }
-  return { projectId: best.projectId, score: best.score, exact: best.exact, candidates };
-}
-
-function resolveCurrentProject(
+function buildProjectShortlist(
   projects: ProjectMetaRecord[],
   query: string,
   recentMessages: MemoryMessage[] | undefined,
   workspaceHint: string | undefined,
-): ProjectResolutionResult {
-  if (projects.length === 0) {
-    return {
-      score: 0,
-      exact: 0,
-      source: "none",
-      workspaceToken: resolveWorkspaceToken(workspaceHint),
-      recentUserTexts: [],
-      attempts: [],
-    };
-  }
+): ProjectShortlistBuildResult {
   const queryText = query.toLowerCase().trim();
   const workspaceToken = resolveWorkspaceToken(workspaceHint);
   const recentUserTexts = [...(recentMessages ?? [])]
@@ -352,73 +311,53 @@ function resolveCurrentProject(
     .map((message) => message.content.toLowerCase().trim())
     .filter(Boolean)
     .reverse();
-  if (!queryText) {
-    return {
-      score: 0,
-      exact: 0,
-      source: "none",
-      workspaceToken,
-      recentUserTexts,
-      attempts: [],
-    };
+  if (!queryText || projects.length === 0) {
+    return { workspaceToken, recentUserTexts, candidates: [] };
   }
-  const fromQuery = resolveProjectFromText(projects, queryText, workspaceToken);
-  const attempts: ProjectResolutionAttempt[] = [{
-    source: "query",
-    text: queryText,
-    ...(fromQuery.projectId ? { projectId: fromQuery.projectId } : {}),
-    score: fromQuery.score,
-    exact: fromQuery.exact,
-    candidates: fromQuery.candidates.slice(0, 8),
-  }];
-  if (fromQuery.projectId) {
-    return {
-      projectId: fromQuery.projectId,
-      score: fromQuery.score,
-      exact: fromQuery.exact,
-      source: "query",
-      matchedText: queryText,
-      workspaceToken,
-      recentUserTexts,
-      attempts,
-    };
+  const shortlistById = new Map<string, ProjectShortlistCandidate>();
+  const mergeCandidate = (candidate: ProjectShortlistCandidate) => {
+    if (candidate.score <= 0) return;
+    const existing = shortlistById.get(candidate.projectId);
+    if (!existing) {
+      shortlistById.set(candidate.projectId, candidate);
+      return;
+    }
+    if (
+      candidate.exact > existing.exact
+      || candidate.score > existing.score
+      || (candidate.score === existing.score && candidate.updatedAt > existing.updatedAt)
+    ) {
+      shortlistById.set(candidate.projectId, candidate);
+    }
+  };
+  for (const candidate of rankProjects(projects, queryText, workspaceToken)) {
+    mergeCandidate(candidate);
   }
-
   for (const text of recentUserTexts) {
-    const resolved = resolveProjectFromText(projects, text, workspaceToken);
-    attempts.push({
-      source: "recent",
-      text,
-      ...(resolved.projectId ? { projectId: resolved.projectId } : {}),
-      score: resolved.score,
-      exact: resolved.exact,
-      candidates: resolved.candidates.slice(0, 8),
-    });
-    if (resolved.projectId) {
-      return {
-        projectId: resolved.projectId,
-        score: resolved.score,
-        exact: resolved.exact,
-        source: "recent",
-        matchedText: text,
-        workspaceToken,
-        recentUserTexts,
-        attempts,
-      };
+    for (const candidate of rankProjects(projects, text, workspaceToken).map((item) => ({
+      ...item,
+      source: "recent" as const,
+      matchedText: text,
+    }))) {
+      mergeCandidate(candidate);
     }
   }
   return {
-    score: 0,
-    exact: 0,
-    source: "none",
     workspaceToken,
     recentUserTexts,
-    attempts,
+    candidates: [...shortlistById.values()]
+      .sort((left, right) =>
+        right.exact - left.exact
+        || right.score - left.score
+        || right.updatedAt.localeCompare(left.updatedAt)
+        || left.projectName.localeCompare(right.projectName)
+      )
+      .slice(0, 5),
   };
 }
 
 function buildProjectManifestSelection(
-  repository: MemoryRepository,
+  store: ReturnType<MemoryRepository["getFileMemoryStore"]>,
   route: MemoryRoute,
   projectId: string,
   limit = MANIFEST_LIMIT,
@@ -428,27 +367,45 @@ function buildProjectManifestSelection(
   if (!routeNeedsProjectMemory(route)) {
     return { allCount: 0, entries: [], kinds, limit: boundedLimit };
   }
-  const query = {
-    kinds,
+  const allEntries = store.scanRecallHeaderEntries({
     projectId,
-    scope: "project",
-  } as const;
-  const allCount = repository.countMemoryEntries(query);
-  const allEntries = repository.listMemoryEntries({
-    ...query,
-    limit: Math.max(boundedLimit, Math.min(1000, Math.max(allCount, 500))),
+    kinds,
+    limit: boundedLimit,
   });
   const sorted = [...allEntries].sort((left, right) =>
-    projectManifestPriority(left) - projectManifestPriority(right)
-    || right.updatedAt.localeCompare(left.updatedAt)
+    right.updatedAt.localeCompare(left.updatedAt)
     || left.relativePath.localeCompare(right.relativePath)
   );
   return {
-    allCount,
+    allCount: allEntries.length,
     entries: sorted.slice(0, boundedLimit),
     kinds,
     limit: boundedLimit,
   };
+}
+
+function applyRecallContentBudgets(records: Array<{ relativePath: string; type: string; updatedAt: string; content: string }>): RecallLoadedRecord[] {
+  let remainingTotal = RECALL_TOTAL_MAX_CHARS;
+  const loaded: RecallLoadedRecord[] = [];
+  for (const record of records) {
+    if (remainingTotal <= 0) break;
+    const originalChars = record.content.length;
+    const allowedChars = Math.max(0, Math.min(RECALL_FILE_MAX_CHARS, remainingTotal));
+    if (allowedChars <= 0) break;
+    const truncated = originalChars > allowedChars;
+    const content = truncated
+      ? `${record.content.slice(0, allowedChars).trimEnd()}\n\n...[truncated for recall budget]`
+      : record.content;
+    loaded.push({
+      ...record,
+      content,
+      truncated,
+      originalChars,
+      loadedChars: content.length,
+    });
+    remainingTotal -= content.length;
+  }
+  return loaded;
 }
 
 export class ReasoningRetriever {
@@ -558,6 +515,9 @@ export class ReasoningRetriever {
   async retrieve(query: string, options: RetrievalOptions = {}): Promise<RetrievalResult> {
     const startedAt = Date.now();
     const normalizedQuery = decodeEscapedUnicodeText(query.trim(), true);
+    const recentUserMessages = [...(options.recentMessages ?? [])]
+      .filter((message) => message.role === "user")
+      .slice(-4);
     const settings = this.currentSettings();
     const retrievalMode = options.retrievalMode ?? "explicit";
     const traceId = buildTraceId("trace", normalizedQuery);
@@ -578,16 +538,14 @@ export class ReasoningRetriever {
           kvDetail("recall-start-inputs", "Recall Inputs", [
             { label: "query", value: normalizedQuery },
             { label: "mode", value: retrievalMode },
-            { label: "recentMessages", value: options.recentMessages?.length ?? 0 },
+            { label: "recentUserMessages", value: recentUserMessages.length },
             { label: "workspaceHint", value: options.workspaceHint ?? "none" },
           ]),
-          ...(options.recentMessages?.length
+          ...(recentUserMessages.length
             ? [listDetail(
                 "recent-user-messages",
                 "Recent User Messages",
-                options.recentMessages
-                  .filter((message) => message.role === "user")
-                  .map((message) => previewText(message.content, 180)),
+                recentUserMessages.map((message) => previewText(message.content, 180)),
               )]
             : []),
         ],
@@ -623,7 +581,7 @@ export class ReasoningRetriever {
     let routePromptDebug: RetrievalPromptDebug | undefined;
     const route = await this.extractor.decideFileMemoryRoute({
       query: normalizedQuery,
-      ...(options.recentMessages ? { recentMessages: options.recentMessages } : {}),
+      ...(recentUserMessages.length ? { recentMessages: recentUserMessages } : {}),
       debugTrace: (debug) => {
         routePromptDebug = debug;
       },
@@ -638,7 +596,7 @@ export class ReasoningRetriever {
       details: [
         kvDetail("gate-route", "Route", [
           { label: "route", value: route },
-          { label: "recentMessages", value: options.recentMessages?.length ?? 0 },
+          { label: "recentUserMessages", value: recentUserMessages.length },
           { label: "workspaceHint", value: options.workspaceHint ?? "none" },
         ]),
       ],
@@ -697,51 +655,88 @@ export class ReasoningRetriever {
 
     let resolvedProjectId = "";
     let resolvedProjectMeta: ProjectMetaRecord | undefined;
+    let projectSelectionPromptDebug: RetrievalPromptDebug | undefined;
+    let projectSelectionReason = "";
+    let shortlistResult: ProjectShortlistBuildResult = {
+      workspaceToken: resolveWorkspaceToken(options.workspaceHint),
+      recentUserTexts: recentUserMessages.map((message) => message.content.toLowerCase().trim()).filter(Boolean),
+      candidates: [],
+    };
     if (routeNeedsProjectMemory(route)) {
       const projectMetas = store.listProjectMetas();
-      const resolution = resolveCurrentProject(projectMetas, normalizedQuery, options.recentMessages, options.workspaceHint);
-      resolvedProjectId = resolution.projectId ?? "";
-      resolvedProjectMeta = resolvedProjectId
-        ? projectMetas.find((project) => project.projectId === resolvedProjectId)
-        : undefined;
+      shortlistResult = buildProjectShortlist(projectMetas, normalizedQuery, recentUserMessages, options.workspaceHint);
       trace.steps.push({
         stepId: `${traceId}:step:${trace.steps.length + 1}`,
-        kind: "project_resolved",
-        title: "Project Resolved",
-        status: resolvedProjectId ? "success" : "warning",
+        kind: "project_shortlist_built",
+        title: "Project Shortlist Built",
+        status: shortlistResult.candidates.length > 0 ? "success" : "warning",
         inputSummary: `${projectMetas.length} formal projects`,
-        outputSummary: resolvedProjectId ? `project_id=${resolvedProjectId}` : "No formal project matched the current query.",
+        outputSummary: `${shortlistResult.candidates.length} shortlist candidates ready.`,
         details: [
-          kvDetail("project-resolution", "Project Resolution", [
-            { label: "project_id", value: resolvedProjectId || "none" },
-            { label: "score", value: resolution.score },
-            { label: "exact", value: resolution.exact },
-            { label: "source", value: resolution.source },
-            { label: "matchedText", value: resolution.matchedText ?? "none" },
-            { label: "workspaceToken", value: resolution.workspaceToken || "none" },
-            { label: "recentUserTexts", value: resolution.recentUserTexts.length },
+          kvDetail("project-shortlist-summary", "Project Shortlist", [
+            { label: "formalProjects", value: projectMetas.length },
+            { label: "shortlistCount", value: shortlistResult.candidates.length },
+            { label: "workspaceToken", value: shortlistResult.workspaceToken || "none" },
+            { label: "recentUserTexts", value: shortlistResult.recentUserTexts.length },
           ]),
-          ...(resolution.recentUserTexts.length > 0
-            ? [listDetail("project-resolution-recent", "Recent User Texts", resolution.recentUserTexts)]
+          ...(shortlistResult.recentUserTexts.length > 0
+            ? [listDetail("project-shortlist-recent", "Recent User Texts", shortlistResult.recentUserTexts)]
             : []),
-          jsonDetail(
-            "project-resolution-attempts",
-            "Resolver Candidate Scores",
-            resolution.attempts.map((attempt) => ({
-              source: attempt.source,
-              text: attempt.text,
-              projectId: attempt.projectId ?? null,
-              score: attempt.score,
-              exact: attempt.exact,
-              candidates: attempt.candidates,
-            })),
-          ),
+          jsonDetail("project-shortlist-candidates", "Shortlist Candidates", shortlistResult.candidates),
         ],
       });
+
+      if (shortlistResult.candidates.length > 0) {
+        const selection = await this.extractor.selectRecallProject({
+          query: normalizedQuery,
+          recentUserMessages,
+          shortlist: shortlistResult.candidates,
+          debugTrace: (debug) => {
+            projectSelectionPromptDebug = debug;
+          },
+        });
+        resolvedProjectId = selection.projectId ?? "";
+        projectSelectionReason = selection.reason ?? "";
+        resolvedProjectMeta = resolvedProjectId
+          ? projectMetas.find((project) => project.projectId === resolvedProjectId)
+          : undefined;
+      }
     }
 
+    trace.steps.push({
+      stepId: `${traceId}:step:${trace.steps.length + 1}`,
+      kind: "project_selected",
+      title: "Project Selected",
+      status: !routeNeedsProjectMemory(route)
+        ? "skipped"
+        : resolvedProjectId
+          ? "success"
+          : shortlistResult.candidates.length > 0
+            ? "warning"
+            : "skipped",
+      inputSummary: routeNeedsProjectMemory(route)
+        ? `${shortlistResult.candidates.length} shortlist candidates`
+        : `route=${route}`,
+      outputSummary: resolvedProjectId
+        ? `project_id=${resolvedProjectId}`
+        : routeNeedsProjectMemory(route)
+          ? "No formal project was selected for this query."
+          : "This recall route does not require project selection.",
+      details: [
+        kvDetail("project-selection-summary", "Project Selection", [
+          { label: "project_id", value: resolvedProjectId || "none" },
+          { label: "selectionReason", value: projectSelectionReason || "none" },
+          { label: "shortlistCount", value: shortlistResult.candidates.length },
+        ]),
+        ...(shortlistResult.candidates.length > 0
+          ? [jsonDetail("project-selection-shortlist", "Shortlist Candidates", shortlistResult.candidates)]
+          : []),
+      ],
+      ...(projectSelectionPromptDebug ? { promptDebug: projectSelectionPromptDebug } : {}),
+    });
+
     const manifestSelection = resolvedProjectId
-      ? buildProjectManifestSelection(this.repository, route, resolvedProjectId, MANIFEST_LIMIT)
+      ? buildProjectManifestSelection(store, route, resolvedProjectId, MANIFEST_LIMIT)
       : {
           allCount: 0,
           entries: [],
@@ -751,26 +746,27 @@ export class ReasoningRetriever {
     const manifest = manifestSelection.entries;
     trace.steps.push({
       stepId: `${traceId}:step:${trace.steps.length + 1}`,
-      kind: "manifest_built",
-      title: "Manifest Built",
+      kind: "manifest_scanned",
+      title: "Manifest Scanned",
       status: manifest.length > 0 ? "success" : routeNeedsProjectMemory(route) ? "warning" : "skipped",
       inputSummary: resolvedProjectId ? `project_id=${resolvedProjectId}` : `route=${route}`,
       outputSummary: resolvedProjectId
-        ? `${manifest.length} locally ranked manifest entries ready${manifestSelection.allCount > manifest.length ? ` (top ${manifest.length} of ${manifestSelection.allCount})` : ""}.`
+        ? `${manifest.length} recall header entries ready${manifestSelection.allCount > manifest.length ? ` (top ${manifest.length} of ${manifestSelection.allCount})` : ""}.`
         : routeNeedsProjectMemory(route)
-          ? "Project recall skipped because no formal project was resolved."
-          : "User-only recall does not require a project manifest.",
+          ? "Project recall skipped because no formal project was selected."
+          : "This recall route does not require a project manifest.",
       details: [
-        kvDetail("manifest-size", "Manifest", [
+        kvDetail("manifest-scan-summary", "Manifest Scan", [
           { label: "count", value: manifest.length },
           { label: "availableBeforeLimit", value: manifestSelection.allCount },
           { label: "route", value: route },
           { label: "project_id", value: resolvedProjectId || "none" },
           { label: "kinds", value: manifestSelection.kinds.join(", ") || "none" },
           { label: "limit", value: manifestSelection.limit },
+          { label: "sort", value: "updatedAt desc" },
         ]),
         listDetail(
-          "manifest-preview",
+          "manifest-scan-preview",
           "Sorted Candidates",
           manifest.map((entry) => `${entry.updatedAt} | ${entry.type} | ${entry.relativePath} | ${entry.description}`),
         ),
@@ -782,6 +778,8 @@ export class ReasoningRetriever {
       ? await this.extractor.selectFileManifestEntries({
           query: normalizedQuery,
           route,
+          recentUserMessages,
+          ...(resolvedProjectMeta ? { projectMeta: resolvedProjectMeta } : {}),
           manifest,
           limit: Math.max(1, Math.min(5, settings.recallTopK || DEFAULT_RECALL_TOP_K)),
           debugTrace: (debug) => {
@@ -799,11 +797,7 @@ export class ReasoningRetriever {
       inputSummary: `${manifest.length} entries`,
       outputSummary: `${selectedIds.length} file ids selected.`,
       details: [
-        listDetail(
-          "manifest-selection-input",
-          "Manifest Candidate IDs",
-          manifest.map((entry) => entry.relativePath),
-        ),
+        listDetail("manifest-selection-input", "Manifest Candidate IDs", manifest.map((entry) => entry.relativePath)),
         listDetail("selected-files", "Selected File IDs", selectedIds),
         kvDetail("manifest-selection-summary", "Selection Summary", [
           { label: "inputCount", value: manifest.length },
@@ -813,42 +807,62 @@ export class ReasoningRetriever {
       ...(manifestSelectionPromptDebug ? { promptDebug: manifestSelectionPromptDebug } : {}),
     });
 
-    const records = this.repository.getMemoryRecordsByIds(selectedIds, FILE_LINE_LIMIT);
-    const missingIds = selectedIds.filter((id) => !records.some((record) => record.relativePath === id));
+    const fullRecords = store.getFullMemoryRecordsByIds(selectedIds);
+    const loadedRecords = applyRecallContentBudgets(fullRecords.map((record) => ({
+      relativePath: record.relativePath,
+      type: record.type,
+      updatedAt: record.updatedAt,
+      content: record.content,
+    })));
+    const missingIds = selectedIds.filter((id) => !fullRecords.some((record) => record.relativePath === id));
     trace.steps.push({
       stepId: `${traceId}:step:${trace.steps.length + 1}`,
       kind: "files_loaded",
       title: "Files Loaded",
-      status: records.length > 0 ? "success" : selectedIds.length > 0 ? "warning" : "skipped",
+      status: loadedRecords.length > 0 ? "success" : selectedIds.length > 0 ? "warning" : "skipped",
       inputSummary: `${selectedIds.length} requested`,
-      outputSummary: `${records.length} files loaded.`,
+      outputSummary: `${loadedRecords.length} files loaded.`,
       details: [
         listDetail("requested-files", "Requested IDs", selectedIds),
         listDetail(
           "loaded-files",
           "Loaded Files",
-          records.map((record) => `${record.relativePath} | ${previewText(record.preview, 180)}`),
+          loadedRecords.map((record) =>
+            `${record.relativePath} | ${record.truncated ? "truncated" : "full"} | ${previewText(record.content, 180)}`),
         ),
+        ...(loadedRecords.some((record) => record.truncated)
+          ? [jsonDetail(
+              "truncated-files",
+              "Truncated Files",
+              loadedRecords
+                .filter((record) => record.truncated)
+                .map((record) => ({
+                  relativePath: record.relativePath,
+                  originalChars: record.originalChars,
+                  loadedChars: record.loadedChars,
+                })),
+            )]
+          : []),
         ...(missingIds.length > 0
           ? [listDetail("missing-files", "Missing IDs", missingIds)]
           : []),
       ],
     });
 
-    const context = renderContext(route, userSummary, resolvedProjectMeta, records);
+    const context = renderContext(route, userSummary, resolvedProjectMeta, loadedRecords);
     trace.steps.push({
       stepId: `${traceId}:step:${trace.steps.length + 1}`,
       kind: "context_rendered",
       title: "Context Rendered",
       status: context.trim() ? "success" : "warning",
-      inputSummary: `${records.length} files + ${hasUserSummary(userSummary) ? "user base" : "no user base"}`,
+      inputSummary: `${loadedRecords.length} files + ${hasUserSummary(userSummary) ? "user base" : "no user base"}`,
       outputSummary: context.trim() ? "Memory context prepared." : "No memory context injected.",
       details: [
         kvDetail("context-rendered-summary", "Context Summary", [
           { label: "route", value: route },
           { label: "userBaseInjected", value: hasUserSummary(userSummary) ? "yes" : "no" },
           { label: "projectMetaInjected", value: resolvedProjectMeta ? "yes" : "no" },
-          { label: "fileCount", value: records.length },
+          { label: "fileCount", value: loadedRecords.length },
           { label: "characters", value: context.length },
           { label: "lines", value: context ? context.split("\n").length : 0 },
         ]),
@@ -858,7 +872,7 @@ export class ReasoningRetriever {
           [
             ...(hasUserSummary(userSummary) ? ["global/User/user-profile.md"] : []),
             ...(resolvedProjectMeta ? [resolvedProjectMeta.relativePath] : []),
-            ...records.map((record) => record.relativePath),
+            ...loadedRecords.map((record) => record.relativePath),
           ],
         ),
       ],
@@ -868,12 +882,20 @@ export class ReasoningRetriever {
     const result: RetrievalResult = {
       query: normalizedQuery,
       intent: route,
-      enoughAt: records.length > 0 ? "file" : manifest.length > 0 ? "manifest" : hasUserSummary(userSummary) ? "profile" : "none",
+      enoughAt: loadedRecords.length > 0
+        ? "file"
+        : (manifest.length > 0 || resolvedProjectMeta)
+          ? "manifest"
+          : hasUserSummary(userSummary)
+            ? "profile"
+            : "none",
       profile: null,
-      evidenceNote: records.length > 0
-        ? `Attached global user profile and selected ${records.length} memory files from ${manifest.length} manifest entries${resolvedProjectId ? ` for project ${resolvedProjectId}` : ""}.`
+      evidenceNote: loadedRecords.length > 0
+        ? `Attached global user profile and selected ${loadedRecords.length} memory files from ${manifest.length} manifest entries${resolvedProjectId ? ` for project ${resolvedProjectId}` : ""}.`
         : manifest.length > 0
           ? "Attached global user profile. The project manifest contained entries, but none were loaded."
+          : resolvedProjectMeta
+            ? "Attached global user profile and the selected project identity only."
           : hasUserSummary(userSummary)
             ? "Attached global user profile only."
             : "",
@@ -889,7 +911,7 @@ export class ReasoningRetriever {
         path: retrievalMode,
         route,
         manifestCount: manifest.length,
-        selectedFileIds: records.map((record) => record.relativePath),
+        selectedFileIds: selectedIds,
         ...(resolvedProjectId ? { resolvedProjectId } : {}),
       },
     };
