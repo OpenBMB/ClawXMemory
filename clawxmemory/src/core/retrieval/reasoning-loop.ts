@@ -430,11 +430,8 @@ export class ReasoningRetriever {
   private currentSettings(): IndexingSettings {
     return this.runtime.getSettings?.() ?? {
       reasoningMode: "answer_first",
-      recallTopK: DEFAULT_RECALL_TOP_K,
       autoIndexIntervalMinutes: 60,
       autoDreamIntervalMinutes: 360,
-      autoDreamMinTmpEntries: 10,
-      dreamProjectRebuildTimeoutMs: 180_000,
     };
   }
 
@@ -448,7 +445,6 @@ export class ReasoningRetriever {
       query: normalizeQueryKey(query),
       snapshot: this.repository.getSnapshotVersion(),
       retrievalMode,
-      recallTopK: settings.recallTopK,
       workspaceHint: normalizeQueryKey(workspaceHint),
     });
   }
@@ -757,14 +753,14 @@ export class ReasoningRetriever {
           recentUserMessages,
           ...(resolvedProjectMeta ? { projectMeta: resolvedProjectMeta } : {}),
           manifest,
-          limit: Math.max(1, Math.min(5, settings.recallTopK || DEFAULT_RECALL_TOP_K)),
+          limit: DEFAULT_RECALL_TOP_K,
           debugTrace: (debug) => {
             manifestSelectionPromptDebug = debug;
           },
         })
       : [];
     const selectedIds = Array.from(new Set(rawSelectedIds))
-      .slice(0, Math.max(1, Math.min(5, settings.recallTopK || DEFAULT_RECALL_TOP_K)));
+      .slice(0, DEFAULT_RECALL_TOP_K);
     trace.steps.push({
       stepId: `${traceId}:step:${trace.steps.length + 1}`,
       kind: "manifest_selected",

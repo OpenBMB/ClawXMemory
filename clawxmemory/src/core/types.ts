@@ -150,11 +150,8 @@ export type DreamPipelineStatus = "running" | "success" | "skipped" | "failed";
 
 export interface IndexingSettings {
   reasoningMode: ReasoningMode;
-  recallTopK: number;
   autoIndexIntervalMinutes: number;
   autoDreamIntervalMinutes: number;
-  autoDreamMinTmpEntries: number;
-  dreamProjectRebuildTimeoutMs: number;
 }
 export const MEMORY_EXPORT_FORMAT_VERSION = "clawxmemory-file-memory-bundle.v2" as const;
 
@@ -468,40 +465,34 @@ export interface RetrievalResult {
 
 export type RecallMode = "llm" | "local_fallback" | "none";
 export type StartupRepairStatus = "idle" | "running" | "failed";
+export type DashboardStatus = "healthy" | "warning" | "conflict";
+
+export interface DashboardConflictingFile {
+  name: ManagedWorkspaceFileName;
+  conflictPath?: string;
+}
+
+export interface DashboardDiagnostics {
+  issues: string[];
+  conflictingFiles: DashboardConflictingFile[];
+  startupRepairMessage?: string;
+}
 
 export interface DashboardOverview {
   pendingSessions: number;
-  pendingSegments?: number;
-  totalMemoryFiles?: number;
-  totalUserMemories?: number;
-  totalFeedbackMemories?: number;
-  totalProjectMemories?: number;
+  formalProjectCount?: number;
+  userProfileCount?: number;
   tmpTotalFiles?: number;
-  tmpProjectMemories?: number;
-  tmpFeedbackMemories?: number;
-  queuedSessions: number;
-  lastRecallMs: number;
-  recallTimeouts: number;
-  lastRecallMode: RecallMode;
-  currentReasoningMode?: ReasoningMode;
-  lastRecallPath?: "auto" | "explicit" | "shadow";
-  lastRecallInjected?: boolean;
-  lastRecallCacheHit?: boolean;
-  slotOwner?: string;
-  dynamicMemoryRuntime?: string;
-  workspaceBootstrapPresent?: boolean;
-  memoryRuntimeHealthy?: boolean;
-  runtimeIssues?: string[];
-  managedWorkspaceFiles?: ManagedWorkspaceFileState[];
-  boundaryStatus?: ManagedBoundaryStatus;
-  lastBoundaryAction?: string;
+  recentRecallTraceCount?: number;
+  recentIndexTraceCount?: number;
+  recentDreamTraceCount?: number;
   lastIndexedAt?: string;
   lastDreamAt?: string;
   lastDreamStatus?: DreamPipelineStatus;
   lastDreamSummary?: string;
-  changedFilesSinceLastDream?: number;
-  startupRepairStatus?: StartupRepairStatus;
-  startupRepairMessage?: string;
+  dashboardStatus?: DashboardStatus;
+  dashboardWarning?: string | null;
+  dashboardDiagnostics?: DashboardDiagnostics | null;
 }
 
 export interface MemoryUiSnapshot {

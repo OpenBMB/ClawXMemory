@@ -4,11 +4,8 @@ import { ReasoningRetriever } from "../src/core/index.js";
 function createSettings(overrides: Record<string, unknown> = {}) {
   return {
     reasoningMode: "accuracy_first",
-    recallTopK: 5,
     autoIndexIntervalMinutes: 60,
     autoDreamIntervalMinutes: 360,
-    autoDreamMinTmpEntries: 10,
-    dreamProjectRebuildTimeoutMs: 180_000,
     ...overrides,
   };
 }

@@ -8,42 +8,27 @@ function createDefaultRepository() {
   return {
     getOverview: () => ({
       pendingSessions: 0,
-      totalMemoryFiles: 3,
-      totalProjectMemories: 1,
-      totalFeedbackMemories: 1,
-      totalUserMemories: 1,
+      formalProjectCount: 1,
+      userProfileCount: 1,
       tmpTotalFiles: 0,
-      tmpProjectMemories: 0,
-      tmpFeedbackMemories: 0,
-      changedFilesSinceLastDream: 2,
-      queuedSessions: 0,
-      lastRecallMs: 0,
-      recallTimeouts: 0,
-      lastRecallMode: "none",
+      recentRecallTraceCount: 0,
+      recentIndexTraceCount: 0,
+      recentDreamTraceCount: 0,
     }),
     getUiSnapshot: () => ({
       overview: {
         pendingSessions: 0,
-        totalMemoryFiles: 3,
-        totalProjectMemories: 1,
-        totalFeedbackMemories: 1,
-        totalUserMemories: 1,
+        formalProjectCount: 1,
+        userProfileCount: 1,
         tmpTotalFiles: 0,
-        tmpProjectMemories: 0,
-        tmpFeedbackMemories: 0,
-        changedFilesSinceLastDream: 2,
-        queuedSessions: 0,
-        lastRecallMs: 0,
-        recallTimeouts: 0,
-        lastRecallMode: "none",
+        recentRecallTraceCount: 0,
+        recentIndexTraceCount: 0,
+        recentDreamTraceCount: 0,
       },
       settings: {
         reasoningMode: "answer_first",
-        recallTopK: 10,
         autoIndexIntervalMinutes: 60,
         autoDreamIntervalMinutes: 360,
-        autoDreamMinTmpEntries: 10,
-        dreamProjectRebuildTimeoutMs: 180_000,
       },
       recentMemoryFiles: [
         {
@@ -106,19 +91,13 @@ async function startUiServer(
     {
       getSettings: () => ({
         reasoningMode: "answer_first",
-        recallTopK: 10,
         autoIndexIntervalMinutes: 60,
         autoDreamIntervalMinutes: 360,
-        autoDreamMinTmpEntries: 10,
-        dreamProjectRebuildTimeoutMs: 180_000,
       }),
       saveSettings: () => ({
         reasoningMode: "answer_first",
-        recallTopK: 10,
         autoIndexIntervalMinutes: 60,
         autoDreamIntervalMinutes: 360,
-        autoDreamMinTmpEntries: 10,
-        dreamProjectRebuildTimeoutMs: 180_000,
       }),
       runIndexNow: async () => ({
         capturedSessions: 0,
@@ -158,14 +137,8 @@ async function startUiServer(
       exportMemoryBundle: () => ({ exportedAt: "2026-04-01T00:00:00.000Z" }),
       importMemoryBundle: async () => ({ imported: {} }),
       getRuntimeOverview: () => ({
-        queuedSessions: 0,
-        lastRecallMs: 0,
-        recallTimeouts: 0,
-        lastRecallMode: "none",
-        currentReasoningMode: "answer_first",
+        runtimeIssues: [],
         managedWorkspaceFiles: [],
-        boundaryStatus: "ready",
-        lastBoundaryAction: "none",
       }),
       getStartupRepairSnapshot: () => undefined,
       listCaseTraces: () => [],
@@ -225,14 +198,12 @@ describe("LocalUiServer static assets", () => {
     expect(html).toContain('rel="icon"');
     expect(html).toContain("./assets/brand/logo.png");
     expect(html).toContain('data-page="memory_trace"');
-    expect(html).toContain('data-page="tmp"');
     expect(html).toContain('id="memoryTraceBoard"');
     expect(html).toContain('id="tmpBoard"');
     expect(html).toContain('id="dreamRunBtn"');
     expect(html).toContain('id="autoIndexIntervalHoursInput"');
     expect(html).toContain('id="autoDreamIntervalHoursInput"');
-    expect(html).toContain('id="autoDreamMinTmpEntriesInput"');
-    expect(html).toContain('id="dreamRebuildTimeoutSecondsInput"');
+    expect(html).not.toContain('id="dreamRebuildTimeoutSecondsInput"');
     expect(html).toContain('data-page="project"');
     expect(html).toContain('data-page="user"');
     expect(html).toContain('id="projectDetailBoard"');
@@ -258,6 +229,78 @@ describe("LocalUiServer static assets", () => {
 
     const bytes = Buffer.from(await response.arrayBuffer());
     expect(bytes.byteLength).toBeGreaterThan(0);
+  });
+
+  it("serves a product-shaped overview with summarized dashboard diagnostics", async () => {
+    const baseUrl = await startUiServer({
+      repository: {
+        getOverview: () => ({
+          pendingSessions: 2,
+          formalProjectCount: 3,
+          userProfileCount: 1,
+          tmpTotalFiles: 4,
+          recentRecallTraceCount: 12,
+          recentIndexTraceCount: 7,
+          recentDreamTraceCount: 2,
+          lastIndexedAt: "2026-04-01T00:00:00.000Z",
+          lastDreamAt: "2026-04-01T01:00:00.000Z",
+          lastDreamStatus: "success",
+          lastDreamSummary: "Dream complete",
+        }),
+      },
+      controls: {
+        getRuntimeOverview: () => ({
+          runtimeIssues: ["workspace USER.md should be isolated from OpenClaw bootstrap memory"],
+          managedWorkspaceFiles: [
+            {
+              name: "MEMORY.md",
+              originalPath: "/tmp/workspace/MEMORY.md",
+              managedPath: "/tmp/.managed/MEMORY.md",
+              hash: "hash-memory",
+              isolatedAt: "2026-04-01T00:00:00.000Z",
+              status: "isolated",
+            },
+            {
+              name: "USER.md",
+              originalPath: "/tmp/workspace/USER.md",
+              managedPath: "/tmp/.managed/USER.md",
+              hash: "hash-user",
+              isolatedAt: "2026-04-01T00:00:00.000Z",
+              status: "conflict",
+              conflictPath: "/tmp/workspace/USER.conflict.md",
+            },
+          ],
+          startupRepairMessage: "repair pending",
+        }),
+      },
+    });
+
+    const response = await fetch(`${baseUrl}/api/overview`);
+    expect(response.status).toBe(200);
+    const overview = await response.json();
+
+    expect(overview).toMatchObject({
+      pendingSessions: 2,
+      formalProjectCount: 3,
+      userProfileCount: 1,
+      tmpTotalFiles: 4,
+      dashboardStatus: "conflict",
+      dashboardDiagnostics: {
+        issues: ["workspace USER.md should be isolated from OpenClaw bootstrap memory"],
+        conflictingFiles: [
+          {
+            name: "USER.md",
+            conflictPath: "/tmp/workspace/USER.conflict.md",
+          },
+        ],
+        startupRepairMessage: "repair pending",
+      },
+    });
+    expect(overview.dashboardWarning).toContain("USER.md");
+    expect(overview.dashboardWarning).not.toContain("MEMORY.md");
+    expect(overview.managedWorkspaceFiles).toBeUndefined();
+    expect(overview.runtimeIssues).toBeUndefined();
+    expect(overview.slotOwner).toBeUndefined();
   });
 
   it("warns with uiPort config instructions when the dashboard port is already in use", async () => {
@@ -644,24 +687,18 @@ describe("LocalUiServer static assets", () => {
     ]);
   });
 
-  it("round-trips expanded indexing settings through /api/settings", async () => {
+  it("round-trips indexing settings through /api/settings", async () => {
     const saveSettings = vi.fn().mockImplementation((partial: Record<string, unknown>) => ({
       reasoningMode: partial.reasoningMode ?? "accuracy_first",
-      recallTopK: partial.recallTopK ?? 12,
       autoIndexIntervalMinutes: partial.autoIndexIntervalMinutes ?? 120,
       autoDreamIntervalMinutes: partial.autoDreamIntervalMinutes ?? 360,
-      autoDreamMinTmpEntries: partial.autoDreamMinTmpEntries ?? 10,
-      dreamProjectRebuildTimeoutMs: partial.dreamProjectRebuildTimeoutMs ?? 240_000,
     }));
     const baseUrl = await startUiServer({
       controls: {
         getSettings: () => ({
           reasoningMode: "answer_first",
-          recallTopK: 10,
           autoIndexIntervalMinutes: 60,
           autoDreamIntervalMinutes: 360,
-          autoDreamMinTmpEntries: 10,
-          dreamProjectRebuildTimeoutMs: 180_000,
         }),
         saveSettings,
       },
@@ -671,11 +708,8 @@ describe("LocalUiServer static assets", () => {
     expect(getResponse.status).toBe(200);
     await expect(getResponse.json()).resolves.toMatchObject({
       reasoningMode: "answer_first",
-      recallTopK: 10,
       autoIndexIntervalMinutes: 60,
       autoDreamIntervalMinutes: 360,
-      autoDreamMinTmpEntries: 10,
-      dreamProjectRebuildTimeoutMs: 180_000,
     });
 
     const postResponse = await fetch(`${baseUrl}/api/settings`, {
@@ -683,29 +717,20 @@ describe("LocalUiServer static assets", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         reasoningMode: "accuracy_first",
-        recallTopK: 12,
         autoIndexIntervalMinutes: 120,
         autoDreamIntervalMinutes: 180,
-        autoDreamMinTmpEntries: 15,
-        dreamProjectRebuildTimeoutMs: 0,
       }),
     });
     expect(postResponse.status).toBe(200);
     await expect(postResponse.json()).resolves.toMatchObject({
       reasoningMode: "accuracy_first",
-      recallTopK: 12,
       autoIndexIntervalMinutes: 120,
       autoDreamIntervalMinutes: 180,
-      autoDreamMinTmpEntries: 15,
-      dreamProjectRebuildTimeoutMs: 0,
     });
     expect(saveSettings).toHaveBeenCalledWith(expect.objectContaining({
       reasoningMode: "accuracy_first",
-      recallTopK: 12,
       autoIndexIntervalMinutes: 120,
       autoDreamIntervalMinutes: 180,
-      autoDreamMinTmpEntries: 15,
-      dreamProjectRebuildTimeoutMs: 0,
     }));
   });
 });

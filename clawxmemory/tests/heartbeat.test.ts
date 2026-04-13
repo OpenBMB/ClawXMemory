@@ -7,11 +7,8 @@ import { HeartbeatIndexer, MemoryRepository } from "../src/core/index.js";
 
 const DEFAULT_SETTINGS = {
   reasoningMode: "accuracy_first" as const,
-  recallTopK: 8,
   autoIndexIntervalMinutes: 60,
   autoDreamIntervalMinutes: 360,
-  autoDreamMinTmpEntries: 10,
-  dreamProjectRebuildTimeoutMs: 180_000,
 };
 
 function createMessages(user: string, assistant: string): MemoryMessage[] {

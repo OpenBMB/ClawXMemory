@@ -104,7 +104,8 @@ interface RawDreamFileProjectRewritePayload {
   deleted_entry_ids?: unknown;
 }
 
-const DEFAULT_DREAM_FILE_PLAN_TIMEOUT_MS = 180_000;
+const DEFAULT_DREAM_FILE_PLAN_TIMEOUT_MS = 600_000;
+const DEFAULT_DREAM_FILE_PROJECT_REWRITE_TIMEOUT_MS = 300_000;
 
 export interface LlmDreamFileProjectMetaInput {
   projectId: string;
@@ -1527,7 +1528,7 @@ export class LlmMemoryExtractor {
       systemPrompt: DREAM_FILE_PROJECT_REWRITE_SYSTEM_PROMPT,
       userPrompt: buildDreamFileProjectRewritePrompt(input),
       requestLabel: "Dream file project rewrite",
-      timeoutMs: input.timeoutMs ?? 60_000,
+      timeoutMs: input.timeoutMs ?? DEFAULT_DREAM_FILE_PROJECT_REWRITE_TIMEOUT_MS,
       ...(input.agentId ? { agentId: input.agentId } : {}),
       ...(input.debugTrace ? { debugTrace: input.debugTrace } : {}),
       parse: (raw) => JSON.parse(extractFirstJsonObject(raw)) as RawDreamFileProjectRewritePayload,

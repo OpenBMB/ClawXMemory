@@ -40,15 +40,11 @@ const LOCALES = {
     "detail.feedbackFiles": "协作反馈文件",
     "detail.backToProject": "返回项目",
     "detail.backToList": "返回项目列表",
-    "settings.advanced": "高级参数",
-    "settings.recallTopK": "Selected Memory Files",
+    "settings.advanced": "参数设置",
     "settings.autoIndexInterval": "自动索引间隔（小时）",
     "settings.autoDreamInterval": "自动 Dream 间隔（小时）",
-    "settings.autoDreamMinTmpEntries": "Auto Dream 最小 Tmp 文件数",
-    "settings.dreamRebuildTimeout": "Dream Organize Timeout（秒）",
-    "settings.dreamRebuildTimeoutHint": "默认 180 秒；0 表示不设超时。该设置同时作用于手动 Dream 和自动 Dream。",
     "settings.scheduleHint": "0 表示关闭自动任务",
-    "settings.autoDreamHint": "只有变更的记忆文件达到门槛时，自动 Dream 才会真正执行。",
+    "settings.autoDreamHint": "只有自上次 Dream 以来有记忆文件更新时，自动 Dream 才会真正执行。",
     "settings.save": "保存设置",
     "settings.theme": "主题",
     "settings.language": "语言",
@@ -62,29 +58,22 @@ const LOCALES = {
     "settings.theme.auto": "跟随系统",
     "overview.title": "运行概览",
     "overview.group.memory": "记忆概况",
-    "overview.group.recall": "最近召回与 Dream",
-    "overview.group.health": "系统健康",
-    "overview.totalMemoryFiles": "Memory Files",
-    "overview.totalProjectMemories": "Project",
-    "overview.totalFeedbackMemories": "Feedback",
-    "overview.totalUserMemories": "User",
-    "overview.tmpTotalFiles": "Tmp Files",
-    "overview.tmpProjectMemories": "Tmp Project",
-    "overview.tmpFeedbackMemories": "Tmp Feedback",
+    "overview.group.recall": "最近运行",
+    "overview.group.warning": "异常提示",
+    "overview.formalProjectCount": "项目记忆",
+    "overview.tmpTotalFiles": "未归档记忆",
+    "overview.userProfileCount": "用户画像",
     "overview.pendingSessions": "待索引会话",
-    "overview.changedFilesSinceLastDream": "Dream 后变更文件",
-    "overview.queued": "排队 Session",
-    "overview.lastRecallMs": "最近召回耗时",
+    "overview.lastIndexedAt": "上次索引",
     "overview.lastDreamAt": "最近 Dream",
     "overview.lastDreamStatus": "Dream 状态",
     "overview.lastDreamSummary": "Dream 摘要",
-    "overview.runtimeHealth": "运行时健康",
-    "overview.runtimeIssues": "运行时问题",
-    "overview.boundaryStatus": "边界状态",
-    "overview.managedFiles": "托管文件",
-    "overview.lastBoundaryAction": "最近边界动作",
-    "overview.startupRepair": "启动修复",
-    "overview.slotOwner": "Memory Slot",
+    "overview.warning.viewDiagnostics": "查看诊断",
+    "overview.warning.conflictSummary": "检测到 {0} 个工作区边界冲突：{1}",
+    "overview.warning.issueSummary": "检测到运行异常：{0}",
+    "overview.diagnostics.issues": "问题",
+    "overview.diagnostics.conflictingFiles": "冲突文件",
+    "overview.diagnostics.startupRepairMessage": "启动修复消息",
     "confirm.sync.title": "索引同步",
     "confirm.sync.body": "将扫描最近对话并把可归类内容写入文件式 memory。",
     "confirm.sync.ok": "开始同步",
@@ -116,7 +105,7 @@ const LOCALES = {
     "status.imported": "已导入 · memory files {0} / project {1} / feedback {2} / user {3}",
     "status.importInvalid": "导入文件不是有效的记忆包",
     "status.importFailed": "导入失败：{0}",
-    "status.settingsSaved": "设置已保存 · {0}",
+    "status.settingsSaved": "设置已保存",
     "status.searching": "搜索中…",
     "status.searched": "搜索完成",
     "status.loadFail": "加载失败：{0}",
@@ -129,6 +118,7 @@ const LOCALES = {
     "level.user.empty": "暂无用户画像记忆",
     "level.memory_trace.empty": "暂无记忆追踪案例",
     "board.project": "项目记忆",
+    "board.project.unarchived": "未归档记忆",
     "board.tmp": "Tmp 暂存",
     "board.tmp.manifest": "_tmp 索引",
     "board.tmp.projectFiles": "待整理项目文件",
@@ -299,15 +289,11 @@ const LOCALES = {
     "detail.feedbackFiles": "Feedback Files",
     "detail.backToProject": "Back to Project",
     "detail.backToList": "Back to Projects",
-    "settings.advanced": "Advanced",
-    "settings.recallTopK": "Selected Memory Files",
+    "settings.advanced": "Settings",
     "settings.autoIndexInterval": "Auto Index Interval (hours)",
     "settings.autoDreamInterval": "Auto Dream Interval (hours)",
-    "settings.autoDreamMinTmpEntries": "Auto Dream Min Tmp Files",
-    "settings.dreamRebuildTimeout": "Dream Organize Timeout (sec)",
-    "settings.dreamRebuildTimeoutHint": "Default 180 seconds. 0 disables the timeout for both manual and auto Dream.",
     "settings.scheduleHint": "0 disables the schedule",
-    "settings.autoDreamHint": "Auto Dream only runs when enough memory files changed.",
+    "settings.autoDreamHint": "Auto Dream only runs when memory files changed since the last Dream run.",
     "settings.save": "Save Settings",
     "settings.theme": "Theme",
     "settings.language": "Language",
@@ -321,29 +307,22 @@ const LOCALES = {
     "settings.theme.auto": "Auto",
     "overview.title": "Runtime Overview",
     "overview.group.memory": "Memory Overview",
-    "overview.group.recall": "Latest Recall & Dream",
-    "overview.group.health": "System Health",
-    "overview.totalMemoryFiles": "Memory Files",
-    "overview.totalProjectMemories": "Project",
-    "overview.totalFeedbackMemories": "Feedback",
-    "overview.totalUserMemories": "User",
-    "overview.tmpTotalFiles": "Tmp Files",
-    "overview.tmpProjectMemories": "Tmp Project",
-    "overview.tmpFeedbackMemories": "Tmp Feedback",
+    "overview.group.recall": "Recent Activity",
+    "overview.group.warning": "Warning",
+    "overview.formalProjectCount": "Project Memory",
+    "overview.tmpTotalFiles": "Unarchived Memory",
+    "overview.userProfileCount": "User Portrait",
     "overview.pendingSessions": "Pending Sessions",
-    "overview.changedFilesSinceLastDream": "Changed Since Dream",
-    "overview.queued": "Queued Sessions",
-    "overview.lastRecallMs": "Last Recall",
+    "overview.lastIndexedAt": "Last Indexed",
     "overview.lastDreamAt": "Last Dream",
     "overview.lastDreamStatus": "Dream Status",
     "overview.lastDreamSummary": "Dream Summary",
-    "overview.runtimeHealth": "Runtime Health",
-    "overview.runtimeIssues": "Runtime Issues",
-    "overview.boundaryStatus": "Boundary Status",
-    "overview.managedFiles": "Managed Files",
-    "overview.lastBoundaryAction": "Last Boundary Action",
-    "overview.startupRepair": "Startup Repair",
-    "overview.slotOwner": "Memory Slot",
+    "overview.warning.viewDiagnostics": "View Diagnostics",
+    "overview.warning.conflictSummary": "Detected {0} workspace boundary conflict(s): {1}",
+    "overview.warning.issueSummary": "Runtime warning: {0}",
+    "overview.diagnostics.issues": "Issues",
+    "overview.diagnostics.conflictingFiles": "Conflicting Files",
+    "overview.diagnostics.startupRepairMessage": "Startup Repair Message",
     "confirm.sync.title": "Index Sync",
     "confirm.sync.body": "This scans recent chats and writes classified items into file-based memory.",
     "confirm.sync.ok": "Start Sync",
@@ -375,7 +354,7 @@ const LOCALES = {
     "status.imported": "Import complete · memory files {0} / project {1} / feedback {2} / user {3}",
     "status.importInvalid": "The selected file is not a valid memory bundle",
     "status.importFailed": "Import failed: {0}",
-    "status.settingsSaved": "Settings saved · {0}",
+    "status.settingsSaved": "Settings saved",
     "status.searching": "Searching…",
     "status.searched": "Search complete",
     "status.loadFail": "Load failed: {0}",
@@ -393,6 +372,7 @@ const LOCALES = {
     "board.tmp.projectFiles": "Tmp Project Files",
     "board.tmp.feedbackFiles": "Tmp Feedback Files",
     "board.user": "User Portrait",
+    "board.project.unarchived": "Unarchived Memory",
     "board.memoryTrace": "Memory Trace",
     "board.user.empty": "No user portrait is available yet",
     "board.user.sources": "Source Files",
@@ -529,14 +509,11 @@ const STORAGE = {
   locale: "clawxmemory.ui.locale",
 };
 
-const LEVELS = ["project", "tmp", "user", "memory_trace"];
+const LEVELS = ["project", "user", "memory_trace"];
 const DEFAULT_SETTINGS = {
   reasoningMode: "answer_first",
-  recallTopK: 5,
   autoIndexIntervalMinutes: 60,
   autoDreamIntervalMinutes: 360,
-  autoDreamMinTmpEntries: 10,
-  dreamProjectRebuildTimeoutMs: 180000,
 };
 
 const root = document.documentElement;
@@ -582,11 +559,8 @@ const tmpBoard = document.getElementById("tmpBoard");
 const userBoard = document.getElementById("userBoard");
 const memoryTraceBoard = document.getElementById("memoryTraceBoard");
 const listSearchRow = document.getElementById("listSearchRow");
-const recallTopKInput = document.getElementById("recallTopKInput");
 const autoIndexIntervalHoursInput = document.getElementById("autoIndexIntervalHoursInput");
 const autoDreamIntervalHoursInput = document.getElementById("autoDreamIntervalHoursInput");
-const autoDreamMinTmpEntriesInput = document.getElementById("autoDreamMinTmpEntriesInput");
-const dreamRebuildTimeoutSecondsInput = document.getElementById("dreamRebuildTimeoutSecondsInput");
 const saveSettingsBtn = document.getElementById("saveSettingsBtn");
 const themeToggle = document.getElementById("themeToggle");
 const langToggle = document.getElementById("langToggle");
@@ -742,11 +716,6 @@ function formatDateTime(value) {
   }).format(date);
 }
 
-function formatDurationMs(value) {
-  if (typeof value !== "number" || Number.isNaN(value)) return t("common.none");
-  return `${Math.max(0, Math.round(value))} ms`;
-}
-
 function readListFromSection(lines) {
   return safeArray(lines)
     .map((line) => normalizeText(line).replace(/^- /, ""))
@@ -786,34 +755,29 @@ function formatRecallRoute(value) {
   return LOCALES[state.locale][key] || LOCALES.en[key] ? t(key) : String(value);
 }
 
-function formatStartupRepair(value) {
-  if (!value || value === "idle") return t("startup.idle");
-  if (value === "running") return t("startup.running");
-  if (value === "failed") return t("startup.failed");
-  return String(value);
+function joinLocalizedList(items) {
+  const cleaned = safeArray(items).map((item) => normalizeText(item)).filter(Boolean);
+  if (!cleaned.length) return t("common.none");
+  return state.locale === "zh" ? cleaned.join("、") : cleaned.join(", ");
 }
 
-function formatRuntimeHealth(value) {
-  return value ? t("runtime.healthy") : t("runtime.unhealthy");
-}
-
-function formatBoundaryStatus(value) {
-  if (!value) return t("common.none");
-  const key = `boundary.${value}`;
-  return LOCALES[state.locale][key] || LOCALES.en[key] ? t(key) : String(value);
-}
-
-function formatManagedWorkspaceFiles(files) {
-  const items = safeArray(files)
-    .map((file) => {
-      const name = normalizeText(file?.name);
-      const status = normalizeText(file?.status);
-      if (!name) return "";
-      if (!status) return name;
-      return `${name} (${formatBoundaryStatus(status)})`;
-    })
+function buildDashboardWarningText(overview) {
+  const diagnostics = overview?.dashboardDiagnostics || null;
+  const conflictingFiles = safeArray(diagnostics?.conflictingFiles)
+    .map((file) => normalizeText(file?.name))
     .filter(Boolean);
-  return items.length ? items.join(", ") : t("common.none");
+  if (conflictingFiles.length) {
+    return t(
+      "overview.warning.conflictSummary",
+      String(conflictingFiles.length),
+      joinLocalizedList(conflictingFiles),
+    );
+  }
+  const issues = safeArray(diagnostics?.issues).map((issue) => normalizeText(issue)).filter(Boolean);
+  if (issues.length) return t("overview.warning.issueSummary", issues[0]);
+  const startupRepairMessage = normalizeText(diagnostics?.startupRepairMessage);
+  if (startupRepairMessage) return t("overview.warning.issueSummary", startupRepairMessage);
+  return normalizeText(overview?.dashboardWarning) || t("common.none");
 }
 
 function inferProjectStatus(entry, record) {
@@ -880,13 +844,23 @@ function getCurrentSearchKey() {
 }
 
 function getMemoryCount(level) {
-  if (level === "project") return state.projectGroups.length;
-  if (level === "tmp") return Number(state.tmpSnapshot?.totalFiles || state.overview.tmpTotalFiles || 0);
-  if (level === "user") return safeArray(state.userSummary?.files).length || Number(state.overview.totalUserMemories || 0);
+  if (level === "project") {
+    const formalProjects = Number(state.overview.formalProjectCount || state.projectGroups.length || 0);
+    const tmpFiles = Number(state.overview.tmpTotalFiles || state.tmpSnapshot?.totalFiles || 0);
+    return formalProjects + tmpFiles;
+  }
+  if (level === "tmp") return Number(state.overview.tmpTotalFiles || state.tmpSnapshot?.totalFiles || 0);
+  if (level === "user") {
+    return Number(state.overview.userProfileCount || (safeArray(state.userSummary?.files).length > 0 ? 1 : 0));
+  }
   if (level === "memory_trace") {
-    if (state.traceMode === "index") return state.indexTraces.length;
-    if (state.traceMode === "dream") return state.dreamTraces.length;
-    return state.cases.length;
+    if (state.traceMode === "index") {
+      return state.indexTraces.length || Number(state.overview.recentIndexTraceCount || 0);
+    }
+    if (state.traceMode === "dream") {
+      return state.dreamTraces.length || Number(state.overview.recentDreamTraceCount || 0);
+    }
+    return state.cases.length || Number(state.overview.recentRecallTraceCount || 0);
   }
   return 0;
 }
@@ -1219,7 +1193,10 @@ async function loadDreamTraceDetail(dreamTraceId, { force = false } = {}) {
 async function ensureActiveData({ force = false } = {}) {
   const level = getCurrentLevel();
   if (level === "project") {
-    await loadProjectGroups({ force });
+    await Promise.all([
+      loadProjectGroups({ force }),
+      loadTmpSnapshot({ force }),
+    ]);
     return;
   }
   if (level === "tmp") {
@@ -1368,84 +1345,121 @@ function createMetricGrid(cells) {
   return grid;
 }
 
+function createOverviewTextNote(text) {
+  return el("p", "ov-text-note", normalizeText(text) || t("common.none"));
+}
+
+function createOverviewListSection(label, items) {
+  const values = safeArray(items).map((item) => normalizeText(item)).filter(Boolean);
+  if (!values.length) return null;
+  const section = el("section", "ov-diagnostic-section");
+  section.append(el("div", "ov-diagnostic-label", label));
+  const list = el("ul", "ov-diagnostic-list");
+  values.forEach((value) => list.append(el("li", "", value)));
+  section.append(list);
+  return section;
+}
+
+function createDashboardWarningGroup(overview) {
+  if (!overview || overview.dashboardStatus === "healthy") return null;
+  const diagnostics = overview.dashboardDiagnostics || null;
+  const summary = buildDashboardWarningText(overview);
+  const body = el("div", "ov-warning-card");
+  body.dataset.status = overview.dashboardStatus || "warning";
+  body.append(el("div", "ov-warning-summary", summary));
+
+  if (diagnostics) {
+    const details = document.createElement("details");
+    details.className = "context-block ov-diagnostic-block";
+    details.append(el("summary", "", t("overview.warning.viewDiagnostics")));
+
+    const detailBody = el("div", "ov-diagnostic-body");
+    const issuesBlock = createOverviewListSection(
+      t("overview.diagnostics.issues"),
+      diagnostics.issues,
+    );
+    if (issuesBlock) detailBody.append(issuesBlock);
+
+    const conflictingFileItems = safeArray(diagnostics.conflictingFiles).map((file) => {
+      const name = normalizeText(file?.name);
+      const conflictPath = normalizeText(file?.conflictPath);
+      if (!name) return "";
+      return conflictPath ? `${name} · ${conflictPath}` : name;
+    });
+    const conflictingFilesBlock = createOverviewListSection(
+      t("overview.diagnostics.conflictingFiles"),
+      conflictingFileItems,
+    );
+    if (conflictingFilesBlock) detailBody.append(conflictingFilesBlock);
+
+    const startupRepairMessage = normalizeText(diagnostics.startupRepairMessage);
+    if (startupRepairMessage) {
+      const startupBlock = el("section", "ov-diagnostic-section");
+      startupBlock.append(el("div", "ov-diagnostic-label", t("overview.diagnostics.startupRepairMessage")));
+      startupBlock.append(el("p", "ov-text-note", startupRepairMessage));
+      detailBody.append(startupBlock);
+    }
+
+    details.append(detailBody);
+    body.append(details);
+  }
+
+  return createOverviewGroup(t("overview.group.warning"), body);
+}
+
 function renderOverview() {
   if (!overviewCards) return;
   const overview = state.overview || {};
   const memoryBody = el("div");
   memoryBody.append(
     createHeroRow([
-      { value: formatNumber(overview.totalMemoryFiles || 0), label: t("overview.totalMemoryFiles") },
-      { value: formatNumber(overview.totalProjectMemories || 0), label: t("overview.totalProjectMemories") },
-      { value: formatNumber(overview.totalFeedbackMemories || 0), label: t("overview.totalFeedbackMemories") },
-      { value: formatNumber(overview.totalUserMemories || 0), label: t("overview.totalUserMemories") },
-      { value: formatNumber(overview.pendingSessions || 0), label: t("overview.pendingSessions") },
-      { value: formatNumber(overview.changedFilesSinceLastDream || 0), label: t("overview.changedFilesSinceLastDream") },
+      { value: formatNumber(overview.formalProjectCount || 0), label: t("overview.formalProjectCount") },
+      { value: formatNumber(overview.tmpTotalFiles || 0), label: t("overview.tmpTotalFiles") },
+      { value: formatNumber(overview.userProfileCount || 0), label: t("overview.userProfileCount") },
     ]),
   );
-  memoryBody.append(
-    createMetricGrid([
-      { label: t("overview.tmpTotalFiles"), value: formatNumber(overview.tmpTotalFiles || 0) },
-      { label: t("overview.tmpProjectMemories"), value: formatNumber(overview.tmpProjectMemories || 0) },
-      { label: t("overview.tmpFeedbackMemories"), value: formatNumber(overview.tmpFeedbackMemories || 0) },
-    ]),
-  );
-  const memoryGroup = createOverviewGroup(
-    t("overview.group.memory"),
-    memoryBody,
-  );
+  const pendingCells = [];
+  if (Number(overview.pendingSessions || 0) > 0) {
+    pendingCells.push({
+      label: t("overview.pendingSessions"),
+      value: formatNumber(overview.pendingSessions || 0),
+      tone: "warning",
+    });
+  }
+  if (pendingCells.length) memoryBody.append(createMetricGrid(pendingCells));
+  const memoryGroup = createOverviewGroup(t("overview.group.memory"), memoryBody);
 
-  const recallGroup = createOverviewGroup(
-    t("overview.group.recall"),
-    createMetricGrid([
-      { label: t("overview.queued"), value: formatNumber(overview.queuedSessions || 0) },
-      { label: t("overview.lastRecallMs"), value: formatDurationMs(overview.lastRecallMs || 0) },
-      { label: t("overview.lastDreamAt"), value: formatDateTime(overview.lastDreamAt) },
-      { label: t("overview.lastDreamStatus"), value: formatDreamStatus(overview.lastDreamStatus) },
-      { label: t("overview.lastDreamSummary"), value: normalizeText(overview.lastDreamSummary) || t("common.none") },
-    ]),
-  );
+  const activityCells = [];
+  if (normalizeText(overview.lastIndexedAt)) {
+    activityCells.push({ label: t("overview.lastIndexedAt"), value: formatDateTime(overview.lastIndexedAt) });
+  }
+  if (normalizeText(overview.lastDreamAt)) {
+    activityCells.push({ label: t("overview.lastDreamAt"), value: formatDateTime(overview.lastDreamAt) });
+  }
+  if (normalizeText(overview.lastDreamStatus)) {
+    activityCells.push({ label: t("overview.lastDreamStatus"), value: formatDreamStatus(overview.lastDreamStatus) });
+  }
+  const activityBody = el("div");
+  if (activityCells.length) {
+    activityBody.append(createMetricGrid(activityCells));
+  } else {
+    const emptySection = el("section", "ov-diagnostic-section");
+    emptySection.append(createOverviewTextNote(t("common.none")));
+    activityBody.append(emptySection);
+  }
+  if (normalizeText(overview.lastDreamSummary)) {
+    const summaryBlock = el("section", "ov-diagnostic-section");
+    summaryBlock.append(el("div", "ov-diagnostic-label", t("overview.lastDreamSummary")));
+    summaryBlock.append(createOverviewTextNote(overview.lastDreamSummary));
+    activityBody.append(summaryBlock);
+  }
+  const activityGroup = createOverviewGroup(t("overview.group.recall"), activityBody);
 
-  const issueCount = safeArray(overview.runtimeIssues).length;
-  const managedFiles = safeArray(overview.managedWorkspaceFiles);
-  const healthGroup = createOverviewGroup(
-    t("overview.group.health"),
-    createMetricGrid([
-      {
-        label: t("overview.runtimeHealth"),
-        value: formatRuntimeHealth(Boolean(overview.memoryRuntimeHealthy)),
-        tone: overview.memoryRuntimeHealthy === false ? "danger" : "success",
-      },
-      {
-        label: t("overview.runtimeIssues"),
-        value: issueCount ? String(issueCount) : t("common.none"),
-        tone: issueCount ? "warning" : "success",
-      },
-      {
-        label: t("overview.boundaryStatus"),
-        value: formatBoundaryStatus(overview.boundaryStatus),
-        tone: overview.boundaryStatus === "conflict"
-          ? "danger"
-          : overview.boundaryStatus === "warning"
-            ? "warning"
-            : overview.boundaryStatus === "isolated"
-              ? "success"
-              : "neutral",
-      },
-      {
-        label: t("overview.managedFiles"),
-        value: formatManagedWorkspaceFiles(managedFiles),
-        tone: managedFiles.length ? "warning" : "neutral",
-      },
-      {
-        label: t("overview.lastBoundaryAction"),
-        value: normalizeText(overview.lastBoundaryAction) || t("common.none"),
-      },
-      { label: t("overview.startupRepair"), value: formatStartupRepair(overview.startupRepairStatus) },
-      { label: t("overview.slotOwner"), value: normalizeText(overview.slotOwner) || t("common.none") },
-    ]),
-  );
-
-  clearNode(overviewCards).append(memoryGroup, recallGroup, healthGroup);
+  const warningGroup = createDashboardWarningGroup(overview);
+  const groups = warningGroup
+    ? [memoryGroup, activityGroup, warningGroup]
+    : [memoryGroup, activityGroup];
+  clearNode(overviewCards).append(...groups);
 }
 
 /* ── project / file detail pages ──────────────────────── */
@@ -1548,6 +1562,22 @@ function getVisibleProjectDetailEntries(entries) {
       entry.description,
       entry.relativePath,
       entry.file,
+    ].join(" ").toLowerCase();
+    return haystack.includes(query);
+  });
+}
+
+function getVisibleTmpRecords(records) {
+  const query = normalizeText(state.queries.project_list).toLowerCase();
+  if (!query) return safeArray(records);
+  return safeArray(records).filter((record) => {
+    const haystack = [
+      record.name,
+      record.description,
+      record.preview,
+      record.relativePath,
+      record.file,
+      record.sourceSessionKey,
     ].join(" ").toLowerCase();
     return haystack.includes(query);
   });
@@ -1671,31 +1701,55 @@ async function openProjectGroupDetail(projectId) {
 
 function renderProjectListView() {
   const items = getVisibleProjectGroups();
+  const tmpSnapshot = state.tmpSnapshot;
+  const visibleTmpProjectEntries = getVisibleTmpRecords(tmpSnapshot?.projectEntries);
+  const visibleTmpFeedbackEntries = getVisibleTmpRecords(tmpSnapshot?.feedbackEntries);
+  const visibleTmpEntries = [...visibleTmpProjectEntries, ...visibleTmpFeedbackEntries];
   clearNode(projectListBoard);
-  if (!items.length) {
+  if (!items.length && !visibleTmpEntries.length) {
     projectListBoard.append(createEmptyState(t("level.project.empty")));
     return;
   }
 
-  const cards = items.map((group) => createBoardCard({
-    name: group.projectName,
-    description: group.description,
-    updatedAt: group.updatedAt,
-    projectId: group.projectId,
-  }, {
-    status: inferProjectGroupStatus(group),
-    active: state.mainView === "project-detail" && state.selectedProjectId === group.projectId,
-    subtitle: group.description,
-    meta: [
-      formatDateTime(group.updatedAt),
-      group.projectId,
-      t("board.project.memoryCount", group.projectCount || 0),
-      t("board.project.feedbackCount", group.feedbackCount || 0),
-    ].join(" · "),
-    onClick: () => void openProjectGroupDetail(group.projectId),
-  }));
+  if (items.length) {
+    const cards = items.map((group) => createBoardCard({
+      name: group.projectName,
+      description: group.description,
+      updatedAt: group.updatedAt,
+      projectId: group.projectId,
+    }, {
+      status: inferProjectGroupStatus(group),
+      active: state.mainView === "project-detail" && state.selectedProjectId === group.projectId,
+      subtitle: group.description,
+      meta: [
+        formatDateTime(group.updatedAt),
+        group.projectId,
+        t("board.project.memoryCount", group.projectCount || 0),
+        t("board.project.feedbackCount", group.feedbackCount || 0),
+      ].join(" · "),
+      onClick: () => void openProjectGroupDetail(group.projectId),
+    }));
 
-  projectListBoard.append(createBoardGroup(t("board.project"), items.length, cards));
+    projectListBoard.append(createBoardGroup(t("board.project"), items.length, cards));
+  }
+
+  if (visibleTmpEntries.length) {
+    const tmpCards = visibleTmpEntries.map((record) => createBoardCard({
+      name: record.name || record.file,
+      description: record.description || record.preview,
+      updatedAt: record.updatedAt,
+      projectId: record.projectId,
+    }, {
+      subtitle: record.description || record.preview || t("common.none"),
+      meta: [
+        formatDateTime(record.updatedAt),
+        t(`type.${record.type}`),
+        `${t("meta.sessionKey")}: ${normalizeText(record.sourceSessionKey) || t("common.none")}`,
+      ].join(" · "),
+      onClick: () => void openMemoryDetail(record.relativePath, { originView: "project-list" }),
+    }));
+    projectListBoard.append(createBoardGroup("未归档记忆", visibleTmpEntries.length, tmpCards));
+  }
 }
 
 function renderUserBoard() {
@@ -2546,39 +2600,21 @@ function renderActiveView() {
 /* ── actions ───────────────────────────────────────────── */
 
 async function saveSettings() {
-  const recallTopK = Math.max(1, Math.min(50, Number(recallTopKInput?.value || state.settings.recallTopK || 5)));
   const autoIndexIntervalMinutes = Math.max(0, Number(autoIndexIntervalHoursInput?.value || 0) * 60);
   const autoDreamIntervalMinutes = Math.max(0, Number(autoDreamIntervalHoursInput?.value || 0) * 60);
-  const autoDreamMinTmpEntries = Math.max(0, Number(autoDreamMinTmpEntriesInput?.value || state.settings.autoDreamMinTmpEntries || 0));
-  const dreamProjectRebuildTimeoutMs = Math.max(0, Number(dreamRebuildTimeoutSecondsInput?.value || 0) * 1000);
 
   const saved = await postJson("./api/settings", {
-    recallTopK,
     autoIndexIntervalMinutes,
     autoDreamIntervalMinutes,
-    autoDreamMinTmpEntries,
-    dreamProjectRebuildTimeoutMs,
   });
   state.settings = { ...DEFAULT_SETTINGS, ...(saved || {}) };
   syncSettingsForm();
-  setActivity("status.settingsSaved", `${recallTopK}`);
+  setActivity("status.settingsSaved");
 }
 
 function syncSettingsForm() {
-  if (recallTopKInput) recallTopKInput.value = String(state.settings.recallTopK || 5);
   if (autoIndexIntervalHoursInput) autoIndexIntervalHoursInput.value = String((state.settings.autoIndexIntervalMinutes || 0) / 60);
   if (autoDreamIntervalHoursInput) autoDreamIntervalHoursInput.value = String((state.settings.autoDreamIntervalMinutes || 0) / 60);
-  if (autoDreamMinTmpEntriesInput) autoDreamMinTmpEntriesInput.value = String(state.settings.autoDreamMinTmpEntries || 0);
-  if (dreamRebuildTimeoutSecondsInput) dreamRebuildTimeoutSecondsInput.value = String((state.settings.dreamProjectRebuildTimeoutMs || 0) / 1000);
-}
-
-function diffOverview(before, after) {
-  return {
-    memory: Math.max(0, Number(after.totalMemoryFiles || 0) - Number(before.totalMemoryFiles || 0)),
-    project: Math.max(0, Number(after.totalProjectMemories || 0) - Number(before.totalProjectMemories || 0)),
-    feedback: Math.max(0, Number(after.totalFeedbackMemories || 0) - Number(before.totalFeedbackMemories || 0)),
-    user: Math.max(0, Number(after.totalUserMemories || 0) - Number(before.totalUserMemories || 0)),
-  };
 }
 
 async function runIndexNow() {
@@ -2589,21 +2625,19 @@ async function runIndexNow() {
   });
   if (!ok) return;
   setActivity("status.building");
-  const before = { ...state.overview };
   const stats = await postJson("./api/index/run");
   invalidateMemoryCaches();
   invalidateTraceCaches();
   await loadSnapshot({ silent: true });
   await ensureActiveData({ force: true });
   await renderCurrentMainView({ force: true });
-  const diff = diffOverview(before, state.overview);
   setActivity(
     "status.built",
-    formatNumber(stats.l0Captured || 0),
-    formatNumber(diff.memory),
-    formatNumber(diff.project),
-    formatNumber(diff.feedback),
-    formatNumber(diff.user),
+    formatNumber(stats.capturedSessions || 0),
+    formatNumber(stats.writtenFiles || 0),
+    formatNumber(stats.writtenProjectFiles || 0),
+    formatNumber(stats.writtenFeedbackFiles || 0),
+    formatNumber(stats.userProfilesUpdated || 0),
   );
   renderActiveView();
 }
@@ -2660,7 +2694,7 @@ async function importMemory(file) {
   try {
     const raw = await file.text();
     const parsed = JSON.parse(raw);
-    await postJson("./api/import", parsed);
+    const result = await postJson("./api/import", parsed);
     invalidateMemoryCaches();
     invalidateTraceCaches();
     await loadSnapshot({ silent: true });
@@ -2668,10 +2702,10 @@ async function importMemory(file) {
     await renderCurrentMainView({ force: true });
     setActivity(
       "status.imported",
-      formatNumber(state.overview.totalMemoryFiles || 0),
-      formatNumber(state.overview.totalProjectMemories || 0),
-      formatNumber(state.overview.totalFeedbackMemories || 0),
-      formatNumber(state.overview.totalUserMemories || 0),
+      formatNumber(result?.imported?.memoryFiles || 0),
+      formatNumber(result?.imported?.project || 0),
+      formatNumber(result?.imported?.feedback || 0),
+      formatNumber(result?.imported?.user || 0),
     );
     renderActiveView();
   } catch (error) {
@@ -2939,7 +2973,7 @@ function wireEvents() {
 async function bootstrap() {
   applyTheme();
   applyTranslations();
-  toggleSection(advancedSettingsToggle, advancedSettingsBody, true);
+  toggleSection(advancedSettingsToggle, advancedSettingsBody, false);
   toggleSection(dataManagementToggle, dataManagementBody, false);
   wireEvents();
   renderFileDetailView(null);

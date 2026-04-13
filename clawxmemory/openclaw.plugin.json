@@ -47,15 +47,6 @@
         "type": "integer",
         "default": 360
       },
-      "autoDreamMinTmpEntries": {
-        "type": "integer",
-        "default": 10
-      },
-      "dreamProjectRebuildTimeoutMs": {
-        "type": "integer",
-        "default": 180000,
-        "description": "Timeout in milliseconds for the Dream project rebuild LLM request. Set to 0 to disable the timeout."
-      },
       "reasoningMode": {
         "type": "string",
         "enum": [
@@ -63,10 +54,6 @@
           "accuracy_first"
         ],
         "default": "answer_first"
-      },
-      "recallTopK": {
-        "type": "integer",
-        "default": 10
       },
       "recallBudgetMs": {
         "type": "integer",
@@ -119,29 +106,18 @@
       "help": "full_session remains available as a fallback source for background extraction."
     },
     "autoIndexIntervalMinutes": {
-      "label": "Auto Index Interval",
-      "placeholder": "60"
+      "label": "Auto Index Interval (hours)",
+      "placeholder": "60",
+      "help": "0 disables automatic indexing."
     },
     "autoDreamIntervalMinutes": {
-      "label": "Auto Dream Interval",
-      "placeholder": "360"
-    },
-    "autoDreamMinTmpEntries": {
-      "label": "Auto Dream Changed File Threshold",
-      "placeholder": "10"
-    },
-    "dreamProjectRebuildTimeoutMs": {
-      "label": "Dream Organize Timeout (ms)",
-      "placeholder": "180000",
-      "help": "Default is 180000ms. Set to 0 to disable the timeout for Dream organize requests."
+      "label": "Auto Dream Interval (hours)",
+      "placeholder": "360",
+      "help": "0 disables automatic Dream."
     },
     "reasoningMode": {
       "label": "Reasoning Mode",
       "help": "Controls whether recall should favor faster answers or more conservative memory selection."
-    },
-    "recallTopK": {
-      "label": "Recall Top K",
-      "placeholder": "10"
     },
     "uiEnabled": {
       "label": "Enable Local UI",

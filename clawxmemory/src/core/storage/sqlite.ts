@@ -142,34 +142,12 @@ function clampInt(value: unknown, fallback: number, min: number, max: number): n
   return Math.max(min, Math.min(max, Math.floor(numeric)));
 }
 
-function clampNonNegativeIntOrFallback(value: unknown, fallback: number, max: number): number {
-  const numeric = typeof value === "number"
-    ? value
-    : typeof value === "string" && value.trim()
-      ? Number.parseInt(value, 10)
-      : Number.NaN;
-  if (!Number.isFinite(numeric) || numeric < 0) return fallback;
-  return Math.min(max, Math.floor(numeric));
-}
-
 function sanitizeIndexingSettings(input: unknown, defaults: IndexingSettings): IndexingSettings {
   const record = isRecord(input) ? input : {};
   return {
     reasoningMode: record.reasoningMode === "accuracy_first" ? "accuracy_first" : defaults.reasoningMode,
-    recallTopK: clampInt(record.recallTopK, defaults.recallTopK, 1, 20),
     autoIndexIntervalMinutes: clampInt(record.autoIndexIntervalMinutes, defaults.autoIndexIntervalMinutes, 0, 10_080),
     autoDreamIntervalMinutes: clampInt(record.autoDreamIntervalMinutes, defaults.autoDreamIntervalMinutes, 0, 10_080),
-    autoDreamMinTmpEntries: clampInt(
-      record.autoDreamMinTmpEntries,
-      defaults.autoDreamMinTmpEntries,
-      0,
-      10_000,
-    ),
-    dreamProjectRebuildTimeoutMs: clampNonNegativeIntOrFallback(
-      record.dreamProjectRebuildTimeoutMs,
-      defaults.dreamProjectRebuildTimeoutMs,
-      3_600_000,
-    ),
   };
 }
 
@@ -615,26 +593,27 @@ export class MemoryRepository {
     const pendingSessions = Number(
       (this.db.prepare("SELECT COUNT(DISTINCT session_key) AS count FROM l0_sessions WHERE indexed = 0").get() as DbRow | undefined)?.count ?? 0,
     );
-    const pendingSegments = Number(
-      (this.db.prepare("SELECT COUNT(*) AS count FROM l0_sessions WHERE indexed = 0").get() as DbRow | undefined)?.count ?? 0,
-    );
     const lastDreamAt = this.getPipelineState<string>(LAST_DREAM_AT_STATE_KEY);
     const fileOverview = this.fileMemory.getOverview(typeof lastDreamAt === "string" ? lastDreamAt : undefined);
+    const recentRecallTraceCount = this.listRecentCaseTraces(12).length;
+    const recentIndexTraceCount = this.listRecentIndexTraces(30).length;
+    const recentDreamTraceCount = this.listRecentDreamTraces(30).length;
+    const formalProjectCount = this.fileMemory.listProjectMetas().length;
+    const userProfileCount = this.fileMemory.listMemoryEntries({
+      kinds: ["user"],
+      scope: "global",
+      limit: 10,
+    }).some((entry) => entry.relativePath === "global/User/user-profile.md")
+      ? 1
+      : 0;
     return {
       pendingSessions,
-      pendingSegments,
-      totalMemoryFiles: fileOverview.totalMemoryFiles,
-      totalUserMemories: fileOverview.totalUserMemories,
-      totalFeedbackMemories: fileOverview.totalFeedbackMemories,
-      totalProjectMemories: fileOverview.totalProjectMemories,
+      formalProjectCount,
+      userProfileCount,
       tmpTotalFiles: fileOverview.tmpTotalFiles,
-      tmpProjectMemories: fileOverview.tmpProjectMemories,
-      tmpFeedbackMemories: fileOverview.tmpFeedbackMemories,
-      changedFilesSinceLastDream: fileOverview.changedFilesSinceLastDream,
-      queuedSessions: 0,
-      lastRecallMs: 0,
-      recallTimeouts: 0,
-      lastRecallMode: "none",
+      recentRecallTraceCount,
+      recentIndexTraceCount,
+      recentDreamTraceCount,
       ...(typeof this.getPipelineState<string>(LAST_INDEXED_AT_STATE_KEY) === "string"
         ? { lastIndexedAt: this.getPipelineState<string>(LAST_INDEXED_AT_STATE_KEY)! }
         : {}),
@@ -653,11 +632,8 @@ export class MemoryRepository {
       overview: this.getOverview(),
       settings: this.getIndexingSettings({
         reasoningMode: "answer_first",
-        recallTopK: 5,
         autoIndexIntervalMinutes: 60,
         autoDreamIntervalMinutes: 360,
-        autoDreamMinTmpEntries: 10,
-        dreamProjectRebuildTimeoutMs: 180_000,
       }),
       recentMemoryFiles: this.fileMemory.listMemoryEntries({ includeTmp: true, limit }),
     };

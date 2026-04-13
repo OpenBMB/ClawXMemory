@@ -2,7 +2,6 @@ import {
   type ClearMemoryResult,
   type CaseToolEvent,
   type CaseTraceRecord,
-  type DashboardOverview,
   type DreamTraceRecord,
   DreamRewriteRunner,
   HeartbeatIndexer,
@@ -102,6 +101,12 @@ interface MemoryBoundaryDiagnostics {
   managedWorkspaceFiles: ManagedWorkspaceFileState[];
   boundaryStatus: ManagedBoundaryStatus;
   lastBoundaryAction: string;
+}
+
+interface RuntimeOverviewDiagnostics {
+  runtimeIssues: string[];
+  managedWorkspaceFiles: ManagedWorkspaceFileState[];
+  startupRepairMessage?: string;
 }
 
 export interface ManagedMemoryBoundaryApplyResult {
@@ -705,7 +710,6 @@ export class MemoryPluginRuntime {
     );
     this.dreamRewriter = new DreamRewriteRunner(this.repository, extractor, {
       logger: this.logger,
-      getDreamProjectRebuildTimeoutMs: () => this.indexer.getSettings().dreamProjectRebuildTimeoutMs,
     });
 
     if (this.config.uiEnabled) {
@@ -1327,7 +1331,7 @@ export class MemoryPluginRuntime {
     try {
       const startedAt = Date.now();
       const settings = this.indexer.getSettings();
-      const recallTopK = Math.max(1, Math.min(50, settings.recallTopK || 10));
+      const recallTopK = 5;
       const recentMessages = Array.isArray(event.messages)
         ? buildRecentMessagesForRecall(event.messages, normalizedPrompt, {
             includeAssistant: this.config.includeAssistant,
@@ -1671,50 +1675,11 @@ export class MemoryPluginRuntime {
     }
   };
 
-  private getRuntimeOverview(): Pick<
-    DashboardOverview,
-    | "queuedSessions"
-    | "lastRecallMs"
-    | "recallTimeouts"
-    | "lastRecallMode"
-    | "currentReasoningMode"
-    | "lastRecallPath"
-    | "lastRecallInjected"
-    | "lastRecallCacheHit"
-    | "slotOwner"
-    | "dynamicMemoryRuntime"
-    | "workspaceBootstrapPresent"
-    | "memoryRuntimeHealthy"
-    | "runtimeIssues"
-    | "managedWorkspaceFiles"
-    | "boundaryStatus"
-    | "lastBoundaryAction"
-    | "startupRepairStatus"
-    | "startupRepairMessage"
-  > {
-    const queuedSessions = this.queuedFullRun
-      ? Math.max(1, this.debouncedSessions.size + this.queuedSessionKeys.size)
-      : new Set([...this.debouncedSessions, ...this.queuedSessionKeys]).size;
-    const stats = this.retriever.getRuntimeStats();
+  private getRuntimeOverview(): RuntimeOverviewDiagnostics {
     const diagnostics = this.collectMemoryBoundaryDiagnostics();
     return {
-      queuedSessions,
-      lastRecallMs: stats.lastRecallMs,
-      recallTimeouts: stats.recallTimeouts,
-      lastRecallMode: stats.lastRecallMode,
-      currentReasoningMode: this.indexer.getSettings().reasoningMode,
-      lastRecallPath: stats.lastRecallPath,
-      lastRecallInjected: stats.lastRecallInjected,
-      lastRecallCacheHit: stats.lastRecallCacheHit,
-      slotOwner: diagnostics.slotOwner,
-      dynamicMemoryRuntime: diagnostics.dynamicMemoryRuntime,
-      workspaceBootstrapPresent: diagnostics.workspaceBootstrapPresent,
-      memoryRuntimeHealthy: diagnostics.memoryRuntimeHealthy,
       runtimeIssues: diagnostics.runtimeIssues,
       managedWorkspaceFiles: diagnostics.managedWorkspaceFiles,
-      boundaryStatus: diagnostics.boundaryStatus,
-      lastBoundaryAction: diagnostics.lastBoundaryAction,
-      startupRepairStatus: this.startupRepairStatus,
       ...(this.startupRepairMessage ? { startupRepairMessage: this.startupRepairMessage } : {}),
     };
   }
@@ -1826,8 +1791,12 @@ export class MemoryPluginRuntime {
     return this.repository.getFileMemoryStore().listMemoryEntries({ limit: 1, includeTmp: true })[0]?.updatedAt;
   }
 
-  private getTmpEntryCount(): number {
-    return this.repository.getFileMemoryStore().getOverview(this.repository.getPipelineState(LAST_DREAM_AT_STATE_KEY)).tmpTotalFiles;
+  private hasMemoryUpdatesSinceLastDream(): boolean {
+    const latestMemoryFileUpdate = this.getLatestMemoryFileUpdate();
+    if (!latestMemoryFileUpdate) return false;
+    const lastDreamAt = this.repository.getPipelineState<string>(LAST_DREAM_AT_STATE_KEY);
+    if (!lastDreamAt) return true;
+    return Date.parse(latestMemoryFileUpdate) > Date.parse(lastDreamAt);
   }
 
   private recordDreamLifecycle(
@@ -1910,16 +1879,11 @@ export class MemoryPluginRuntime {
       }
       const prepFlush = emptyStats();
       if (trigger === "scheduled") {
-        const settings = this.indexer.getSettings();
-        const threshold = Number.isFinite(settings.autoDreamMinTmpEntries)
-          ? Math.max(0, Math.floor(settings.autoDreamMinTmpEntries))
-          : Math.max(0, Math.floor(this.config.autoDreamMinTmpEntries));
-        const tmpEntryCount = this.getTmpEntryCount();
-        if (tmpEntryCount < threshold) {
-          const summary = `Skipped automatic Dream: ${tmpEntryCount} tmp memory files available, below threshold ${threshold}.`;
+        if (!this.hasMemoryUpdatesSinceLastDream()) {
+          const summary = "Skipped automatic Dream: no memory file updates since the last Dream run.";
           this.recordDreamLifecycle("skipped", summary, { completedAt: nowIso() });
-          this.saveSkippedDreamTrace(trigger, summary, "tmp_below_threshold");
-          return this.buildSkippedDreamResult(trigger, prepFlush, summary, "tmp_below_threshold");
+          this.saveSkippedDreamTrace(trigger, summary, "no_memory_updates_since_last_dream");
+          return this.buildSkippedDreamResult(trigger, prepFlush, summary, "no_memory_updates_since_last_dream");
         }
       }
       const outcome = await this.dreamRewriter.run(trigger);

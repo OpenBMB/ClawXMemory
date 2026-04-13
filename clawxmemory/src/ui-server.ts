@@ -5,7 +5,9 @@ import { fileURLToPath } from "node:url";
 import {
   type ClearMemoryResult,
   type CaseTraceRecord,
+  type DashboardDiagnostics,
   type DashboardOverview,
+  type DashboardStatus,
   type DreamTraceRecord,
   type DreamRunResult,
   type HeartbeatStats,
@@ -15,6 +17,7 @@ import {
   type MemoryManifestEntry,
   MemoryRepository,
   MemoryBundleValidationError,
+  type ManagedWorkspaceFileState,
   type ProjectMetaRecord,
   ReasoningRetriever,
   TMP_PROJECT_ID,
@@ -28,6 +31,12 @@ interface UiLogger {
   info?: (...args: unknown[]) => void;
   warn?: (...args: unknown[]) => void;
   error?: (...args: unknown[]) => void;
+}
+
+interface UiRuntimeOverview {
+  runtimeIssues: string[];
+  managedWorkspaceFiles: ManagedWorkspaceFileState[];
+  startupRepairMessage?: string;
 }
 
 export interface UiServerOptions {
@@ -44,27 +53,7 @@ export interface UiServerControls {
   clearMemoryNow: () => Promise<ClearMemoryResult> | ClearMemoryResult;
   exportMemoryBundle: () => MemoryExportBundle;
   importMemoryBundle: (bundle: MemoryImportableBundle) => Promise<MemoryImportResult>;
-  getRuntimeOverview: () => Pick<
-    DashboardOverview,
-    | "queuedSessions"
-    | "lastRecallMs"
-    | "recallTimeouts"
-    | "lastRecallMode"
-    | "currentReasoningMode"
-    | "lastRecallPath"
-    | "lastRecallInjected"
-    | "lastRecallCacheHit"
-    | "slotOwner"
-    | "dynamicMemoryRuntime"
-    | "workspaceBootstrapPresent"
-    | "memoryRuntimeHealthy"
-    | "runtimeIssues"
-    | "managedWorkspaceFiles"
-    | "boundaryStatus"
-    | "lastBoundaryAction"
-    | "startupRepairStatus"
-    | "startupRepairMessage"
-  >;
+  getRuntimeOverview: () => UiRuntimeOverview;
   getStartupRepairSnapshot: (limit: number) => MemoryUiSnapshot | undefined;
   listCaseTraces: (limit: number) => CaseTraceRecord[];
   getCaseTrace: (caseId: string) => CaseTraceRecord | undefined;
@@ -301,11 +290,46 @@ function buildTmpSnapshot(repository: MemoryRepository, options: {
 
 function mergeOverview(
   base: DashboardOverview,
-  runtime: ReturnType<UiServerControls["getRuntimeOverview"]>,
+  runtime: UiRuntimeOverview,
 ): DashboardOverview {
+  const issues = Array.isArray(runtime.runtimeIssues)
+    ? runtime.runtimeIssues
+      .map((issue) => (typeof issue === "string" ? issue.trim() : ""))
+      .filter(Boolean)
+    : [];
+  const conflictingFiles = Array.isArray(runtime.managedWorkspaceFiles)
+    ? runtime.managedWorkspaceFiles
+      .filter((file) => file?.status === "conflict" && typeof file.name === "string" && file.name.trim())
+      .map((file) => ({
+        name: file.name,
+        ...(typeof file.conflictPath === "string" && file.conflictPath.trim()
+          ? { conflictPath: file.conflictPath.trim() }
+          : {}),
+      }))
+    : [];
+  const startupRepairMessage = typeof runtime.startupRepairMessage === "string" && runtime.startupRepairMessage.trim()
+    ? runtime.startupRepairMessage.trim()
+    : undefined;
+  const diagnostics: DashboardDiagnostics | null = conflictingFiles.length || issues.length || startupRepairMessage
+    ? {
+        issues,
+        conflictingFiles,
+        ...(startupRepairMessage ? { startupRepairMessage } : {}),
+      }
+    : null;
+  const dashboardStatus: DashboardStatus = conflictingFiles.length
+    ? "conflict"
+    : diagnostics
+      ? "warning"
+      : "healthy";
+  const dashboardWarning = conflictingFiles.length
+    ? `Detected ${conflictingFiles.length} workspace boundary conflict${conflictingFiles.length === 1 ? "" : "s"}: ${conflictingFiles.map((file) => file.name).join(", ")}`
+    : issues[0] || startupRepairMessage || null;
   return {
     ...base,
-    ...runtime,
+    dashboardStatus,
+    dashboardWarning,
+    dashboardDiagnostics: diagnostics,
   };
 }
 

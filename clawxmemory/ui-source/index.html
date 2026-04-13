@@ -31,10 +31,6 @@
             <span class="nav-label" data-i18n="nav.project">项目记忆</span>
             <span class="nav-count" data-count-for="project">0</span>
           </button>
-          <button class="nav-item" data-page="tmp" type="button">
-            <span class="nav-label" data-i18n="nav.tmp">Tmp 暂存</span>
-            <span class="nav-count" data-count-for="tmp">0</span>
-          </button>
           <button class="nav-item" data-page="user" type="button">
             <span class="nav-label" data-i18n="nav.user">用户画像</span>
             <span class="nav-count" data-count-for="user">0</span>
@@ -58,14 +54,10 @@
 
             <button class="popover-section-toggle" id="advancedSettingsToggle" type="button">
               <svg class="popover-section-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-              <span data-i18n="settings.advanced">高级参数</span>
+              <span data-i18n="settings.advanced">参数设置</span>
             </button>
             <div class="popover-section-body" id="advancedSettingsBody">
               <div class="popover-section-inner">
-                <div class="popover-group popover-group-stack" id="latencyFieldWrap">
-                  <span class="popover-label" data-i18n="settings.recallTopK">召回数量</span>
-                  <input id="recallTopKInput" class="popover-input" type="number" min="1" max="50" step="1" placeholder="10" />
-                </div>
                 <div class="popover-group popover-group-stack" id="autoIndexIntervalWrap">
                   <span class="popover-label" data-i18n="settings.autoIndexInterval">自动索引间隔（小时）</span>
                   <input id="autoIndexIntervalHoursInput" class="popover-input" type="number" min="0" step="1" placeholder="1" />
@@ -74,16 +66,7 @@
                 <div class="popover-group popover-group-stack" id="autoDreamIntervalWrap">
                   <span class="popover-label" data-i18n="settings.autoDreamInterval">自动 Dream 间隔（小时）</span>
                   <input id="autoDreamIntervalHoursInput" class="popover-input" type="number" min="0" step="1" placeholder="6" />
-                  <span class="popover-note" data-i18n="settings.autoDreamHint">只有变更的记忆文件达到门槛时，自动 Dream 才会真正执行。</span>
-                </div>
-                <div class="popover-group popover-group-stack" id="autoDreamThresholdWrap">
-                  <span class="popover-label" data-i18n="settings.autoDreamMinTmpEntries">自动 Dream 最小变更文件数</span>
-                  <input id="autoDreamMinTmpEntriesInput" class="popover-input" type="number" min="0" step="1" placeholder="10" />
-                </div>
-                <div class="popover-group popover-group-stack" id="dreamRebuildTimeoutWrap">
-                  <span class="popover-label" data-i18n="settings.dreamRebuildTimeout">Dream 整理超时（秒）</span>
-                  <input id="dreamRebuildTimeoutSecondsInput" class="popover-input" type="number" min="0" step="1" placeholder="180" />
-                  <span class="popover-note" data-i18n="settings.dreamRebuildTimeoutHint">默认 180 秒；0 表示不设超时，同时作用于手动和自动 Dream。</span>
+                  <span class="popover-note" data-i18n="settings.autoDreamHint">只有自上次 Dream 以来有记忆文件更新时，自动 Dream 才会真正执行。</span>
                 </div>
                 <button class="popover-item popover-save" id="saveSettingsBtn" type="button">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>

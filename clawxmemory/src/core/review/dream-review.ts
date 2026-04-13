@@ -32,7 +32,6 @@ type LoggerLike = {
 
 interface DreamReviewRunnerOptions {
   logger?: LoggerLike;
-  getDreamProjectRebuildTimeoutMs?: () => number;
 }
 
 export interface DreamRewriteOutcome {
@@ -703,8 +702,6 @@ export class DreamRewriteRunner {
       const projectRecords = store.getMemoryRecordsByIds(projectEntries.map((entry) => entry.relativePath), 5000);
       const snapshots = projectRecords.map((record) => buildSnapshot(record, this.repository));
       const formalMetas = store.listProjectMetas();
-      const dreamTimeoutMs = this.options.getDreamProjectRebuildTimeoutMs?.();
-
       pushDreamStep(trace, {
         kind: "snapshot_loaded",
         title: "Snapshot Loaded",
@@ -755,7 +752,6 @@ export class DreamRewriteRunner {
         plan = await this.extractor.planDreamFileMemory({
           currentProjects: formalMetas.map((meta) => buildProjectMetaInput(meta)),
           records: snapshots.map((snapshot) => snapshot.llmRecord),
-          ...(typeof dreamTimeoutMs === "number" ? { timeoutMs: dreamTimeoutMs } : {}),
           debugTrace: (debug) => {
             globalPlanDebug = debug;
           },
@@ -822,7 +818,6 @@ export class DreamRewriteRunner {
           project: { ...projectPlan, projectId },
           currentMeta: currentMeta ? buildProjectMetaInput(currentMeta) : null,
           records: sourceSnapshots.map((snapshot) => snapshot.llmRecord),
-          ...(typeof dreamTimeoutMs === "number" ? { timeoutMs: dreamTimeoutMs } : {}),
           debugTrace: (debug) => {
             rewriteDebug = debug;
           },

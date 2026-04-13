@@ -1685,11 +1685,7 @@ describe("MemoryPluginRuntime", () => {
       getRuntimeOverview: () => Record<string, unknown>;
     }).getRuntimeOverview();
     expect(overview).toMatchObject({
-      slotOwner: "openbmb-clawxmemory",
-      dynamicMemoryRuntime: "ClawXMemory",
-      memoryRuntimeHealthy: true,
       runtimeIssues: [],
-      startupRepairStatus: "running",
     });
     expect(startBackgroundRepair).not.toHaveBeenCalled();
   });
@@ -1750,10 +1746,7 @@ describe("MemoryPluginRuntime", () => {
       getRuntimeOverview: () => Record<string, unknown>;
     }).getRuntimeOverview();
     expect(overview).toMatchObject({
-      slotOwner: "openbmb-clawxmemory",
-      memoryRuntimeHealthy: true,
       runtimeIssues: [],
-      startupRepairStatus: "idle",
     });
   });
 
@@ -1824,7 +1817,7 @@ describe("MemoryPluginRuntime", () => {
       const overview = (runtime as never as {
         getRuntimeOverview: () => Record<string, unknown>;
       }).getRuntimeOverview();
-      expect(overview.startupRepairStatus).toBe("failed");
+      expect(overview.startupRepairMessage).toBe("config write denied");
     });
 
     const overview = (runtime as never as {
@@ -1907,7 +1900,7 @@ describe("MemoryPluginRuntime", () => {
       const overview = (runtime as never as {
         getRuntimeOverview: () => Record<string, unknown>;
       }).getRuntimeOverview();
-      expect(overview.startupRepairStatus).toBe("failed");
+      expect(overview.startupRepairMessage).toBe("gateway restart failed");
     });
 
     const overview = (runtime as never as {
@@ -2081,8 +2074,6 @@ describe("MemoryPluginRuntime", () => {
         uiEnabled: false,
         autoIndexIntervalMinutes: 60,
         autoDreamIntervalMinutes: 360,
-        autoDreamMinTmpEntries: 10,
-        dreamProjectRebuildTimeoutMs: 180_000,
       },
       logger: undefined,
     });
@@ -2122,7 +2113,7 @@ describe("MemoryPluginRuntime", () => {
       summary: "noop",
       status: "skipped",
       trigger: "scheduled",
-      skipReason: "tmp_below_threshold",
+      skipReason: "no_memory_updates_since_last_dream",
     });
 
     runtime.start();
@@ -2152,7 +2143,7 @@ describe("MemoryPluginRuntime", () => {
     expect(indexSpy).toHaveBeenCalledWith("scheduled");
   });
 
-  it("skips the first scheduled Dream when tmp entries stay below the threshold", async () => {
+  it("skips scheduled Dream when no memory files changed since the last Dream run", async () => {
     const dir = await mkdtemp(join(tmpdir(), "clawxmemory-runtime-"));
     cleanupPaths.push(dir);
 
@@ -2175,14 +2166,7 @@ describe("MemoryPluginRuntime", () => {
       userProfilesUpdated: 0,
       failedSessions: 0,
     };
-    const indexer = (runtime as never as {
-      indexer: { getSettings: () => Record<string, unknown> };
-    }).indexer;
-    const currentSettings = indexer.getSettings();
-    vi.spyOn(indexer, "getSettings").mockReturnValue({
-      ...currentSettings,
-      autoDreamMinTmpEntries: 10,
-    });
+    runtime.repository.setPipelineState("lastDreamAt", "2026-04-10T00:00:00.000Z");
     const dreamSpy = vi.spyOn((runtime as never as {
       dreamRewriter: { run: () => Promise<unknown> };
     }).dreamRewriter, "run").mockResolvedValue({
@@ -2205,12 +2189,12 @@ describe("MemoryPluginRuntime", () => {
       status: "skipped",
       trigger: "scheduled",
       prepFlush,
-      skipReason: "tmp_below_threshold",
+      skipReason: "no_memory_updates_since_last_dream",
     });
     expect(runtime.repository.getPipelineState("lastDreamStatus")).toBe("skipped");
   });
 
-  it("runs scheduled Dream after 10 changed memory files and records the latest successful cutoff", async () => {
+  it("runs scheduled Dream when memory files changed since the last Dream run", async () => {
     const dir = await mkdtemp(join(tmpdir(), "clawxmemory-runtime-"));
     cleanupPaths.push(dir);
 
@@ -2226,17 +2210,16 @@ describe("MemoryPluginRuntime", () => {
     runtimes.push(runtime);
 
     const store = runtime.repository.getFileMemoryStore();
-    for (let index = 0; index < 10; index += 1) {
-      store.upsertCandidate({
-        type: "feedback",
-        scope: "project",
-        name: `rule-${index}`,
-        description: `rule-${index}`,
-        rule: `rule-${index}`,
-        why: "test",
-        howToApply: "test",
-      });
-    }
+    runtime.repository.setPipelineState("lastDreamAt", "2026-04-10T00:00:00.000Z");
+    store.upsertCandidate({
+      type: "feedback",
+      scope: "project",
+      name: "rule-0",
+      description: "rule-0",
+      rule: "rule-0",
+      why: "test",
+      howToApply: "test",
+    });
 
     const prepFlush = {
       capturedSessions: 0,

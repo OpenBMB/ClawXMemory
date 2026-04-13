@@ -12,8 +12,6 @@ export interface PluginRuntimeConfig {
   heartbeatBatchSize: number;
   autoIndexIntervalMinutes: number;
   autoDreamIntervalMinutes: number;
-  autoDreamMinTmpEntries: number;
-  dreamProjectRebuildTimeoutMs: number;
   indexIdleDebounceMs: number;
   defaultIndexingSettings: IndexingSettings;
   recallEnabled: boolean;
@@ -65,23 +63,10 @@ export const pluginConfigJsonSchema = {
       type: "integer",
       default: 360,
     },
-    autoDreamMinTmpEntries: {
-      type: "integer",
-      default: 10,
-    },
-    dreamProjectRebuildTimeoutMs: {
-      type: "integer",
-      default: 180000,
-      description: "Timeout in milliseconds for the Dream project rebuild LLM request. Set to 0 to disable the timeout.",
-    },
     reasoningMode: {
       type: "string",
       enum: ["answer_first", "accuracy_first"],
       default: "answer_first",
-    },
-    recallTopK: {
-      type: "integer",
-      default: 10,
     },
     recallBudgetMs: {
       type: "integer",
@@ -139,29 +124,18 @@ export const pluginConfigUiHints = {
     help: "full_session remains available as a fallback source for background extraction.",
   },
   autoIndexIntervalMinutes: {
-    label: "Auto Index Interval",
+    label: "Auto Index Interval (hours)",
     placeholder: "60",
+    help: "0 disables automatic indexing.",
   },
   autoDreamIntervalMinutes: {
-    label: "Auto Dream Interval",
+    label: "Auto Dream Interval (hours)",
     placeholder: "360",
-  },
-  autoDreamMinTmpEntries: {
-    label: "Auto Dream Changed File Threshold",
-    placeholder: "10",
-  },
-  dreamProjectRebuildTimeoutMs: {
-    label: "Dream Organize Timeout (ms)",
-    placeholder: "180000",
-    help: "Default is 180000ms. Set to 0 to disable the timeout for Dream organize requests.",
+    help: "0 disables automatic Dream.",
   },
   reasoningMode: {
     label: "Reasoning Mode",
     help: "Controls whether recall should favor faster answers or more conservative memory selection.",
-  },
-  recallTopK: {
-    label: "Recall Top K",
-    placeholder: "10",
   },
   uiEnabled: {
     label: "Enable Local UI",
@@ -201,11 +175,6 @@ function toInteger(value: unknown, fallback: number): number {
   return fallback;
 }
 
-function toNonNegativeInteger(value: unknown, fallback: number): number {
-  const parsed = toInteger(value, fallback);
-  return parsed >= 0 ? parsed : fallback;
-}
-
 export function buildPluginConfig(raw: unknown): PluginRuntimeConfig {
   const cfg = (raw ?? {}) as Record<string, unknown>;
   const explicitDataDir = typeof cfg.dataDir === "string" && cfg.dataDir.trim() ? cfg.dataDir : "";
@@ -217,11 +186,6 @@ export function buildPluginConfig(raw: unknown): PluginRuntimeConfig {
     : explicitDbPath && !explicitDataDir
       ? join(dirname(explicitDbPath), "memory")
       : join(dataDir, "memory");
-  const configuredRecallTopK = typeof cfg.recallTopK === "number" && Number.isFinite(cfg.recallTopK)
-    ? Math.floor(cfg.recallTopK)
-    : typeof cfg.recallTopK === "string" && cfg.recallTopK.trim()
-      ? Number.parseInt(cfg.recallTopK, 10)
-      : 10;
   const captureStrategy = cfg.captureStrategy === "last_turn" ? "last_turn" : "full_session";
   const runtime: PluginRuntimeConfig = {
     dataDir,
@@ -233,16 +197,11 @@ export function buildPluginConfig(raw: unknown): PluginRuntimeConfig {
     heartbeatBatchSize: Math.max(1, toInteger(cfg.heartbeatBatchSize, 30)),
     autoIndexIntervalMinutes: Math.max(0, toInteger(cfg.autoIndexIntervalMinutes, 60)),
     autoDreamIntervalMinutes: Math.max(0, toInteger(cfg.autoDreamIntervalMinutes, 360)),
-    autoDreamMinTmpEntries: Math.max(0, toInteger(cfg.autoDreamMinTmpEntries, 10)),
-    dreamProjectRebuildTimeoutMs: toNonNegativeInteger(cfg.dreamProjectRebuildTimeoutMs, 180_000),
     indexIdleDebounceMs: Math.max(200, toInteger(cfg.indexIdleDebounceMs, 2500)),
     defaultIndexingSettings: {
       reasoningMode: cfg.reasoningMode === "accuracy_first" ? "accuracy_first" : "answer_first",
-      recallTopK: Math.max(1, Math.min(50, Number.isFinite(configuredRecallTopK) ? configuredRecallTopK : 10)),
       autoIndexIntervalMinutes: Math.max(0, toInteger(cfg.autoIndexIntervalMinutes, 60)),
       autoDreamIntervalMinutes: Math.max(0, toInteger(cfg.autoDreamIntervalMinutes, 360)),
-      autoDreamMinTmpEntries: Math.max(0, toInteger(cfg.autoDreamMinTmpEntries, 10)),
-      dreamProjectRebuildTimeoutMs: toNonNegativeInteger(cfg.dreamProjectRebuildTimeoutMs, 180_000),
     },
     recallEnabled: toBoolean(cfg.recallEnabled, true),
     addEnabled: toBoolean(cfg.addEnabled, true),
