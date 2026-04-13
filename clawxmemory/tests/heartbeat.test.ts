@@ -10,7 +10,7 @@ const DEFAULT_SETTINGS = {
   recallTopK: 8,
   autoIndexIntervalMinutes: 60,
   autoDreamIntervalMinutes: 360,
-  autoDreamMinNewL1: 10,
+  autoDreamMinTmpEntries: 10,
   dreamProjectRebuildTimeoutMs: 180_000,
 };
 
@@ -142,10 +142,11 @@ describe("HeartbeatIndexer batch indexing", () => {
       tmpEntries.map((entry) => entry.relativePath).sort(),
     );
     expect(stats).toMatchObject({
-      l0Captured: 2,
-      l1Created: 2,
-      l2ProjectUpdated: 2,
-      failed: 0,
+      capturedSessions: 2,
+      writtenFiles: 2,
+      writtenProjectFiles: 1,
+      writtenFeedbackFiles: 1,
+      failedSessions: 0,
     });
 
     repository.close();
@@ -247,7 +248,7 @@ describe("HeartbeatIndexer batch indexing", () => {
     const userRecord = repository.getFileMemoryStore().getMemoryRecord("global/User/user-profile.md", 5000);
     expect(userRecord?.content).toContain("## Profile");
     expect(userRecord?.content).toContain("小红书图文选题策划");
-    expect(stats.profileUpdated).toBe(1);
+    expect(stats.userProfilesUpdated).toBe(1);
     repository.close();
   });
 });

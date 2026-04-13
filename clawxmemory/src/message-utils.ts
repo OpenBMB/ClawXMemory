@@ -1,7 +1,8 @@
 import type { MemoryMessage } from "./core/types.js";
 import { decodeEscapedUnicodeText } from "./core/utils/text.js";
 
-const MEMORY_CONTEXT_HEADER = "You are using multi-level memory indexes for this turn.";
+const MEMORY_CONTEXT_HEADER = "You are using retrieved ClawXMemory file memories for this turn.";
+const LEGACY_MEMORY_CONTEXT_HEADER = "You are using multi-level memory indexes for this turn.";
 const MEMORY_CONTEXT_FOOTER = "Treat the above as authoritative prior memory when it is relevant. Prioritize the user's latest request, and do not claim memory is missing or that this is a fresh conversation if the answer is already shown above.";
 const RECALL_CONTEXT_HEADER = "## ClawXMemory Recall";
 const RECALL_CONTEXT_INSTRUCTION = "Use the following retrieved ClawXMemory evidence for this turn.";
@@ -151,8 +152,9 @@ function extractTextFromContent(content: unknown, depth = 0): string {
 function stripInjectedMemoryContext(text: string): string {
   let cleaned = text.trim();
 
-  if (cleaned.includes(MEMORY_CONTEXT_HEADER)) {
-    const escapedHeader = MEMORY_CONTEXT_HEADER.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  for (const header of [MEMORY_CONTEXT_HEADER, LEGACY_MEMORY_CONTEXT_HEADER]) {
+    if (!cleaned.includes(header)) continue;
+    const escapedHeader = header.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const escapedFooter = MEMORY_CONTEXT_FOOTER.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const pattern = new RegExp(`${escapedHeader}[\\s\\S]*?${escapedFooter}\\s*`, "g");
     cleaned = cleaned.replace(pattern, "").trim();

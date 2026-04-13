@@ -16,7 +16,6 @@ import { LlmMemoryExtractor } from "../skills/llm-extraction.js";
 import { MemoryRepository } from "../storage/sqlite.js";
 import { hashText, nowIso } from "../utils/id.js";
 import { decodeEscapedUnicodeText, decodeEscapedUnicodeValue, truncate } from "../utils/text.js";
-import type { SkillsRuntime } from "../skills/types.js";
 
 const RECALL_CACHE_TTL_MS = 30_000;
 const DEFAULT_RECALL_TOP_K = 5;
@@ -25,10 +24,6 @@ const RECALL_FILE_MAX_CHARS = 12_000;
 const RECALL_TOTAL_MAX_CHARS = 30_000;
 
 export interface RetrievalOptions {
-  l2Limit?: number;
-  l1Limit?: number;
-  l0Limit?: number;
-  includeFacts?: boolean;
   retrievalMode?: "auto" | "explicit";
   recentMessages?: MemoryMessage[];
   workspaceHint?: string;
@@ -44,10 +39,7 @@ export interface RetrievalRuntimeStats {
   recallTimeouts: number;
   lastRecallMode: RecallMode;
   lastRecallPath: "auto" | "explicit" | "shadow";
-  lastRecallBudgetLimited: boolean;
-  lastShadowDeepQueued: boolean;
   lastRecallInjected: boolean;
-  lastRecallEnoughAt: RetrievalResult["enoughAt"];
   lastRecallCacheHit: boolean;
 }
 
@@ -189,12 +181,6 @@ function buildEmptyResult(query: string, trace: RetrievalTrace, elapsedMs: numbe
   return {
     query,
     intent: "none",
-    enoughAt: "none",
-    profile: null,
-    evidenceNote: "",
-    l2Results: [],
-    l1Results: [],
-    l0Results: [],
     context: "",
     trace,
     debug: {
@@ -415,16 +401,12 @@ export class ReasoningRetriever {
     recallTimeouts: 0,
     lastRecallMode: "none",
     lastRecallPath: "explicit",
-    lastRecallBudgetLimited: false,
-    lastShadowDeepQueued: false,
     lastRecallInjected: false,
-    lastRecallEnoughAt: "none",
     lastRecallCacheHit: false,
   };
 
   constructor(
     private readonly repository: MemoryRepository,
-    private readonly skills: SkillsRuntime,
     private readonly extractor: LlmMemoryExtractor,
     private readonly runtime: RetrievalRuntimeOptions = {},
   ) {}
@@ -440,10 +422,7 @@ export class ReasoningRetriever {
       recallTimeouts: 0,
       lastRecallMode: "none",
       lastRecallPath: "explicit",
-      lastRecallBudgetLimited: false,
-      lastShadowDeepQueued: false,
       lastRecallInjected: false,
-      lastRecallEnoughAt: "none",
       lastRecallCacheHit: false,
     };
   }
@@ -454,7 +433,7 @@ export class ReasoningRetriever {
       recallTopK: DEFAULT_RECALL_TOP_K,
       autoIndexIntervalMinutes: 60,
       autoDreamIntervalMinutes: 360,
-      autoDreamMinNewL1: 10,
+      autoDreamMinTmpEntries: 10,
       dreamProjectRebuildTimeoutMs: 180_000,
     };
   }
@@ -504,10 +483,7 @@ export class ReasoningRetriever {
       recallTimeouts: this.runtimeStats.recallTimeouts,
       lastRecallMode: mode,
       lastRecallPath: retrievalMode,
-      lastRecallBudgetLimited: Boolean(result.debug?.manifestCount && result.debug.manifestCount >= MANIFEST_LIMIT),
-      lastShadowDeepQueued: false,
       lastRecallInjected: Boolean(result.context.trim()),
-      lastRecallEnoughAt: result.enoughAt,
       lastRecallCacheHit: cacheHit,
     };
   }
@@ -882,26 +858,6 @@ export class ReasoningRetriever {
     const result: RetrievalResult = {
       query: normalizedQuery,
       intent: route,
-      enoughAt: loadedRecords.length > 0
-        ? "file"
-        : (manifest.length > 0 || resolvedProjectMeta)
-          ? "manifest"
-          : hasUserSummary(userSummary)
-            ? "profile"
-            : "none",
-      profile: null,
-      evidenceNote: loadedRecords.length > 0
-        ? `Attached global user profile and selected ${loadedRecords.length} memory files from ${manifest.length} manifest entries${resolvedProjectId ? ` for project ${resolvedProjectId}` : ""}.`
-        : manifest.length > 0
-          ? "Attached global user profile. The project manifest contained entries, but none were loaded."
-          : resolvedProjectMeta
-            ? "Attached global user profile and the selected project identity only."
-          : hasUserSummary(userSummary)
-            ? "Attached global user profile only."
-            : "",
-      l2Results: [],
-      l1Results: [],
-      l0Results: [],
       context,
       trace,
       debug: {

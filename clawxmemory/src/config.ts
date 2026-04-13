@@ -6,14 +6,13 @@ export interface PluginRuntimeConfig {
   dataDir: string;
   dbPath: string;
   memoryDir: string;
-  skillsDir?: string;
   captureStrategy: "last_turn" | "full_session";
   includeAssistant: boolean;
   maxMessageChars: number;
   heartbeatBatchSize: number;
   autoIndexIntervalMinutes: number;
   autoDreamIntervalMinutes: number;
-  autoDreamMinNewL1: number;
+  autoDreamMinTmpEntries: number;
   dreamProjectRebuildTimeoutMs: number;
   indexIdleDebounceMs: number;
   defaultIndexingSettings: IndexingSettings;
@@ -41,10 +40,6 @@ export const pluginConfigJsonSchema = {
       type: "string",
       description: "Absolute path to the file-based memory directory. Defaults to <dataDir>/memory.",
     },
-    skillsDir: {
-      type: "string",
-      description: "Optional custom path for skills JSON/MD files.",
-    },
     captureStrategy: {
       type: "string",
       enum: ["last_turn", "full_session"],
@@ -70,7 +65,7 @@ export const pluginConfigJsonSchema = {
       type: "integer",
       default: 360,
     },
-    autoDreamMinNewL1: {
+    autoDreamMinTmpEntries: {
       type: "integer",
       default: 10,
     },
@@ -87,10 +82,6 @@ export const pluginConfigJsonSchema = {
     recallTopK: {
       type: "integer",
       default: 10,
-    },
-    maxAutoReplyLatencyMs: {
-      type: "integer",
-      default: 1800,
     },
     recallBudgetMs: {
       type: "integer",
@@ -143,10 +134,6 @@ export const pluginConfigUiHints = {
     label: "Memory Directory",
     placeholder: "~/.openclaw/clawxmemory/memory",
   },
-  skillsDir: {
-    label: "Skills Directory",
-    placeholder: "~/.openclaw/clawxmemory/skills",
-  },
   captureStrategy: {
     label: "Capture Strategy",
     help: "full_session remains available as a fallback source for background extraction.",
@@ -159,7 +146,7 @@ export const pluginConfigUiHints = {
     label: "Auto Dream Interval",
     placeholder: "360",
   },
-  autoDreamMinNewL1: {
+  autoDreamMinTmpEntries: {
     label: "Auto Dream Changed File Threshold",
     placeholder: "10",
   },
@@ -169,16 +156,12 @@ export const pluginConfigUiHints = {
     help: "Default is 180000ms. Set to 0 to disable the timeout for Dream organize requests.",
   },
   reasoningMode: {
-    label: "Legacy Reasoning Mode",
-    help: "Legacy compatibility setting retained for older runtime state. The file-memory retriever no longer uses the old L2/L1/L0 hop chain.",
+    label: "Reasoning Mode",
+    help: "Controls whether recall should favor faster answers or more conservative memory selection.",
   },
   recallTopK: {
     label: "Recall Top K",
     placeholder: "10",
-  },
-  maxAutoReplyLatencyMs: {
-    label: "Legacy Max Auto Reply Latency (ms)",
-    placeholder: "1800",
   },
   uiEnabled: {
     label: "Enable Local UI",
@@ -234,8 +217,6 @@ export function buildPluginConfig(raw: unknown): PluginRuntimeConfig {
     : explicitDbPath && !explicitDataDir
       ? join(dirname(explicitDbPath), "memory")
       : join(dataDir, "memory");
-  const skillsDir = typeof cfg.skillsDir === "string" && cfg.skillsDir.trim() ? cfg.skillsDir : undefined;
-
   const configuredRecallTopK = typeof cfg.recallTopK === "number" && Number.isFinite(cfg.recallTopK)
     ? Math.floor(cfg.recallTopK)
     : typeof cfg.recallTopK === "string" && cfg.recallTopK.trim()
@@ -252,7 +233,7 @@ export function buildPluginConfig(raw: unknown): PluginRuntimeConfig {
     heartbeatBatchSize: Math.max(1, toInteger(cfg.heartbeatBatchSize, 30)),
     autoIndexIntervalMinutes: Math.max(0, toInteger(cfg.autoIndexIntervalMinutes, 60)),
     autoDreamIntervalMinutes: Math.max(0, toInteger(cfg.autoDreamIntervalMinutes, 360)),
-    autoDreamMinNewL1: Math.max(0, toInteger(cfg.autoDreamMinNewL1, 10)),
+    autoDreamMinTmpEntries: Math.max(0, toInteger(cfg.autoDreamMinTmpEntries, 10)),
     dreamProjectRebuildTimeoutMs: toNonNegativeInteger(cfg.dreamProjectRebuildTimeoutMs, 180_000),
     indexIdleDebounceMs: Math.max(200, toInteger(cfg.indexIdleDebounceMs, 2500)),
     defaultIndexingSettings: {
@@ -260,7 +241,7 @@ export function buildPluginConfig(raw: unknown): PluginRuntimeConfig {
       recallTopK: Math.max(1, Math.min(50, Number.isFinite(configuredRecallTopK) ? configuredRecallTopK : 10)),
       autoIndexIntervalMinutes: Math.max(0, toInteger(cfg.autoIndexIntervalMinutes, 60)),
       autoDreamIntervalMinutes: Math.max(0, toInteger(cfg.autoDreamIntervalMinutes, 360)),
-      autoDreamMinNewL1: Math.max(0, toInteger(cfg.autoDreamMinNewL1, 10)),
+      autoDreamMinTmpEntries: Math.max(0, toInteger(cfg.autoDreamMinTmpEntries, 10)),
       dreamProjectRebuildTimeoutMs: toNonNegativeInteger(cfg.dreamProjectRebuildTimeoutMs, 180_000),
     },
     recallEnabled: toBoolean(cfg.recallEnabled, true),
@@ -270,8 +251,5 @@ export function buildPluginConfig(raw: unknown): PluginRuntimeConfig {
     uiPort: Math.max(1024, toInteger(cfg.uiPort, 39393)),
     uiPathPrefix: typeof cfg.uiPathPrefix === "string" && cfg.uiPathPrefix.trim() ? cfg.uiPathPrefix : "/clawxmemory",
   };
-  if (skillsDir) {
-    runtime.skillsDir = skillsDir;
-  }
   return runtime;
 }

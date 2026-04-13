@@ -1,4 +1,4 @@
-import { access, mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -48,7 +48,7 @@ describe("DreamRewriteRunner", () => {
     const result = await runner.run();
 
     expect(result).toMatchObject({
-      reviewedL1: 0,
+      reviewedFiles: 0,
       rewrittenProjects: 0,
       profileUpdated: false,
     });
@@ -142,8 +142,6 @@ describe("DreamRewriteRunner", () => {
     const projectId = projectIds[0]!;
     const meta = store.getProjectMeta(projectId)!;
     expect(meta.projectName).toBe("初夏通勤穿搭爆文");
-    expect("overviewPath" in meta).toBe(false);
-    await expect(access(join(memoryDir, "projects", projectId, "Project", "overview.md"))).rejects.toThrow();
     const entries = store.listMemoryEntries({ scope: "project", projectId, limit: 20 });
     expect(entries.map((entry) => entry.relativePath).sort()).toEqual([
       `projects/${projectId}/Feedback/delivery-rule.md`,

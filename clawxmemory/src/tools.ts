@@ -109,16 +109,11 @@ export function buildPluginTools(
         const limit = toLimit(input.limit, 5);
         const result = await retriever.retrieve(query, {
           retrievalMode: "explicit",
-          l2Limit: limit,
-          l1Limit: limit,
-          l0Limit: limit,
         });
         return jsonResult({
           ok: true,
           query: result.query,
           route: result.intent,
-          enoughAt: result.enoughAt,
-          evidenceNote: result.evidenceNote,
           context: result.context,
           refs: {
             files: result.debug?.selectedFileIds ?? [],

@@ -13,7 +13,7 @@ describe("buildPluginConfig", () => {
       recallTopK: 10,
       autoIndexIntervalMinutes: 60,
       autoDreamIntervalMinutes: 360,
-      autoDreamMinNewL1: 10,
+      autoDreamMinTmpEntries: 10,
       dreamProjectRebuildTimeoutMs: 180_000,
     });
   });

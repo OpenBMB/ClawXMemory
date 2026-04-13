@@ -153,84 +153,9 @@ export interface IndexingSettings {
   recallTopK: number;
   autoIndexIntervalMinutes: number;
   autoDreamIntervalMinutes: number;
-  autoDreamMinNewL1: number;
+  autoDreamMinTmpEntries: number;
   dreamProjectRebuildTimeoutMs: number;
 }
-
-export interface ActiveTopicBufferRecord {
-  sessionKey: string;
-  startedAt: string;
-  updatedAt: string;
-  topicSummary: string;
-  userTurns: string[];
-  l0Ids: string[];
-  lastL0Id: string;
-  createdAt: string;
-}
-
-export interface ProjectDetail {
-  key: string;
-  name: string;
-  status: ProjectStatus;
-  summary: string;
-  latestProgress: string;
-  confidence: number;
-}
-
-export interface L1WindowRecord {
-  l1IndexId: string;
-  sessionKey: string;
-  timePeriod: string;
-  startedAt: string;
-  endedAt: string;
-  summary: string;
-  facts: FactCandidate[];
-  situationTimeInfo: string;
-  projectTags: string[];
-  projectDetails: ProjectDetail[];
-  l0Source: string[];
-  createdAt: string;
-}
-
-export interface L2TimeIndexRecord {
-  l2IndexId: string;
-  dateKey: string;
-  summary: string;
-  l1Source: string[];
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface L2ProjectIndexRecord {
-  l2IndexId: string;
-  projectKey: string;
-  projectName: string;
-  summary: string;
-  currentStatus: ProjectStatus;
-  latestProgress: string;
-  l1Source: string[];
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface GlobalProfileRecord {
-  recordId: "global_profile_record";
-  profileText: string;
-  sourceL1Ids: string[];
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface IndexLinkRecord {
-  linkId: string;
-  fromLevel: "l2" | "l1" | "l0";
-  fromId: string;
-  toLevel: "l2" | "l1" | "l0";
-  toId: string;
-  createdAt: string;
-}
-
-export const LEGACY_MEMORY_EXPORT_FORMAT_VERSION = "clawxmemory-memory-bundle.v1" as const;
 export const MEMORY_EXPORT_FORMAT_VERSION = "clawxmemory-file-memory-bundle.v2" as const;
 
 export interface MemoryFileExportRecord extends MemoryFileFrontmatter {
@@ -262,19 +187,7 @@ export interface MemoryExportBundle {
   memoryFiles: MemoryFileExportRecord[];
 }
 
-export interface LegacyMemoryExportBundle {
-  formatVersion: typeof LEGACY_MEMORY_EXPORT_FORMAT_VERSION;
-  exportedAt: string;
-  lastIndexedAt?: string;
-  l0Sessions: L0SessionRecord[];
-  l1Windows: L1WindowRecord[];
-  l2TimeIndexes: L2TimeIndexRecord[];
-  l2ProjectIndexes: L2ProjectIndexRecord[];
-  globalProfile: GlobalProfileRecord;
-  indexLinks: IndexLinkRecord[];
-}
-
-export type MemoryImportableBundle = MemoryExportBundle | LegacyMemoryExportBundle;
+export type MemoryImportableBundle = MemoryExportBundle;
 
 export interface MemoryTransferCounts {
   memoryFiles: number;
@@ -283,46 +196,16 @@ export interface MemoryTransferCounts {
   user: number;
   tmp: number;
   projectMetas: number;
-  legacyL0?: number;
-  legacyL1?: number;
-  legacyL2Time?: number;
-  legacyL2Project?: number;
-  legacyProfile?: number;
-  legacyLinks?: number;
 }
 
 export interface MemoryImportResult {
-  formatVersion: typeof MEMORY_EXPORT_FORMAT_VERSION | typeof LEGACY_MEMORY_EXPORT_FORMAT_VERSION;
+  formatVersion: typeof MEMORY_EXPORT_FORMAT_VERSION;
   imported: MemoryTransferCounts;
   importedAt: string;
   lastIndexedAt?: string;
   lastDreamAt?: string;
   lastDreamStatus?: DreamPipelineStatus;
   lastDreamSummary?: string;
-}
-
-export type IntentType = "time" | "project" | "fact" | "general" | MemoryRoute;
-
-export type L2SearchResult =
-  | {
-      score: number;
-      level: "l2_time";
-      item: L2TimeIndexRecord;
-    }
-  | {
-      score: number;
-      level: "l2_project";
-      item: L2ProjectIndexRecord;
-    };
-
-export interface L1SearchResult {
-  score: number;
-  item: L1WindowRecord;
-}
-
-export interface L0SearchResult {
-  score: number;
-  item: L0SessionRecord;
 }
 
 export interface RetrievalTraceKvEntry {
@@ -502,13 +385,6 @@ export interface DreamTraceRecord {
 export type RetrievalTraceStepKind =
   | "recall_start"
   | "cache_hit"
-  | "hop1_decision"
-  | "l2_candidates"
-  | "hop2_decision"
-  | "l1_candidates"
-  | "hop3_decision"
-  | "l0_candidates"
-  | "hop4_decision"
   | "memory_gate"
   | "user_base_loaded"
   | "project_shortlist_built"
@@ -563,12 +439,9 @@ export interface CaseTraceRecord {
   finishedAt?: string;
   status: "running" | "completed" | "interrupted" | "error";
   retrieval?: {
-    intent?: IntentType;
-    enoughAt?: RetrievalResult["enoughAt"];
+    intent?: MemoryRoute;
     injected: boolean;
     contextPreview: string;
-    evidenceNotePreview: string;
-    pathSummary: string;
     trace: RetrievalTrace | null;
   };
   toolEvents: CaseToolEvent[];
@@ -577,13 +450,7 @@ export interface CaseTraceRecord {
 
 export interface RetrievalResult {
   query: string;
-  intent: IntentType;
-  enoughAt: "profile" | "l2" | "l1" | "l0" | "manifest" | "file" | "none";
-  profile: GlobalProfileRecord | null;
-  evidenceNote: string;
-  l2Results: L2SearchResult[];
-  l1Results: L1SearchResult[];
-  l0Results: L0SearchResult[];
+  intent: MemoryRoute;
   context: string;
   trace?: RetrievalTrace;
   debug?: {
@@ -592,21 +459,6 @@ export interface RetrievalResult {
     cacheHit: boolean;
     path?: "auto" | "explicit" | "shadow";
     resolvedProjectId?: string;
-    budgetLimited?: boolean;
-    shadowDeepQueued?: boolean;
-    hop1QueryScope?: "standalone" | "continuation";
-    hop1EffectiveQuery?: string;
-    hop1BaseOnly?: boolean;
-    hop1LookupQueries?: Array<{
-      targetTypes: Array<"time" | "project">;
-      lookupQuery: string;
-    }>;
-    hop2EnoughAt?: "l2" | "descend_l1" | "none";
-    hop2SelectedL2Ids?: string[];
-    hop3EnoughAt?: "l1" | "descend_l0" | "none";
-    hop3SelectedL1Ids?: string[];
-    hop4SelectedL0Ids?: string[];
-    catalogTruncated?: boolean;
     corrections?: string[];
     route?: MemoryRoute;
     manifestCount?: number;
@@ -618,14 +470,8 @@ export type RecallMode = "llm" | "local_fallback" | "none";
 export type StartupRepairStatus = "idle" | "running" | "failed";
 
 export interface DashboardOverview {
-  totalL0: number;
-  pendingL0: number;
+  pendingSessions: number;
   pendingSegments?: number;
-  openTopics: number;
-  totalL1: number;
-  totalL2Time: number;
-  totalL2Project: number;
-  totalProfiles: number;
   totalMemoryFiles?: number;
   totalUserMemories?: number;
   totalFeedbackMemories?: number;
@@ -639,10 +485,7 @@ export interface DashboardOverview {
   lastRecallMode: RecallMode;
   currentReasoningMode?: ReasoningMode;
   lastRecallPath?: "auto" | "explicit" | "shadow";
-  lastRecallBudgetLimited?: boolean;
-  lastShadowDeepQueued?: boolean;
   lastRecallInjected?: boolean;
-  lastRecallEnoughAt?: RetrievalResult["enoughAt"];
   lastRecallCacheHit?: boolean;
   slotOwner?: string;
   dynamicMemoryRuntime?: string;
@@ -656,7 +499,6 @@ export interface DashboardOverview {
   lastDreamAt?: string;
   lastDreamStatus?: DreamPipelineStatus;
   lastDreamSummary?: string;
-  lastDreamL1EndedAt?: string;
   changedFilesSinceLastDream?: number;
   startupRepairStatus?: StartupRepairStatus;
   startupRepairMessage?: string;
@@ -665,41 +507,5 @@ export interface DashboardOverview {
 export interface MemoryUiSnapshot {
   overview: DashboardOverview;
   settings: IndexingSettings;
-  recentTimeIndexes: L2TimeIndexRecord[];
-  recentProjectIndexes: L2ProjectIndexRecord[];
-  recentL1Windows: L1WindowRecord[];
-  recentSessions: L0SessionRecord[];
-  globalProfile: GlobalProfileRecord;
   recentMemoryFiles?: MemoryManifestEntry[];
-}
-
-export type DreamReviewFocus = "all" | "projects" | "profile";
-
-export type DreamReviewTarget = "l2_project" | "global_profile" | "l1_only" | "time_note";
-
-export interface DreamEvidenceRef {
-  refId: string;
-  level: "profile" | "l2_project" | "l2_time" | "l1" | "l0";
-  id: string;
-  label: string;
-  summary: string;
-}
-
-export interface DreamReviewFinding {
-  title: string;
-  rationale: string;
-  confidence: number;
-  target: DreamReviewTarget;
-  evidenceRefs: string[];
-}
-
-export interface DreamReviewResult {
-  summary: string;
-  projectRebuild: DreamReviewFinding[];
-  profileSuggestions: DreamReviewFinding[];
-  cleanup: DreamReviewFinding[];
-  ambiguous: DreamReviewFinding[];
-  noAction: DreamReviewFinding[];
-  timeLayerNotes: DreamReviewFinding[];
-  evidenceRefs: DreamEvidenceRef[];
 }

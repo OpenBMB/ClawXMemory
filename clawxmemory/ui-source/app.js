@@ -4,7 +4,6 @@ const LOCALES = {
   zh: {
     "nav.project": "项目记忆",
     "nav.tmp": "Tmp 暂存",
-    "nav.feedback": "协作反馈",
     "nav.user": "用户画像",
     "nav.memory_trace": "记忆追踪",
     "nav.lastIndexed": "最近索引",
@@ -16,8 +15,6 @@ const LOCALES = {
     "topbar.dream": "记忆 Dream",
     "topbar.overview": "仪表盘",
     "topbar.settings": "设置",
-    "topbar.commandCenter": "画布视图",
-    "topbar.listView": "列表视图",
     "stream.searchPlaceholder": "搜索当前视图",
     "stream.search": "搜索",
     "stream.clear": "清空",
@@ -44,10 +41,10 @@ const LOCALES = {
     "detail.backToProject": "返回项目",
     "detail.backToList": "返回项目列表",
     "settings.advanced": "高级参数",
-    "settings.maxLatency": "Selected Memory Files",
+    "settings.recallTopK": "Selected Memory Files",
     "settings.autoIndexInterval": "自动索引间隔（小时）",
     "settings.autoDreamInterval": "自动 Dream 间隔（小时）",
-    "settings.autoDreamMinL1": "Auto Dream Min Changed Files",
+    "settings.autoDreamMinTmpEntries": "Auto Dream 最小 Tmp 文件数",
     "settings.dreamRebuildTimeout": "Dream Organize Timeout（秒）",
     "settings.dreamRebuildTimeoutHint": "默认 180 秒；0 表示不设超时。该设置同时作用于手动 Dream 和自动 Dream。",
     "settings.scheduleHint": "0 表示关闭自动任务",
@@ -74,13 +71,10 @@ const LOCALES = {
     "overview.tmpTotalFiles": "Tmp Files",
     "overview.tmpProjectMemories": "Tmp Project",
     "overview.tmpFeedbackMemories": "Tmp Feedback",
-    "overview.pendingL0": "待索引会话",
+    "overview.pendingSessions": "待索引会话",
     "overview.changedFilesSinceLastDream": "Dream 后变更文件",
     "overview.queued": "排队 Session",
     "overview.lastRecallMs": "最近召回耗时",
-    "overview.lastRecallMode": "召回模式",
-    "overview.lastRecallPath": "召回路径",
-    "overview.lastRecallEnough": "停止层级",
     "overview.lastDreamAt": "最近 Dream",
     "overview.lastDreamStatus": "Dream 状态",
     "overview.lastDreamSummary": "Dream 摘要",
@@ -128,17 +122,14 @@ const LOCALES = {
     "status.loadFail": "加载失败：{0}",
     "level.project.label": "项目记忆",
     "level.tmp.label": "Tmp 暂存",
-    "level.feedback.label": "协作反馈",
     "level.user.label": "用户画像",
     "level.memory_trace.label": "记忆追踪",
     "level.project.empty": "暂无项目记忆",
     "level.tmp.empty": "暂无 Tmp 暂存记忆",
-    "level.feedback.empty": "暂无协作反馈",
     "level.user.empty": "暂无用户画像记忆",
     "level.memory_trace.empty": "暂无记忆追踪案例",
     "board.project": "项目记忆",
     "board.tmp": "Tmp 暂存",
-    "board.feedback": "协作反馈",
     "board.tmp.manifest": "_tmp 索引",
     "board.tmp.projectFiles": "待整理项目文件",
     "board.tmp.feedbackFiles": "待整理协作反馈",
@@ -163,17 +154,15 @@ const LOCALES = {
     "board.memoryTrace.query": "问题",
     "board.memoryTrace.session": "Session",
     "board.memoryTrace.mode": "模式",
+    "board.memoryTrace.route": "召回路由",
     "board.memoryTrace.trigger": "触发来源",
     "board.memoryTrace.status": "状态",
     "board.memoryTrace.injected": "注入",
-    "board.memoryTrace.enoughAt": "停止层级",
     "board.memoryTrace.started": "开始",
     "board.memoryTrace.finished": "结束",
-    "board.memoryTrace.path": "召回路径",
     "board.memoryTrace.context": "注入上下文",
     "board.memoryTrace.tools": "工具活动",
     "board.memoryTrace.answer": "最终回答",
-    "board.memoryTrace.finalNote": "最终记忆笔记",
     "board.memoryTrace.flow": "推理过程",
     "board.memoryTrace.batchWindow": "批次时间范围",
     "board.memoryTrace.snapshot": "Dream 前快照",
@@ -181,10 +170,14 @@ const LOCALES = {
     "board.memoryTrace.rewrittenProjects": "重写项目",
     "board.memoryTrace.deletedProjects": "删除项目",
     "board.memoryTrace.deletedFiles": "删除文件",
+    "board.memoryTrace.snapshotFormalProjects": "正式项目",
+    "board.memoryTrace.snapshotTmpProjectFiles": "Tmp 项目文件",
+    "board.memoryTrace.snapshotTmpFeedbackFiles": "Tmp 反馈文件",
+    "board.memoryTrace.snapshotFormalProjectFiles": "正式项目文件",
+    "board.memoryTrace.snapshotFormalFeedbackFiles": "正式反馈文件",
+    "board.memoryTrace.snapshotHasUserProfile": "存在用户画像",
     "board.memoryTrace.storedResults": "最终写入",
     "board.memoryTrace.focusTurns": "Focus User Turns",
-    "board.memoryTrace.segmentCount": "Segments",
-    "board.memoryTrace.l0Count": "L0 数量",
     "board.memoryTrace.noTrace": "该案例没有可展示的 recall trace。",
     "board.memoryTrace.noStep": "该步骤没有可展示的结构化细节。",
     "board.memoryTrace.noPromptDebug": "该步骤没有模型 Prompt 调试数据，通常表示它是本地代码判断步骤。",
@@ -218,11 +211,9 @@ const LOCALES = {
     "scope.global": "Global",
     "scope.project": "Project",
     "recall.llm": "LLM 快选",
-    "recall.local_fallback": "本地降级",
     "recall.none": "无注入",
     "path.auto": "自动回答",
     "path.explicit": "显式检索",
-    "path.shadow": "后台备案",
     "dream.status.never": "尚未运行",
     "dream.status.running": "运行中",
     "dream.status.success": "成功",
@@ -237,21 +228,18 @@ const LOCALES = {
     "boundary.isolated": "已隔离",
     "boundary.conflict": "冲突",
     "boundary.warning": "告警",
-    "enough.none": "无",
-    "enough.manifest": "Manifest",
-    "enough.file": "File",
-    "enough.profile": "画像",
-    "enough.l2": "Legacy L2",
-    "enough.l1": "Legacy L1",
-    "enough.l0": "Legacy L0",
+    "route.none": "无记忆",
+    "route.user": "用户画像",
+    "route.project_memory": "项目记忆",
     "project.planned": "计划中",
     "project.in_progress": "进行中",
     "project.done": "已完成",
     "trace.step.recall_start": "Recall Start",
     "trace.step.memory_gate": "Memory Gate",
     "trace.step.user_base_loaded": "User Base Loaded",
-    "trace.step.project_resolved": "Project Resolved",
-    "trace.step.manifest_built": "Manifest Built",
+    "trace.step.project_shortlist_built": "Project Shortlist Built",
+    "trace.step.project_selected": "Project Selected",
+    "trace.step.manifest_scanned": "Manifest Scanned",
     "trace.step.manifest_selected": "Manifest Selected",
     "trace.step.files_loaded": "Files Loaded",
     "trace.step.context_rendered": "Context Rendered",
@@ -275,7 +263,6 @@ const LOCALES = {
   en: {
     "nav.project": "Project",
     "nav.tmp": "Tmp",
-    "nav.feedback": "Feedback",
     "nav.user": "User",
     "nav.memory_trace": "Trace",
     "nav.lastIndexed": "Last Indexed",
@@ -287,8 +274,6 @@ const LOCALES = {
     "topbar.dream": "Dream",
     "topbar.overview": "Overview",
     "topbar.settings": "Settings",
-    "topbar.commandCenter": "Canvas",
-    "topbar.listView": "List",
     "stream.searchPlaceholder": "Search current view",
     "stream.search": "Search",
     "stream.clear": "Clear",
@@ -315,10 +300,10 @@ const LOCALES = {
     "detail.backToProject": "Back to Project",
     "detail.backToList": "Back to Projects",
     "settings.advanced": "Advanced",
-    "settings.maxLatency": "Selected Memory Files",
+    "settings.recallTopK": "Selected Memory Files",
     "settings.autoIndexInterval": "Auto Index Interval (hours)",
     "settings.autoDreamInterval": "Auto Dream Interval (hours)",
-    "settings.autoDreamMinL1": "Auto Dream Min Changed Files",
+    "settings.autoDreamMinTmpEntries": "Auto Dream Min Tmp Files",
     "settings.dreamRebuildTimeout": "Dream Organize Timeout (sec)",
     "settings.dreamRebuildTimeoutHint": "Default 180 seconds. 0 disables the timeout for both manual and auto Dream.",
     "settings.scheduleHint": "0 disables the schedule",
@@ -345,13 +330,10 @@ const LOCALES = {
     "overview.tmpTotalFiles": "Tmp Files",
     "overview.tmpProjectMemories": "Tmp Project",
     "overview.tmpFeedbackMemories": "Tmp Feedback",
-    "overview.pendingL0": "Pending Sessions",
+    "overview.pendingSessions": "Pending Sessions",
     "overview.changedFilesSinceLastDream": "Changed Since Dream",
     "overview.queued": "Queued Sessions",
     "overview.lastRecallMs": "Last Recall",
-    "overview.lastRecallMode": "Recall Mode",
-    "overview.lastRecallPath": "Recall Path",
-    "overview.lastRecallEnough": "Enough At",
     "overview.lastDreamAt": "Last Dream",
     "overview.lastDreamStatus": "Dream Status",
     "overview.lastDreamSummary": "Dream Summary",
@@ -399,17 +381,14 @@ const LOCALES = {
     "status.loadFail": "Load failed: {0}",
     "level.project.label": "Project Memory",
     "level.tmp.label": "Tmp Staging",
-    "level.feedback.label": "Feedback Rules",
     "level.user.label": "User Portrait",
     "level.memory_trace.label": "Memory Trace",
     "level.project.empty": "No project memories yet",
     "level.tmp.empty": "No tmp staged memory",
-    "level.feedback.empty": "No feedback memories yet",
     "level.user.empty": "No user memories yet",
     "level.memory_trace.empty": "No traced conversations yet",
     "board.project": "Project Memory",
     "board.tmp": "Tmp Staging",
-    "board.feedback": "Feedback Rules",
     "board.tmp.manifest": "_tmp Manifest",
     "board.tmp.projectFiles": "Tmp Project Files",
     "board.tmp.feedbackFiles": "Tmp Feedback Files",
@@ -434,17 +413,15 @@ const LOCALES = {
     "board.memoryTrace.query": "Query",
     "board.memoryTrace.session": "Session",
     "board.memoryTrace.mode": "Mode",
+    "board.memoryTrace.route": "Route",
     "board.memoryTrace.trigger": "Trigger",
     "board.memoryTrace.status": "Status",
     "board.memoryTrace.injected": "Injected",
-    "board.memoryTrace.enoughAt": "Enough At",
     "board.memoryTrace.started": "Started",
     "board.memoryTrace.finished": "Finished",
-    "board.memoryTrace.path": "Recall Path",
     "board.memoryTrace.context": "Injected Context",
     "board.memoryTrace.tools": "Tool Activity",
     "board.memoryTrace.answer": "Final Answer",
-    "board.memoryTrace.finalNote": "Final Memory Note",
     "board.memoryTrace.flow": "Trace Flow",
     "board.memoryTrace.batchWindow": "Batch Window",
     "board.memoryTrace.snapshot": "Dream Snapshot",
@@ -452,10 +429,14 @@ const LOCALES = {
     "board.memoryTrace.rewrittenProjects": "Rewritten Projects",
     "board.memoryTrace.deletedProjects": "Deleted Projects",
     "board.memoryTrace.deletedFiles": "Deleted Files",
+    "board.memoryTrace.snapshotFormalProjects": "Formal Projects",
+    "board.memoryTrace.snapshotTmpProjectFiles": "Tmp Project Files",
+    "board.memoryTrace.snapshotTmpFeedbackFiles": "Tmp Feedback Files",
+    "board.memoryTrace.snapshotFormalProjectFiles": "Formal Project Files",
+    "board.memoryTrace.snapshotFormalFeedbackFiles": "Formal Feedback Files",
+    "board.memoryTrace.snapshotHasUserProfile": "Has User Profile",
     "board.memoryTrace.storedResults": "Stored Results",
     "board.memoryTrace.focusTurns": "Focus User Turns",
-    "board.memoryTrace.segmentCount": "Segments",
-    "board.memoryTrace.l0Count": "L0 Count",
     "board.memoryTrace.noTrace": "This case does not contain a retrieval trace.",
     "board.memoryTrace.noStep": "This step does not contain structured details.",
     "board.memoryTrace.noPromptDebug": "This step has no model prompt debug data, usually because it is a local code decision.",
@@ -489,11 +470,9 @@ const LOCALES = {
     "scope.global": "Global",
     "scope.project": "Project",
     "recall.llm": "LLM Selection",
-    "recall.local_fallback": "Local Fallback",
     "recall.none": "None",
     "path.auto": "Auto",
     "path.explicit": "Explicit",
-    "path.shadow": "Shadow",
     "dream.status.never": "Never",
     "dream.status.running": "Running",
     "dream.status.success": "Success",
@@ -508,21 +487,18 @@ const LOCALES = {
     "boundary.isolated": "Isolated",
     "boundary.conflict": "Conflict",
     "boundary.warning": "Warning",
-    "enough.none": "None",
-    "enough.manifest": "Manifest",
-    "enough.file": "File",
-    "enough.profile": "Profile",
-    "enough.l2": "Legacy L2",
-    "enough.l1": "Legacy L1",
-    "enough.l0": "Legacy L0",
+    "route.none": "None",
+    "route.user": "User",
+    "route.project_memory": "Project Memory",
     "project.planned": "Planned",
     "project.in_progress": "In Progress",
     "project.done": "Done",
     "trace.step.recall_start": "Recall Start",
     "trace.step.memory_gate": "Memory Gate",
     "trace.step.user_base_loaded": "User Base Loaded",
-    "trace.step.project_resolved": "Project Resolved",
-    "trace.step.manifest_built": "Manifest Built",
+    "trace.step.project_shortlist_built": "Project Shortlist Built",
+    "trace.step.project_selected": "Project Selected",
+    "trace.step.manifest_scanned": "Manifest Scanned",
     "trace.step.manifest_selected": "Manifest Selected",
     "trace.step.files_loaded": "Files Loaded",
     "trace.step.context_rendered": "Context Rendered",
@@ -559,7 +535,7 @@ const DEFAULT_SETTINGS = {
   recallTopK: 5,
   autoIndexIntervalMinutes: 60,
   autoDreamIntervalMinutes: 360,
-  autoDreamMinNewL1: 10,
+  autoDreamMinTmpEntries: 10,
   dreamProjectRebuildTimeoutMs: 180000,
 };
 
@@ -606,10 +582,10 @@ const tmpBoard = document.getElementById("tmpBoard");
 const userBoard = document.getElementById("userBoard");
 const memoryTraceBoard = document.getElementById("memoryTraceBoard");
 const listSearchRow = document.getElementById("listSearchRow");
-const maxAutoReplyLatencyInput = document.getElementById("maxAutoReplyLatencyInput");
+const recallTopKInput = document.getElementById("recallTopKInput");
 const autoIndexIntervalHoursInput = document.getElementById("autoIndexIntervalHoursInput");
 const autoDreamIntervalHoursInput = document.getElementById("autoDreamIntervalHoursInput");
-const autoDreamMinL1Input = document.getElementById("autoDreamMinL1Input");
+const autoDreamMinTmpEntriesInput = document.getElementById("autoDreamMinTmpEntriesInput");
 const dreamRebuildTimeoutSecondsInput = document.getElementById("dreamRebuildTimeoutSecondsInput");
 const saveSettingsBtn = document.getElementById("saveSettingsBtn");
 const themeToggle = document.getElementById("themeToggle");
@@ -798,25 +774,15 @@ function parseSections(content) {
   return sections;
 }
 
-function formatRecallMode(mode) {
-  if (mode === "llm" || mode === "local_fallback" || mode === "none") return t(`recall.${mode}`);
-  return normalizeText(mode) || t("common.none");
-}
-
-function formatRecallPath(path) {
-  if (path === "auto" || path === "explicit" || path === "shadow") return t(`path.${path}`);
-  return normalizeText(path) || t("common.none");
-}
-
-function formatEnoughAt(value) {
-  if (!value) return t("common.none");
-  const key = `enough.${value}`;
-  return LOCALES[state.locale][key] || LOCALES.en[key] ? t(key) : String(value);
-}
-
 function formatDreamStatus(value) {
   if (!value) return t("dream.status.never");
   const key = `dream.status.${value}`;
+  return LOCALES[state.locale][key] || LOCALES.en[key] ? t(key) : String(value);
+}
+
+function formatRecallRoute(value) {
+  if (!value) return t("common.none");
+  const key = `route.${value}`;
   return LOCALES[state.locale][key] || LOCALES.en[key] ? t(key) : String(value);
 }
 
@@ -1412,7 +1378,7 @@ function renderOverview() {
       { value: formatNumber(overview.totalProjectMemories || 0), label: t("overview.totalProjectMemories") },
       { value: formatNumber(overview.totalFeedbackMemories || 0), label: t("overview.totalFeedbackMemories") },
       { value: formatNumber(overview.totalUserMemories || 0), label: t("overview.totalUserMemories") },
-      { value: formatNumber(overview.pendingL0 || 0), label: t("overview.pendingL0") },
+      { value: formatNumber(overview.pendingSessions || 0), label: t("overview.pendingSessions") },
       { value: formatNumber(overview.changedFilesSinceLastDream || 0), label: t("overview.changedFilesSinceLastDream") },
     ]),
   );
@@ -1433,9 +1399,6 @@ function renderOverview() {
     createMetricGrid([
       { label: t("overview.queued"), value: formatNumber(overview.queuedSessions || 0) },
       { label: t("overview.lastRecallMs"), value: formatDurationMs(overview.lastRecallMs || 0) },
-      { label: t("overview.lastRecallMode"), value: formatRecallMode(overview.lastRecallMode || "none") },
-      { label: t("overview.lastRecallPath"), value: formatRecallPath(overview.lastRecallPath) },
-      { label: t("overview.lastRecallEnough"), value: formatEnoughAt(overview.lastRecallEnoughAt) },
       { label: t("overview.lastDreamAt"), value: formatDateTime(overview.lastDreamAt) },
       { label: t("overview.lastDreamStatus"), value: formatDreamStatus(overview.lastDreamStatus) },
       { label: t("overview.lastDreamSummary"), value: normalizeText(overview.lastDreamSummary) || t("common.none") },
@@ -1810,7 +1773,8 @@ function getVisibleCases() {
       decodeEscapedTraceText(item.query),
       item.sessionKey,
       decodeEscapedTraceText(item.assistantReply),
-      decodeEscapedTraceText(item.retrieval?.pathSummary),
+      normalizeText(item.retrieval?.intent),
+      decodeEscapedTraceText(item.retrieval?.contextPreview),
     ].join(" ").toLowerCase();
     return haystack.includes(query);
   });
@@ -2121,9 +2085,9 @@ function renderRecallTrace(host) {
     createTraceMetaChip(t("board.memoryTrace.query"), selected.query || t("common.none")),
     createTraceMetaChip(t("board.memoryTrace.session"), selected.sessionKey || t("common.none")),
     createTraceMetaChip(t("board.memoryTrace.mode"), trace.mode || t("common.none")),
+    createTraceMetaChip(t("board.memoryTrace.route"), formatRecallRoute(retrieval.intent)),
     createTraceMetaChip(t("board.memoryTrace.status"), selected.status || t("common.none")),
     createTraceMetaChip(t("board.memoryTrace.injected"), retrieval.injected ? t("common.yes") : t("common.no")),
-    createTraceMetaChip(t("board.memoryTrace.enoughAt"), formatEnoughAt(retrieval.enoughAt)),
     createTraceMetaChip(t("board.memoryTrace.started"), formatDateTime(selected.startedAt)),
     createTraceMetaChip(t("board.memoryTrace.finished"), formatDateTime(selected.finishedAt)),
   );
@@ -2131,8 +2095,6 @@ function renderRecallTrace(host) {
 
   const summaryGrid = el("div", "memory-trace-summary-grid");
   summaryGrid.append(
-    createTraceSummaryCard(t("board.memoryTrace.path"), retrieval.pathSummary || t("common.none"), "memory-trace-summary-card--path"),
-    createTraceSummaryCard(t("board.memoryTrace.finalNote"), retrieval.evidenceNotePreview || t("common.none")),
     createTraceSummaryCard(t("board.memoryTrace.context"), retrieval.contextPreview || t("common.none"), "memory-trace-summary-card--artifact"),
     createTraceSummaryCard(
       t("board.memoryTrace.tools"),
@@ -2265,9 +2227,7 @@ function renderIndexTrace(host) {
     createTraceMetaChip(t("board.memoryTrace.status"), selected.status || t("common.none")),
     createTraceMetaChip(t("board.memoryTrace.started"), formatDateTime(selected.startedAt)),
     createTraceMetaChip(t("board.memoryTrace.finished"), formatDateTime(selected.finishedAt)),
-    createTraceMetaChip(t("board.memoryTrace.segmentCount"), String(selected.batchSummary?.segmentCount || 0)),
     createTraceMetaChip(t("board.memoryTrace.focusTurns"), String(selected.batchSummary?.focusUserTurnCount || 0)),
-    createTraceMetaChip(t("board.memoryTrace.l0Count"), String(safeArray(selected.batchSummary?.l0Ids).length)),
   );
   hero.append(metaGrid);
 
@@ -2418,12 +2378,12 @@ function renderDreamTrace(host) {
     createTraceSummaryCard(
       t("board.memoryTrace.snapshot"),
       [
-        `formal projects: ${selected.snapshotSummary?.formalProjectCount || 0}`,
-        `tmp project files: ${selected.snapshotSummary?.tmpProjectCount || 0}`,
-        `tmp feedback files: ${selected.snapshotSummary?.tmpFeedbackCount || 0}`,
-        `formal project files: ${selected.snapshotSummary?.formalProjectFileCount || 0}`,
-        `formal feedback files: ${selected.snapshotSummary?.formalFeedbackFileCount || 0}`,
-        `has user profile: ${selected.snapshotSummary?.hasUserProfile ? "yes" : "no"}`,
+        `${t("board.memoryTrace.snapshotFormalProjects")}: ${selected.snapshotSummary?.formalProjectCount || 0}`,
+        `${t("board.memoryTrace.snapshotTmpProjectFiles")}: ${selected.snapshotSummary?.tmpProjectCount || 0}`,
+        `${t("board.memoryTrace.snapshotTmpFeedbackFiles")}: ${selected.snapshotSummary?.tmpFeedbackCount || 0}`,
+        `${t("board.memoryTrace.snapshotFormalProjectFiles")}: ${selected.snapshotSummary?.formalProjectFileCount || 0}`,
+        `${t("board.memoryTrace.snapshotFormalFeedbackFiles")}: ${selected.snapshotSummary?.formalFeedbackFileCount || 0}`,
+        `${t("board.memoryTrace.snapshotHasUserProfile")}: ${selected.snapshotSummary?.hasUserProfile ? t("common.yes") : t("common.no")}`,
       ].join("\n"),
       "memory-trace-summary-card--path",
     ),
@@ -2586,17 +2546,17 @@ function renderActiveView() {
 /* ── actions ───────────────────────────────────────────── */
 
 async function saveSettings() {
-  const recallTopK = Math.max(1, Math.min(50, Number(maxAutoReplyLatencyInput?.value || state.settings.recallTopK || 5)));
+  const recallTopK = Math.max(1, Math.min(50, Number(recallTopKInput?.value || state.settings.recallTopK || 5)));
   const autoIndexIntervalMinutes = Math.max(0, Number(autoIndexIntervalHoursInput?.value || 0) * 60);
   const autoDreamIntervalMinutes = Math.max(0, Number(autoDreamIntervalHoursInput?.value || 0) * 60);
-  const autoDreamMinNewL1 = Math.max(0, Number(autoDreamMinL1Input?.value || state.settings.autoDreamMinNewL1 || 0));
+  const autoDreamMinTmpEntries = Math.max(0, Number(autoDreamMinTmpEntriesInput?.value || state.settings.autoDreamMinTmpEntries || 0));
   const dreamProjectRebuildTimeoutMs = Math.max(0, Number(dreamRebuildTimeoutSecondsInput?.value || 0) * 1000);
 
   const saved = await postJson("./api/settings", {
     recallTopK,
     autoIndexIntervalMinutes,
     autoDreamIntervalMinutes,
-    autoDreamMinNewL1,
+    autoDreamMinTmpEntries,
     dreamProjectRebuildTimeoutMs,
   });
   state.settings = { ...DEFAULT_SETTINGS, ...(saved || {}) };
@@ -2605,10 +2565,10 @@ async function saveSettings() {
 }
 
 function syncSettingsForm() {
-  if (maxAutoReplyLatencyInput) maxAutoReplyLatencyInput.value = String(state.settings.recallTopK || 5);
+  if (recallTopKInput) recallTopKInput.value = String(state.settings.recallTopK || 5);
   if (autoIndexIntervalHoursInput) autoIndexIntervalHoursInput.value = String((state.settings.autoIndexIntervalMinutes || 0) / 60);
   if (autoDreamIntervalHoursInput) autoDreamIntervalHoursInput.value = String((state.settings.autoDreamIntervalMinutes || 0) / 60);
-  if (autoDreamMinL1Input) autoDreamMinL1Input.value = String(state.settings.autoDreamMinNewL1 || 0);
+  if (autoDreamMinTmpEntriesInput) autoDreamMinTmpEntriesInput.value = String(state.settings.autoDreamMinTmpEntries || 0);
   if (dreamRebuildTimeoutSecondsInput) dreamRebuildTimeoutSecondsInput.value = String((state.settings.dreamProjectRebuildTimeoutMs || 0) / 1000);
 }
 

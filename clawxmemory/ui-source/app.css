@@ -1007,7 +1007,7 @@ body[data-nav="open"] .app-scrim {
   background: #b0322a;
 }
 
-/* ─── Language dropdown (legacy, hidden) ───────────────── */
+/* ─── Language dropdown (hidden) ───────────────── */
 
 .lang-dropdown {
   display: none;
@@ -1434,7 +1434,7 @@ body[data-nav="open"] .app-scrim {
 .ov-metric-val[data-tone="danger"]  { color: var(--danger); }
 .ov-metric-val[data-tone="warning"] { color: var(--warning); }
 
-/* ── Legacy metric-card (kept for potential reuse) ─── */
+/* ── Metric card ─── */
 
 .metric-card {
   padding: 14px 16px;

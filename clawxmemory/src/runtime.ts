@@ -14,7 +14,6 @@ import {
   type ManagedWorkspaceFileState,
   MemoryRepository,
   ReasoningRetriever,
-  loadSkillsRuntime,
   type DreamRunResult,
   type HeartbeatStats,
   type IndexingSettings,
@@ -60,7 +59,6 @@ const NATIVE_MEMORY_PLUGIN_ID = "memory-core";
 const LAST_DREAM_AT_STATE_KEY = "lastDreamAt";
 const LAST_DREAM_STATUS_STATE_KEY = "lastDreamStatus";
 const LAST_DREAM_SUMMARY_STATE_KEY = "lastDreamSummary";
-const LAST_DREAM_L1_ENDED_AT_STATE_KEY = "lastDreamL1EndedAt";
 const CHAT_FACING_MEMORY_TOOLS = ["memory_overview", "memory_list", "memory_flush", "memory_dream"] as const;
 const MANAGED_BOUNDARY_RESTART_TIMEOUT_MS = process.platform === "win32" ? 15_000 : 8_000;
 const RECENT_INBOUND_TTL_MS = 30_000;
@@ -447,24 +445,6 @@ function buildRecallSkippedTrace(query: string, reason: string): RetrievalTrace 
   };
 }
 
-function deriveCasePathSummary(
-  trace: RetrievalTrace | null | undefined,
-  enoughAt: RetrievalResult["enoughAt"] | undefined,
-): string {
-  if (enoughAt === "profile") return "profile";
-  if (enoughAt === "file") return "manifest->files";
-  if (enoughAt === "manifest") return "manifest";
-  if (!trace?.steps?.length) return enoughAt ?? "none";
-  const stepKinds = new Set(trace.steps.map((step) => step.kind));
-  if (stepKinds.has("files_loaded")) return "manifest->files";
-  if (stepKinds.has("manifest_selected") || stepKinds.has("manifest_scanned")) return "manifest";
-  if (stepKinds.has("hop4_decision") || stepKinds.has("l0_candidates")) return "l2->l1->l0";
-  if (stepKinds.has("hop3_decision") || stepKinds.has("l1_candidates")) return "l2->l1";
-  if (stepKinds.has("hop2_decision") || stepKinds.has("l2_candidates")) return "l2";
-  if (stepKinds.has("recall_skipped")) return "none";
-  return enoughAt ?? "none";
-}
-
 function isNoiseCaseQuery(query: string): boolean {
   const normalized = query.trim().toLowerCase();
   if (!normalized) return true;
@@ -569,40 +549,38 @@ function buildRecentMessagesForRecall(
 }
 
 function shouldLogStats(stats: HeartbeatStats): boolean {
-  return stats.l0Captured > 0
-    || stats.l1Created > 0
-    || stats.l2TimeUpdated > 0
-    || stats.l2ProjectUpdated > 0
-    || stats.profileUpdated > 0
-    || stats.failed > 0;
+  return stats.capturedSessions > 0
+    || stats.writtenFiles > 0
+    || stats.userProfilesUpdated > 0
+    || stats.failedSessions > 0;
 }
 
 function logIndexStats(logger: LoggerLike, reason: string, stats: HeartbeatStats): void {
   if (!shouldLogStats(stats)) return;
   logger.info?.(
-    `[clawxmemory] indexed reason=${reason} l0=${stats.l0Captured}, l1=${stats.l1Created}, l2_time=${stats.l2TimeUpdated}, l2_project=${stats.l2ProjectUpdated}, profile=${stats.profileUpdated}, failed=${stats.failed}`,
+    `[clawxmemory] indexed reason=${reason} captured=${stats.capturedSessions}, written=${stats.writtenFiles}, project=${stats.writtenProjectFiles}, feedback=${stats.writtenFeedbackFiles}, user=${stats.userProfilesUpdated}, failed=${stats.failedSessions}`,
   );
 }
 
 function emptyStats(): HeartbeatStats {
   return {
-    l0Captured: 0,
-    l1Created: 0,
-    l2TimeUpdated: 0,
-    l2ProjectUpdated: 0,
-    profileUpdated: 0,
-    failed: 0,
+    capturedSessions: 0,
+    writtenFiles: 0,
+    writtenProjectFiles: 0,
+    writtenFeedbackFiles: 0,
+    userProfilesUpdated: 0,
+    failedSessions: 0,
   };
 }
 
 function mergeStats(left: HeartbeatStats, right: HeartbeatStats): HeartbeatStats {
   return {
-    l0Captured: left.l0Captured + right.l0Captured,
-    l1Created: left.l1Created + right.l1Created,
-    l2TimeUpdated: left.l2TimeUpdated + right.l2TimeUpdated,
-    l2ProjectUpdated: left.l2ProjectUpdated + right.l2ProjectUpdated,
-    profileUpdated: left.profileUpdated + right.profileUpdated,
-    failed: left.failed + right.failed,
+    capturedSessions: left.capturedSessions + right.capturedSessions,
+    writtenFiles: left.writtenFiles + right.writtenFiles,
+    writtenProjectFiles: left.writtenProjectFiles + right.writtenProjectFiles,
+    writtenFeedbackFiles: left.writtenFeedbackFiles + right.writtenFeedbackFiles,
+    userProfilesUpdated: left.userProfilesUpdated + right.userProfilesUpdated,
+    failedSessions: left.failedSessions + right.failedSessions,
   };
 }
 
@@ -610,11 +588,6 @@ function sliceUiSnapshot(snapshot: MemoryUiSnapshot, limit: number): MemoryUiSna
   return {
     overview: { ...snapshot.overview },
     settings: { ...snapshot.settings },
-    recentTimeIndexes: snapshot.recentTimeIndexes.slice(0, limit),
-    recentProjectIndexes: snapshot.recentProjectIndexes.slice(0, limit),
-    recentL1Windows: snapshot.recentL1Windows.slice(0, limit),
-    recentSessions: snapshot.recentSessions.slice(0, limit),
-    globalProfile: { ...snapshot.globalProfile },
     ...(snapshot.recentMemoryFiles ? { recentMemoryFiles: snapshot.recentMemoryFiles.slice(0, limit) } : {}),
   };
 }
@@ -704,9 +677,6 @@ export class MemoryPluginRuntime {
     this.currentApiConfig = options.apiConfig;
     this.config = buildPluginConfig(options.pluginConfig);
 
-    const skills = this.config.skillsDir
-      ? loadSkillsRuntime({ skillsDir: this.config.skillsDir, logger: this.logger })
-      : loadSkillsRuntime({ logger: this.logger });
     this.repository = new MemoryRepository(this.config.dbPath, { memoryDir: this.config.memoryDir });
     const persistedSettings = this.repository.getIndexingSettings(this.config.defaultIndexingSettings);
     const migratedSettings = this.maybeUpgradeIndexingSettings(persistedSettings);
@@ -727,7 +697,6 @@ export class MemoryPluginRuntime {
     );
     this.retriever = new ReasoningRetriever(
       this.repository,
-      skills,
       extractor,
       {
         getSettings: () => this.indexer.getSettings(),
@@ -972,17 +941,14 @@ export class MemoryPluginRuntime {
   private updateCaseRetrieval(
     rawSessionKey: string,
     query: string,
-    result: Pick<RetrievalResult, "intent" | "enoughAt" | "context" | "trace" | "evidenceNote">,
+    result: Pick<RetrievalResult, "intent" | "context" | "trace">,
   ): void {
     const record = this.ensureCase(rawSessionKey, query);
     const trace = result.trace ? cloneJson(result.trace) : null;
     record.retrieval = {
       intent: result.intent,
-      enoughAt: result.enoughAt,
       injected: Boolean(result.context.trim()),
       contextPreview: previewText(result.context, 1200),
-      evidenceNotePreview: previewText(result.evidenceNote, 1200),
-      pathSummary: deriveCasePathSummary(trace, result.enoughAt),
       trace,
     };
     this.upsertCase(record);
@@ -991,12 +957,9 @@ export class MemoryPluginRuntime {
   private updateCaseRecallSkipped(rawSessionKey: string, query: string, reason: string): void {
     const record = this.ensureCase(rawSessionKey, query);
     record.retrieval = {
-      intent: "general",
-      enoughAt: "none",
+      intent: "none",
       injected: false,
       contextPreview: "",
-      evidenceNotePreview: "",
-      pathSummary: "none",
       trace: buildRecallSkippedTrace(query, reason),
     };
     this.upsertCase(record);
@@ -1373,10 +1336,6 @@ export class MemoryPluginRuntime {
         : [];
       const retrieved = await this.retriever.retrieve(normalizedPrompt, {
         retrievalMode: "auto",
-        l2Limit: recallTopK,
-        l1Limit: recallTopK,
-        l0Limit: recallTopK,
-        includeFacts: true,
         recentMessages,
         workspaceHint: this.resolveWorkspaceDir(),
       });
@@ -1384,7 +1343,7 @@ export class MemoryPluginRuntime {
       const injected = Boolean(retrieved.context?.trim());
       this.updateCaseRetrieval(rawSessionKey, normalizedPrompt, retrieved);
       this.logger.info?.(
-        `[clawxmemory] recall mode=${retrieved.debug?.mode ?? "none"} reasoning_mode=${settings.reasoningMode} recall_top_k=${recallTopK} enough_at=${retrieved.enoughAt} injected=${injected} elapsed_ms=${retrieved.debug?.elapsedMs ?? elapsedMs} cache_hit=${retrieved.debug?.cacheHit ? "1" : "0"}`,
+        `[clawxmemory] recall mode=${retrieved.debug?.mode ?? "none"} reasoning_mode=${settings.reasoningMode} recall_top_k=${recallTopK} injected=${injected} elapsed_ms=${retrieved.debug?.elapsedMs ?? elapsedMs} cache_hit=${retrieved.debug?.cacheHit ? "1" : "0"}`,
       );
       if (!retrieved.context.trim()) return;
       // Dynamic recall must stay in system prompt space; prependContext leaks into user-visible prompt displays.
@@ -1720,10 +1679,7 @@ export class MemoryPluginRuntime {
     | "lastRecallMode"
     | "currentReasoningMode"
     | "lastRecallPath"
-    | "lastRecallBudgetLimited"
-    | "lastShadowDeepQueued"
     | "lastRecallInjected"
-    | "lastRecallEnoughAt"
     | "lastRecallCacheHit"
     | "slotOwner"
     | "dynamicMemoryRuntime"
@@ -1748,10 +1704,7 @@ export class MemoryPluginRuntime {
       lastRecallMode: stats.lastRecallMode,
       currentReasoningMode: this.indexer.getSettings().reasoningMode,
       lastRecallPath: stats.lastRecallPath,
-      lastRecallBudgetLimited: stats.lastRecallBudgetLimited,
-      lastShadowDeepQueued: stats.lastShadowDeepQueued,
       lastRecallInjected: stats.lastRecallInjected,
-      lastRecallEnoughAt: stats.lastRecallEnoughAt,
       lastRecallCacheHit: stats.lastRecallCacheHit,
       slotOwner: diagnostics.slotOwner,
       dynamicMemoryRuntime: diagnostics.dynamicMemoryRuntime,
@@ -1869,41 +1822,23 @@ export class MemoryPluginRuntime {
     return merged;
   }
 
-  private getLatestL1EndedAt(): string | undefined {
+  private getLatestMemoryFileUpdate(): string | undefined {
     return this.repository.getFileMemoryStore().listMemoryEntries({ limit: 1, includeTmp: true })[0]?.updatedAt;
   }
 
-  private getNewL1CountSinceLastSuccessfulDream(): { count: number; latestEndedAt?: string } {
-    const cutoff = this.repository.getPipelineState(LAST_DREAM_L1_ENDED_AT_STATE_KEY)?.trim() || "";
-    const entries = this.repository.getFileMemoryStore().listMemoryEntries({ limit: 500, includeTmp: true });
-    let latestEndedAt: string | undefined;
-    let count = 0;
-    for (const entry of entries) {
-      if (!latestEndedAt || entry.updatedAt > latestEndedAt) {
-        latestEndedAt = entry.updatedAt;
-      }
-      if (!cutoff || entry.updatedAt > cutoff) {
-        count += 1;
-      }
-    }
-    return {
-      count,
-      ...(latestEndedAt ? { latestEndedAt } : {}),
-    };
+  private getTmpEntryCount(): number {
+    return this.repository.getFileMemoryStore().getOverview(this.repository.getPipelineState(LAST_DREAM_AT_STATE_KEY)).tmpTotalFiles;
   }
 
   private recordDreamLifecycle(
     status: "running" | "success" | "skipped" | "failed",
     summary: string,
-    options?: { completedAt?: string; latestL1EndedAt?: string },
+    options?: { completedAt?: string; latestMemoryFileUpdate?: string },
   ): void {
     this.repository.setPipelineState(LAST_DREAM_STATUS_STATE_KEY, status);
     this.repository.setPipelineState(LAST_DREAM_SUMMARY_STATE_KEY, summary.trim());
     if (options?.completedAt) {
       this.repository.setPipelineState(LAST_DREAM_AT_STATE_KEY, options.completedAt);
-    }
-    if (options?.latestL1EndedAt) {
-      this.repository.setPipelineState(LAST_DREAM_L1_ENDED_AT_STATE_KEY, options.latestL1EndedAt);
     }
   }
 
@@ -1915,14 +1850,13 @@ export class MemoryPluginRuntime {
   ): DreamRunResult {
     return {
       prepFlush,
-      reviewedL1: 0,
+      reviewedFiles: 0,
       rewrittenProjects: 0,
       deletedProjects: 0,
+      deletedFiles: 0,
       profileUpdated: false,
       duplicateTopicCount: 0,
       conflictTopicCount: 0,
-      prunedProjectL1Refs: 0,
-      prunedProfileL1Refs: 0,
       summary,
       trigger,
       status: "skipped",
@@ -1977,29 +1911,24 @@ export class MemoryPluginRuntime {
       const prepFlush = emptyStats();
       if (trigger === "scheduled") {
         const settings = this.indexer.getSettings();
-        const threshold = Number.isFinite(settings.autoDreamMinNewL1)
-          ? Math.max(0, Math.floor(settings.autoDreamMinNewL1))
-          : Math.max(0, Math.floor(this.config.autoDreamMinNewL1));
-        const lastSuccessfulCutoff = this.repository.getPipelineState(LAST_DREAM_L1_ENDED_AT_STATE_KEY)?.trim() || "";
-        if (lastSuccessfulCutoff) {
-          const { count: newL1Count } = this.getNewL1CountSinceLastSuccessfulDream();
-          if (newL1Count < threshold) {
-            const summary = `Skipped automatic Dream: ${newL1Count} changed memory files since the last successful Dream, below threshold ${threshold}.`;
-            this.recordDreamLifecycle("skipped", summary, { completedAt: nowIso() });
-            this.saveSkippedDreamTrace(trigger, summary, "new_l1_below_threshold");
-            return this.buildSkippedDreamResult(trigger, prepFlush, summary, "new_l1_below_threshold");
-          }
+        const threshold = Number.isFinite(settings.autoDreamMinTmpEntries)
+          ? Math.max(0, Math.floor(settings.autoDreamMinTmpEntries))
+          : Math.max(0, Math.floor(this.config.autoDreamMinTmpEntries));
+        const tmpEntryCount = this.getTmpEntryCount();
+        if (tmpEntryCount < threshold) {
+          const summary = `Skipped automatic Dream: ${tmpEntryCount} tmp memory files available, below threshold ${threshold}.`;
+          this.recordDreamLifecycle("skipped", summary, { completedAt: nowIso() });
+          this.saveSkippedDreamTrace(trigger, summary, "tmp_below_threshold");
+          return this.buildSkippedDreamResult(trigger, prepFlush, summary, "tmp_below_threshold");
         }
       }
       const outcome = await this.dreamRewriter.run(trigger);
       this.repository.getFileMemoryStore().repairManifests();
-      const latestL1EndedAt = this.getLatestL1EndedAt();
       this.recordDreamLifecycle("success", outcome.summary, {
         completedAt: nowIso(),
-        ...(latestL1EndedAt ? { latestL1EndedAt } : {}),
       });
       this.logger.info?.(
-        `[clawxmemory] dream run(${trigger}) reviewed_l1=${outcome.reviewedL1} rewritten_projects=${outcome.rewrittenProjects} deleted_projects=${outcome.deletedProjects} profile_updated=${outcome.profileUpdated}`,
+        `[clawxmemory] dream run(${trigger}) reviewed_files=${outcome.reviewedFiles} rewritten_projects=${outcome.rewrittenProjects} deleted_projects=${outcome.deletedProjects} deleted_files=${outcome.deletedFiles} profile_updated=${outcome.profileUpdated}`,
       );
       const result: DreamRunResult = {
         prepFlush,
@@ -2054,7 +1983,7 @@ export class MemoryPluginRuntime {
         });
         const stats = await this.flushAllNow("repair");
         this.logger.info?.(
-          `[clawxmemory] repaired l0 updated=${repair.updated} removed=${repair.removed}; rebuilt l1=${stats.l1Created}, l2_time=${stats.l2TimeUpdated}, l2_project=${stats.l2ProjectUpdated}, profile=${stats.profileUpdated}, failed=${stats.failed}`,
+          `[clawxmemory] repaired l0 updated=${repair.updated} removed=${repair.removed}; captured=${stats.capturedSessions}, written=${stats.writtenFiles}, project=${stats.writtenProjectFiles}, feedback=${stats.writtenFeedbackFiles}, user=${stats.userProfilesUpdated}, failed=${stats.failedSessions}`,
         );
         this.repository.setPipelineState("repairVersion", MEMORY_REPAIR_VERSION);
         this.setStartupRepairState("idle");

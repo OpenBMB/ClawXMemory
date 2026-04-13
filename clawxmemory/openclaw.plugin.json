@@ -1,7 +1,7 @@
 {
   "id": "openbmb-clawxmemory",
   "name": "ClawXMemory",
-  "description": "Multi-level memory plugin (L0/L1/L2) with local-first SQLite and ChatGPT-style UI.",
+  "description": "File-based long-term memory plugin for OpenClaw.",
   "version": "0.1.5",
   "kind": "memory",
   "skills": [
@@ -18,10 +18,6 @@
       "dbPath": {
         "type": "string",
         "description": "Absolute path to sqlite file. Overrides dataDir."
-      },
-      "skillsDir": {
-        "type": "string",
-        "description": "Optional custom path for skills JSON/MD files."
       },
       "captureStrategy": {
         "type": "string",
@@ -47,6 +43,19 @@
         "type": "integer",
         "default": 60
       },
+      "autoDreamIntervalMinutes": {
+        "type": "integer",
+        "default": 360
+      },
+      "autoDreamMinTmpEntries": {
+        "type": "integer",
+        "default": 10
+      },
+      "dreamProjectRebuildTimeoutMs": {
+        "type": "integer",
+        "default": 180000,
+        "description": "Timeout in milliseconds for the Dream project rebuild LLM request. Set to 0 to disable the timeout."
+      },
       "reasoningMode": {
         "type": "string",
         "enum": [
@@ -55,9 +64,9 @@
         ],
         "default": "answer_first"
       },
-      "maxAutoReplyLatencyMs": {
+      "recallTopK": {
         "type": "integer",
-        "default": 1800
+        "default": 10
       },
       "recallBudgetMs": {
         "type": "integer",
@@ -105,25 +114,34 @@
       "label": "SQLite Path",
       "placeholder": "~/.openclaw/clawxmemory/memory.sqlite"
     },
-    "skillsDir": {
-      "label": "Skills Directory",
-      "placeholder": "~/.openclaw/clawxmemory/skills"
-    },
     "captureStrategy": {
       "label": "Capture Strategy",
-      "help": "full_session is retained as a fallback source, but indexing now closes L1 on topic shift instead of time/count windows."
+      "help": "full_session remains available as a fallback source for background extraction."
     },
     "autoIndexIntervalMinutes": {
       "label": "Auto Index Interval",
       "placeholder": "60"
     },
+    "autoDreamIntervalMinutes": {
+      "label": "Auto Dream Interval",
+      "placeholder": "360"
+    },
+    "autoDreamMinTmpEntries": {
+      "label": "Auto Dream Changed File Threshold",
+      "placeholder": "10"
+    },
+    "dreamProjectRebuildTimeoutMs": {
+      "label": "Dream Organize Timeout (ms)",
+      "placeholder": "180000",
+      "help": "Default is 180000ms. Set to 0 to disable the timeout for Dream organize requests."
+    },
     "reasoningMode": {
       "label": "Reasoning Mode",
-      "help": "answer_first stops when reply latency budget is about to run out; accuracy_first prefers full recursive memory retrieval."
+      "help": "Controls whether recall should favor faster answers or more conservative memory selection."
     },
-    "maxAutoReplyLatencyMs": {
-      "label": "Max Auto Reply Latency (ms)",
-      "placeholder": "1800"
+    "recallTopK": {
+      "label": "Recall Top K",
+      "placeholder": "10"
     },
     "uiEnabled": {
       "label": "Enable Local UI",

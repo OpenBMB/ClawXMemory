@@ -190,13 +190,7 @@ describe("MemoryPluginRuntime", () => {
     (runtime as { retriever: { retrieve: ReturnType<typeof vi.fn> } }).retriever = {
       retrieve: vi.fn().mockResolvedValue({
         query: "What happened yesterday?",
-        intent: "time",
-        enoughAt: "l2",
-        profile: null,
-        evidenceNote: "2026-03-23: OpenClaw plugin SDK migration started.",
-        l2Results: [],
-        l1Results: [],
-        l0Results: [],
+        intent: "project_memory",
         context: "2026-03-23: OpenClaw plugin SDK migration started.",
         debug: {
           mode: "local_fallback",
@@ -236,13 +230,7 @@ describe("MemoryPluginRuntime", () => {
 
     const retrieve = vi.fn().mockResolvedValue({
       query: "不够详细",
-      intent: "time",
-      enoughAt: "l2",
-      profile: null,
-      evidenceNote: "expanded note",
-      l2Results: [],
-      l1Results: [],
-      l0Results: [],
+      intent: "project_memory",
       context: "expanded note",
       debug: {
         mode: "llm",
@@ -422,13 +410,7 @@ describe("MemoryPluginRuntime", () => {
     (runtime as { retriever: { retrieve: ReturnType<typeof vi.fn> } }).retriever = {
       retrieve: vi.fn().mockResolvedValue({
         query: "我上周项目进展如何",
-        intent: "project",
-        enoughAt: "l1",
-        profile: null,
-        evidenceNote: "上周主要在推进检索链路改造。",
-        l2Results: [],
-        l1Results: [],
-        l0Results: [],
+        intent: "project_memory",
         context: "## Evidence Note\n上周主要在推进检索链路改造。",
         trace: {
           traceId: "trace-1",
@@ -447,43 +429,43 @@ describe("MemoryPluginRuntime", () => {
             },
             {
               stepId: "trace-1:2",
-              kind: "hop1_decision",
-              title: "Hop 1 Decision",
+              kind: "memory_gate",
+              title: "Memory Gate",
               status: "success",
-              inputSummary: "query",
-              outputSummary: "memoryRelevant=yes",
+              inputSummary: "query + recent user messages",
+              outputSummary: "route=project_memory",
             },
             {
               stepId: "trace-1:3",
-              kind: "l2_candidates",
-              title: "L2 Candidates",
+              kind: "project_shortlist_built",
+              title: "Project Shortlist Built",
               status: "success",
-              inputSummary: "lookup",
-              outputSummary: "project candidates",
+              inputSummary: "formal projects",
+              outputSummary: "top 3 shortlist",
             },
             {
               stepId: "trace-1:4",
-              kind: "hop2_decision",
-              title: "Hop 2 Decision",
+              kind: "project_selected",
+              title: "Project Selected",
               status: "success",
-              inputSummary: "l2",
-              outputSummary: "descend_l1",
+              inputSummary: "shortlist",
+              outputSummary: "project resolved",
             },
             {
               stepId: "trace-1:5",
-              kind: "l1_candidates",
-              title: "L1 Candidates",
+              kind: "manifest_scanned",
+              title: "Manifest Scanned",
               status: "success",
-              inputSummary: "l1 lookup",
-              outputSummary: "l1-1",
+              inputSummary: "project files",
+              outputSummary: "2 candidates",
             },
             {
               stepId: "trace-1:6",
-              kind: "hop3_decision",
-              title: "Hop 3 Decision",
+              kind: "manifest_selected",
+              title: "Manifest Selected",
               status: "success",
               inputSummary: "evidence",
-              outputSummary: "enoughAt=l1",
+              outputSummary: "2 selected",
             },
           ],
         },
@@ -523,7 +505,7 @@ describe("MemoryPluginRuntime", () => {
         toolName: "memory_search",
         params: { query: "上周项目进展" },
         toolCallId: "tool-1",
-        result: { evidenceNote: "note" },
+        result: { refs: { files: ["projects/demo/Project/current-stage.md"] } },
         durationMs: 32,
       },
       { sessionKey: "session-case" } as never,
@@ -550,20 +532,18 @@ describe("MemoryPluginRuntime", () => {
       status: "completed",
       assistantReply: "上周主要在推进检索链路改造。",
       retrieval: {
-        intent: "project",
-        enoughAt: "l1",
+        intent: "project_memory",
         injected: true,
-        pathSummary: "l2->l1",
-        evidenceNotePreview: "上周主要在推进检索链路改造。",
+        contextPreview: "## Evidence Note\n上周主要在推进检索链路改造。",
       },
     });
     expect((records[0]?.retrieval as { trace?: { steps?: Array<{ kind: string }> } })?.trace?.steps?.map((step) => step.kind)).toEqual([
       "recall_start",
-      "hop1_decision",
-      "l2_candidates",
-      "hop2_decision",
-      "l1_candidates",
-      "hop3_decision",
+      "memory_gate",
+      "project_shortlist_built",
+      "project_selected",
+      "manifest_scanned",
+      "manifest_selected",
     ]);
     expect((records[0]?.toolEvents as Array<Record<string, unknown>>)?.map((event) => event.phase)).toEqual(["start", "result"]);
 
@@ -820,13 +800,7 @@ describe("MemoryPluginRuntime", () => {
 
     const retrieve = vi.fn().mockResolvedValue({
       query: "我对于天津旅游的规划是什么",
-      intent: "time",
-      enoughAt: "l1",
-      profile: null,
-      evidenceNote: "4月1日未制定新的天津旅游规划，但已有相关天津项目在推进。",
-      l2Results: [],
-      l1Results: [],
-      l0Results: [],
+      intent: "project_memory",
       context: "## Evidence Note\n4月1日未制定新的天津旅游规划，但已有相关天津项目在推进。",
       trace: {
         traceId: "trace-merge",
@@ -905,8 +879,7 @@ describe("MemoryPluginRuntime", () => {
       query: "我对于天津旅游的规划是什么",
       status: "completed",
       retrieval: {
-        intent: "time",
-        enoughAt: "l1",
+        intent: "project_memory",
         injected: true,
       },
     });
@@ -963,7 +936,7 @@ describe("MemoryPluginRuntime", () => {
       status: "completed",
       assistantReply: "这是最终回答。",
       retrieval: {
-        enoughAt: "none",
+        intent: "none",
         injected: false,
       },
     });
@@ -993,12 +966,12 @@ describe("MemoryPluginRuntime", () => {
     const requestIndexRun = vi.spyOn(runtime as never as {
       requestIndexRun: (reason: string, sessionKeys?: string[]) => Promise<unknown>;
     }, "requestIndexRun").mockResolvedValue({
-      l0Captured: 0,
-      l1Created: 0,
-      l2TimeUpdated: 0,
-      l2ProjectUpdated: 0,
-      profileUpdated: 0,
-      failed: 0,
+      capturedSessions: 0,
+      writtenFiles: 0,
+      writtenProjectFiles: 0,
+      writtenFeedbackFiles: 0,
+      userProfilesUpdated: 0,
+      failedSessions: 0,
     });
 
     runtime.handleBeforeMessageWrite(
@@ -1453,12 +1426,12 @@ describe("MemoryPluginRuntime", () => {
     });
 
     const runHeartbeat = vi.spyOn(runtime.indexer, "runHeartbeat").mockResolvedValue({
-      l0Captured: 0,
-      l1Created: 0,
-      l2TimeUpdated: 0,
-      l2ProjectUpdated: 0,
-      profileUpdated: 0,
-      failed: 0,
+      capturedSessions: 0,
+      writtenFiles: 0,
+      writtenProjectFiles: 0,
+      writtenFeedbackFiles: 0,
+      userProfilesUpdated: 0,
+      failedSessions: 0,
     });
 
     runtime.start();
@@ -1515,12 +1488,12 @@ describe("MemoryPluginRuntime", () => {
     });
 
     const runHeartbeat = vi.spyOn(runtime.indexer, "runHeartbeat").mockResolvedValue({
-      l0Captured: 0,
-      l1Created: 0,
-      l2TimeUpdated: 0,
-      l2ProjectUpdated: 0,
-      profileUpdated: 0,
-      failed: 0,
+      capturedSessions: 0,
+      writtenFiles: 0,
+      writtenProjectFiles: 0,
+      writtenFeedbackFiles: 0,
+      userProfilesUpdated: 0,
+      failedSessions: 0,
     });
 
     runtime.start();
@@ -1962,32 +1935,31 @@ describe("MemoryPluginRuntime", () => {
     runtimes.push(runtime);
 
     const pendingQueue = deferred<{
-      l0Captured: number;
-      l1Created: number;
-      l2TimeUpdated: number;
-      l2ProjectUpdated: number;
-      profileUpdated: number;
-      failed: number;
+      capturedSessions: number;
+      writtenFiles: number;
+      writtenProjectFiles: number;
+      writtenFeedbackFiles: number;
+      userProfilesUpdated: number;
+      failedSessions: number;
     }>();
     (runtime as never as { queuePromise: Promise<unknown> }).queuePromise = pendingQueue.promise;
 
     const prepFlush = {
-      l0Captured: 0,
-      l1Created: 0,
-      l2TimeUpdated: 0,
-      l2ProjectUpdated: 0,
-      profileUpdated: 0,
-      failed: 0,
+      capturedSessions: 0,
+      writtenFiles: 0,
+      writtenProjectFiles: 0,
+      writtenFeedbackFiles: 0,
+      userProfilesUpdated: 0,
+      failedSessions: 0,
     };
     const dreamOutcome = {
-      reviewedL1: 3,
+      reviewedFiles: 3,
       rewrittenProjects: 1,
       deletedProjects: 0,
+      deletedFiles: 0,
       profileUpdated: true,
       duplicateTopicCount: 0,
       conflictTopicCount: 0,
-      prunedProjectL1Refs: 1,
-      prunedProfileL1Refs: 1,
       summary: "ok",
     };
     const dreamSpy = vi.spyOn((runtime as never as {
@@ -2000,12 +1972,12 @@ describe("MemoryPluginRuntime", () => {
     expect(dreamSpy).not.toHaveBeenCalled();
 
     pendingQueue.resolve({
-      l0Captured: 0,
-      l1Created: 0,
-      l2TimeUpdated: 0,
-      l2ProjectUpdated: 0,
-      profileUpdated: 0,
-      failed: 0,
+      capturedSessions: 0,
+      writtenFiles: 0,
+      writtenProjectFiles: 0,
+      writtenFeedbackFiles: 0,
+      userProfilesUpdated: 0,
+      failedSessions: 0,
     });
 
     await vi.waitFor(() => {
@@ -2015,7 +1987,7 @@ describe("MemoryPluginRuntime", () => {
     const result = await dreamPromise;
     expect(result).toMatchObject({
       prepFlush,
-      reviewedL1: 3,
+      reviewedFiles: 3,
       rewrittenProjects: 1,
     });
   });
@@ -2036,14 +2008,13 @@ describe("MemoryPluginRuntime", () => {
     runtimes.push(runtime);
 
     const dreamDeferred = deferred<{
-      reviewedL1: number;
+      reviewedFiles: number;
       rewrittenProjects: number;
       deletedProjects: number;
+      deletedFiles: number;
       profileUpdated: boolean;
       duplicateTopicCount: number;
       conflictTopicCount: number;
-      prunedProjectL1Refs: number;
-      prunedProfileL1Refs: number;
       summary: string;
     }>();
     vi.spyOn((runtime as never as {
@@ -2053,12 +2024,12 @@ describe("MemoryPluginRuntime", () => {
     const drainSpy = vi.spyOn(runtime as never as {
       drainIndexQueue: () => Promise<Record<string, number>>;
     }, "drainIndexQueue").mockResolvedValue({
-      l0Captured: 0,
-      l1Created: 0,
-      l2TimeUpdated: 0,
-      l2ProjectUpdated: 0,
-      profileUpdated: 0,
-      failed: 0,
+      capturedSessions: 0,
+      writtenFiles: 0,
+      writtenProjectFiles: 0,
+      writtenFeedbackFiles: 0,
+      userProfilesUpdated: 0,
+      failedSessions: 0,
     });
 
     const dreamPromise = (runtime as never as {
@@ -2082,14 +2053,13 @@ describe("MemoryPluginRuntime", () => {
     expect(drainSpy).not.toHaveBeenCalled();
 
     dreamDeferred.resolve({
-      reviewedL1: 2,
+      reviewedFiles: 2,
       rewrittenProjects: 1,
       deletedProjects: 0,
+      deletedFiles: 0,
       profileUpdated: true,
       duplicateTopicCount: 0,
       conflictTopicCount: 0,
-      prunedProjectL1Refs: 0,
-      prunedProfileL1Refs: 0,
       summary: "done",
     });
 
@@ -2111,7 +2081,7 @@ describe("MemoryPluginRuntime", () => {
         uiEnabled: false,
         autoIndexIntervalMinutes: 60,
         autoDreamIntervalMinutes: 360,
-        autoDreamMinNewL1: 10,
+        autoDreamMinTmpEntries: 10,
         dreamProjectRebuildTimeoutMs: 180_000,
       },
       logger: undefined,
@@ -2124,29 +2094,35 @@ describe("MemoryPluginRuntime", () => {
     const indexSpy = vi.spyOn(runtime as never as {
       requestIndexRun: (reason: string, sessionKeys?: string[]) => Promise<unknown>;
     }, "requestIndexRun").mockResolvedValue({
-      l0Captured: 0,
-      l1Created: 0,
-      l2TimeUpdated: 0,
-      l2ProjectUpdated: 0,
-      profileUpdated: 0,
-      failed: 0,
+      capturedSessions: 0,
+      writtenFiles: 0,
+      writtenProjectFiles: 0,
+      writtenFeedbackFiles: 0,
+      userProfilesUpdated: 0,
+      failedSessions: 0,
     });
     const dreamSpy = vi.spyOn(runtime as never as {
       runDreamNow: (trigger: "manual" | "scheduled") => Promise<unknown>;
     }, "runDreamNow").mockResolvedValue({
-      prepFlush: { l0Captured: 0, l1Created: 0, l2TimeUpdated: 0, l2ProjectUpdated: 0, profileUpdated: 0, failed: 0 },
-      reviewedL1: 0,
+      prepFlush: {
+        capturedSessions: 0,
+        writtenFiles: 0,
+        writtenProjectFiles: 0,
+        writtenFeedbackFiles: 0,
+        userProfilesUpdated: 0,
+        failedSessions: 0,
+      },
+      reviewedFiles: 0,
       rewrittenProjects: 0,
       deletedProjects: 0,
+      deletedFiles: 0,
       profileUpdated: false,
       duplicateTopicCount: 0,
       conflictTopicCount: 0,
-      prunedProjectL1Refs: 0,
-      prunedProfileL1Refs: 0,
       summary: "noop",
       status: "skipped",
       trigger: "scheduled",
-      skipReason: "new_l1_below_threshold",
+      skipReason: "tmp_below_threshold",
     });
 
     runtime.start();
@@ -2176,7 +2152,7 @@ describe("MemoryPluginRuntime", () => {
     expect(indexSpy).toHaveBeenCalledWith("scheduled");
   });
 
-  it("runs the first scheduled Dream before a successful cutoff exists", async () => {
+  it("skips the first scheduled Dream when tmp entries stay below the threshold", async () => {
     const dir = await mkdtemp(join(tmpdir(), "clawxmemory-runtime-"));
     cleanupPaths.push(dir);
 
@@ -2192,12 +2168,12 @@ describe("MemoryPluginRuntime", () => {
     runtimes.push(runtime);
 
     const prepFlush = {
-      l0Captured: 0,
-      l1Created: 0,
-      l2TimeUpdated: 0,
-      l2ProjectUpdated: 0,
-      profileUpdated: 0,
-      failed: 0,
+      capturedSessions: 0,
+      writtenFiles: 0,
+      writtenProjectFiles: 0,
+      writtenFeedbackFiles: 0,
+      userProfilesUpdated: 0,
+      failedSessions: 0,
     };
     const indexer = (runtime as never as {
       indexer: { getSettings: () => Record<string, unknown> };
@@ -2205,19 +2181,18 @@ describe("MemoryPluginRuntime", () => {
     const currentSettings = indexer.getSettings();
     vi.spyOn(indexer, "getSettings").mockReturnValue({
       ...currentSettings,
-      autoDreamMinNewL1: 10,
+      autoDreamMinTmpEntries: 10,
     });
     const dreamSpy = vi.spyOn((runtime as never as {
       dreamRewriter: { run: () => Promise<unknown> };
     }).dreamRewriter, "run").mockResolvedValue({
-      reviewedL1: 1,
+      reviewedFiles: 1,
       rewrittenProjects: 1,
       deletedProjects: 0,
+      deletedFiles: 0,
       profileUpdated: true,
       duplicateTopicCount: 0,
       conflictTopicCount: 0,
-      prunedProjectL1Refs: 0,
-      prunedProfileL1Refs: 0,
       summary: "should not run",
     });
 
@@ -2225,13 +2200,14 @@ describe("MemoryPluginRuntime", () => {
       runDreamNow: (trigger: "scheduled") => Promise<Record<string, unknown>>;
     }).runDreamNow("scheduled");
 
-    expect(dreamSpy).toHaveBeenCalledTimes(1);
+    expect(dreamSpy).not.toHaveBeenCalled();
     expect(result).toMatchObject({
-      status: "success",
+      status: "skipped",
       trigger: "scheduled",
       prepFlush,
+      skipReason: "tmp_below_threshold",
     });
-    expect(runtime.repository.getPipelineState("lastDreamStatus")).toBe("success");
+    expect(runtime.repository.getPipelineState("lastDreamStatus")).toBe("skipped");
   });
 
   it("runs scheduled Dream after 10 changed memory files and records the latest successful cutoff", async () => {
@@ -2263,24 +2239,23 @@ describe("MemoryPluginRuntime", () => {
     }
 
     const prepFlush = {
-      l0Captured: 0,
-      l1Created: 0,
-      l2TimeUpdated: 0,
-      l2ProjectUpdated: 0,
-      profileUpdated: 0,
-      failed: 0,
+      capturedSessions: 0,
+      writtenFiles: 0,
+      writtenProjectFiles: 0,
+      writtenFeedbackFiles: 0,
+      userProfilesUpdated: 0,
+      failedSessions: 0,
     };
     const dreamSpy = vi.spyOn((runtime as never as {
       dreamRewriter: { run: () => Promise<unknown> };
     }).dreamRewriter, "run").mockResolvedValue({
-      reviewedL1: 10,
+      reviewedFiles: 10,
       rewrittenProjects: 2,
       deletedProjects: 1,
+      deletedFiles: 0,
       profileUpdated: true,
       duplicateTopicCount: 1,
       conflictTopicCount: 0,
-      prunedProjectL1Refs: 3,
-      prunedProfileL1Refs: 1,
       summary: "scheduled ok",
     });
 
@@ -2292,11 +2267,10 @@ describe("MemoryPluginRuntime", () => {
     expect(result).toMatchObject({
       status: "success",
       trigger: "scheduled",
-      reviewedL1: 10,
+      reviewedFiles: 10,
       rewrittenProjects: 2,
     });
     expect(runtime.repository.getPipelineState("lastDreamStatus")).toBe("success");
-    expect(runtime.repository.getPipelineState("lastDreamL1EndedAt")).toBeTruthy();
   });
 
   it("does not apply the auto Dream threshold to manual Dream runs", async () => {
@@ -2314,40 +2288,32 @@ describe("MemoryPluginRuntime", () => {
     });
     runtimes.push(runtime);
 
-    runtime.repository.insertL1Window({
-      l1IndexId: "l1-only",
-      sessionKey: "session-only",
-      timePeriod: "2026-04-01",
-      startedAt: "2026-04-01T00:00:00.000Z",
-      endedAt: "2026-04-01T00:05:00.000Z",
-      summary: "single l1",
-      facts: [],
-      situationTimeInfo: "",
-      projectTags: [],
-      projectDetails: [],
-      l0Source: [],
-      createdAt: "2026-04-01T00:05:00.000Z",
+    runtime.repository.getFileMemoryStore().upsertCandidate({
+      type: "feedback",
+      scope: "project",
+      name: "single-feedback",
+      description: "single feedback",
+      rule: "先说完成，再说风险。",
     });
 
     const prepFlush = {
-      l0Captured: 0,
-      l1Created: 0,
-      l2TimeUpdated: 0,
-      l2ProjectUpdated: 0,
-      profileUpdated: 0,
-      failed: 0,
+      capturedSessions: 0,
+      writtenFiles: 0,
+      writtenProjectFiles: 0,
+      writtenFeedbackFiles: 0,
+      userProfilesUpdated: 0,
+      failedSessions: 0,
     };
     const dreamSpy = vi.spyOn((runtime as never as {
       dreamRewriter: { run: () => Promise<unknown> };
     }).dreamRewriter, "run").mockResolvedValue({
-      reviewedL1: 1,
+      reviewedFiles: 1,
       rewrittenProjects: 1,
       deletedProjects: 0,
+      deletedFiles: 0,
       profileUpdated: true,
       duplicateTopicCount: 0,
       conflictTopicCount: 0,
-      prunedProjectL1Refs: 0,
-      prunedProfileL1Refs: 0,
       summary: "manual ok",
     });
 
@@ -2359,7 +2325,7 @@ describe("MemoryPluginRuntime", () => {
     expect(result).toMatchObject({
       status: "success",
       trigger: "manual",
-      reviewedL1: 1,
+      reviewedFiles: 1,
     });
   });
 });

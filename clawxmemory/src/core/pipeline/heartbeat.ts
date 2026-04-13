@@ -36,12 +36,12 @@ export interface HeartbeatRunOptions {
 }
 
 export interface HeartbeatStats {
-  l0Captured: number;
-  l1Created: number;
-  l2TimeUpdated: number;
-  l2ProjectUpdated: number;
-  profileUpdated: number;
-  failed: number;
+  capturedSessions: number;
+  writtenFiles: number;
+  writtenProjectFiles: number;
+  writtenFeedbackFiles: number;
+  userProfilesUpdated: number;
+  failedSessions: number;
 }
 
 function sameMessage(left: MemoryMessage | undefined, right: MemoryMessage | undefined): boolean {
@@ -61,12 +61,12 @@ function hasNewContent(previous: MemoryMessage[], incoming: MemoryMessage[]): bo
 
 function emptyStats(): HeartbeatStats {
   return {
-    l0Captured: 0,
-    l1Created: 0,
-    l2TimeUpdated: 0,
-    l2ProjectUpdated: 0,
-    profileUpdated: 0,
-    failed: 0,
+    capturedSessions: 0,
+    writtenFiles: 0,
+    writtenProjectFiles: 0,
+    writtenFeedbackFiles: 0,
+    userProfilesUpdated: 0,
+    failedSessions: 0,
   };
 }
 
@@ -337,7 +337,7 @@ export class HeartbeatIndexer {
           const focusUserTurns = session.messages.filter((message) => message.role === "user");
           if (focusUserTurns.length === 0) {
             processedIds.push(session.l0IndexId);
-            stats.l0Captured += 1;
+            stats.capturedSessions += 1;
             continue;
           }
 
@@ -487,10 +487,9 @@ export class HeartbeatIndexer {
                 relativePath: record.relativePath,
                 storageKind: inferStorageKind(record),
               });
-              stats.l1Created += 1;
-              if (candidate.type === "project" || candidate.type === "feedback") {
-                stats.l2ProjectUpdated += 1;
-              }
+              stats.writtenFiles += 1;
+              if (candidate.type === "project") stats.writtenProjectFiles += 1;
+              if (candidate.type === "feedback") stats.writtenFeedbackFiles += 1;
             }
             createStep(
               trace,
@@ -519,11 +518,11 @@ export class HeartbeatIndexer {
             userCandidates.push(...batchUserCandidates);
           }
           processedIds.push(session.l0IndexId);
-          stats.l0Captured += 1;
+          stats.capturedSessions += 1;
           this.repository.setPipelineState(LAST_INDEXED_AT_STATE_KEY, session.timestamp);
           this.repository.setPipelineState(`lastIndexedCursor:${session.sessionKey}`, session.timestamp);
         } catch (error) {
-          stats.failed += 1;
+          stats.failedSessions += 1;
           sessionHadError = true;
           createStep(
             trace,
@@ -564,8 +563,7 @@ export class HeartbeatIndexer {
               relativePath: record.relativePath,
               storageKind: inferStorageKind(record),
             });
-            stats.l1Created += 1;
-            stats.profileUpdated += 1;
+            stats.userProfilesUpdated += 1;
             createStep(
               trace,
               "user_profile_rewritten",
@@ -599,7 +597,7 @@ export class HeartbeatIndexer {
             );
           }
         } catch (error) {
-          stats.failed += 1;
+          stats.failedSessions += 1;
           sessionHadError = true;
           createStep(
             trace,

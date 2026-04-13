@@ -1,55 +1,36 @@
 import { mkdirSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type {
-  ActiveTopicBufferRecord,
-  CaseTraceRecord,
-  DashboardOverview,
-  DreamTraceRecord,
-  DreamTraceStepKind,
-  DreamPipelineStatus,
-  FactCandidate,
-  GlobalProfileRecord,
-  IndexTraceRecord,
-  IndexTraceStepKind,
-  IndexingSettings,
-  IndexLinkRecord,
-  LegacyMemoryExportBundle,
-  L0SessionRecord,
-  L1SearchResult,
-  L1WindowRecord,
-  L2ProjectIndexRecord,
-  L2SearchResult,
-  L2TimeIndexRecord,
-  MemoryFileExportRecord,
-  MemoryMessage,
-  MemoryExportBundle,
-  MemoryImportableBundle,
-  MemoryFileRecord,
-  MemoryManifestEntry,
-  MemoryImportResult,
-  ProjectMetaExportRecord,
-  MemoryTransferCounts,
-  MemoryUiSnapshot,
-  ProjectStatus,
-  RetrievalPromptDebug,
-  RetrievalTraceDetail,
+import {
+  type CaseTraceRecord,
+  type DashboardOverview,
+  type DreamPipelineStatus,
+  type DreamTraceRecord,
+  type IndexTraceRecord,
+  type IndexingSettings,
+  type L0SessionRecord,
+  MEMORY_EXPORT_FORMAT_VERSION,
+  type MemoryExportBundle,
+  type MemoryFileExportRecord,
+  type MemoryFileRecord,
+  type MemoryImportResult,
+  type MemoryImportableBundle,
+  type MemoryManifestEntry,
+  type MemoryMessage,
+  type MemoryTransferCounts,
+  type MemoryUiSnapshot,
+  type ProjectMetaExportRecord,
 } from "../types.js";
-import { LEGACY_MEMORY_EXPORT_FORMAT_VERSION, MEMORY_EXPORT_FORMAT_VERSION } from "../types.js";
 import { FileMemoryStore } from "../file-memory.js";
-import { buildLinkId, hashText, nowIso } from "../utils/id.js";
-import { safeJsonParse, scoreMatch, truncate } from "../utils/text.js";
+import { nowIso } from "../utils/id.js";
 
 type DbRow = Record<string, unknown>;
-type SearchIdHit = { id: string; score: number };
 
-const GLOBAL_PROFILE_RECORD_ID = "global_profile_record" as const;
 const INDEXING_SETTINGS_STATE_KEY = "indexingSettings" as const;
 const LAST_INDEXED_AT_STATE_KEY = "lastIndexedAt" as const;
 const LAST_DREAM_AT_STATE_KEY = "lastDreamAt" as const;
 const LAST_DREAM_STATUS_STATE_KEY = "lastDreamStatus" as const;
 const LAST_DREAM_SUMMARY_STATE_KEY = "lastDreamSummary" as const;
-const LAST_DREAM_L1_ENDED_AT_STATE_KEY = "lastDreamL1EndedAt" as const;
 const RECENT_CASE_TRACES_STATE_KEY = "recentCaseTraces" as const;
 const RECENT_INDEX_TRACES_STATE_KEY = "recentIndexTraces" as const;
 const RECENT_DREAM_TRACES_STATE_KEY = "recentDreamTraces" as const;
@@ -63,14 +44,10 @@ export class MemoryBundleValidationError extends Error {
 
 export interface ClearMemoryResult {
   cleared: {
-    l0: number;
-    l1: number;
-    l2Time: number;
-    l2Project: number;
-    profile: number;
-    activeTopics: number;
-    links: number;
+    l0Sessions: number;
     pipelineState: number;
+    memoryFiles: number;
+    projectMetas: number;
   };
   clearedAt: string;
 }
@@ -83,453 +60,123 @@ export interface RepairMemoryResult {
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function parseCaseTraceRecord(value: unknown): CaseTraceRecord | null {
-  if (!isRecord(value)) return null;
-  if (typeof value.caseId !== "string" || !value.caseId.trim()) return null;
-  if (typeof value.sessionKey !== "string") return null;
-  if (typeof value.query !== "string") return null;
-  if (typeof value.startedAt !== "string" || !value.startedAt.trim()) return null;
-  const status = (typeof value.status === "string" ? value.status : "running") as CaseTraceRecord["status"];
-  if (!["running", "completed", "interrupted", "error"].includes(status)) return null;
-  let retrieval: CaseTraceRecord["retrieval"];
-  if (isRecord(value.retrieval)) {
-    const next: NonNullable<CaseTraceRecord["retrieval"]> = {
-      injected: Boolean(value.retrieval.injected),
-      contextPreview: typeof value.retrieval.contextPreview === "string" ? value.retrieval.contextPreview : "",
-      evidenceNotePreview: typeof value.retrieval.evidenceNotePreview === "string" ? value.retrieval.evidenceNotePreview : "",
-      pathSummary: typeof value.retrieval.pathSummary === "string" ? value.retrieval.pathSummary : "",
-      trace: value.retrieval.trace && typeof value.retrieval.trace === "object"
-        ? value.retrieval.trace as NonNullable<CaseTraceRecord["retrieval"]>["trace"]
-        : null,
-    };
-    if (typeof value.retrieval.intent === "string") {
-      next.intent = value.retrieval.intent as CaseTraceRecord["retrieval"] extends infer Retrieval
-        ? Retrieval extends { intent?: infer Intent }
-          ? Intent
-          : never
-        : never;
-    }
-    if (typeof value.retrieval.enoughAt === "string") {
-      next.enoughAt = value.retrieval.enoughAt as "profile" | "l2" | "l1" | "l0" | "none";
-    }
-    retrieval = next;
+function parseJson<T>(raw: string, fallback: T): T {
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
   }
+}
+
+function normalizeString(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function normalizeMessages(value: unknown): MemoryMessage[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is Record<string, unknown> => isRecord(item))
+    .map((item) => ({
+      ...(typeof item.msgId === "string" && item.msgId.trim() ? { msgId: item.msgId } : {}),
+      role: typeof item.role === "string" && item.role.trim() ? item.role : "user",
+      content: typeof item.content === "string" ? item.content : "",
+    }));
+}
+
+function normalizeL0Row(row: DbRow): L0SessionRecord {
   return {
-    caseId: value.caseId,
-    sessionKey: value.sessionKey,
-    query: value.query,
-    startedAt: value.startedAt,
-    ...(typeof value.finishedAt === "string" && value.finishedAt.trim() ? { finishedAt: value.finishedAt } : {}),
-    status,
-    ...(retrieval ? { retrieval } : {}),
-    toolEvents: Array.isArray(value.toolEvents) ? value.toolEvents as CaseTraceRecord["toolEvents"] : [],
-    assistantReply: typeof value.assistantReply === "string" ? value.assistantReply : "",
+    l0IndexId: String(row.l0_index_id),
+    sessionKey: String(row.session_key),
+    timestamp: String(row.timestamp),
+    messages: normalizeMessages(parseJson(String(row.messages_json ?? "[]"), [])),
+    source: String(row.source ?? ""),
+    indexed: Boolean(row.indexed),
+    createdAt: String(row.created_at),
   };
 }
 
-function isIndexTraceStepKind(value: string): value is IndexTraceStepKind {
-  return [
-    "index_start",
-    "batch_loaded",
-    "focus_turns_selected",
-    "turn_classified",
-    "candidate_validated",
-    "candidate_grouped",
-    "candidate_persisted",
-    "user_profile_rewritten",
-    "index_finished",
-  ].includes(value);
-}
-
-function isDreamTraceStepKind(value: string): value is DreamTraceStepKind {
-  return [
-    "dream_start",
-    "snapshot_loaded",
-    "global_plan_generated",
-    "global_plan_validated",
-    "project_rewrite_generated",
-    "project_mutations_applied",
-    "user_profile_rewritten",
-    "manifests_repaired",
-    "dream_finished",
-  ].includes(value);
-}
-
-function parseIndexTraceRecord(value: unknown): IndexTraceRecord | null {
-  if (!isRecord(value)) return null;
-  if (typeof value.indexTraceId !== "string" || !value.indexTraceId.trim()) return null;
-  if (typeof value.sessionKey !== "string" || !value.sessionKey.trim()) return null;
-  if (typeof value.startedAt !== "string" || !value.startedAt.trim()) return null;
-  if (!isRecord(value.batchSummary)) return null;
-  const trigger = typeof value.trigger === "string" ? value.trigger : "";
-  if (!["explicit_remember", "manual_sync", "scheduled"].includes(trigger)) return null;
-  const status = typeof value.status === "string" ? value.status : "";
-  if (!["running", "completed", "error"].includes(status)) return null;
-  const batchSummary = {
-    l0Ids: Array.isArray(value.batchSummary.l0Ids)
-      ? value.batchSummary.l0Ids.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
-      : [],
-    segmentCount: typeof value.batchSummary.segmentCount === "number" && Number.isFinite(value.batchSummary.segmentCount)
-      ? Math.max(0, Math.floor(value.batchSummary.segmentCount))
-      : 0,
-    focusUserTurnCount: typeof value.batchSummary.focusUserTurnCount === "number" && Number.isFinite(value.batchSummary.focusUserTurnCount)
-      ? Math.max(0, Math.floor(value.batchSummary.focusUserTurnCount))
-      : 0,
-    fromTimestamp: typeof value.batchSummary.fromTimestamp === "string" ? value.batchSummary.fromTimestamp : "",
-    toTimestamp: typeof value.batchSummary.toTimestamp === "string" ? value.batchSummary.toTimestamp : "",
-  };
-  const steps = Array.isArray(value.steps)
-    ? value.steps
-        .map((step): IndexTraceRecord["steps"][number] | null => {
-          if (!isRecord(step)) return null;
-          if (typeof step.stepId !== "string" || !step.stepId.trim()) return null;
-          if (typeof step.kind !== "string" || !isIndexTraceStepKind(step.kind)) return null;
-          const stepStatus = typeof step.status === "string" ? step.status : "";
-          if (!["info", "success", "warning", "error", "skipped"].includes(stepStatus)) return null;
-          const nextStep: IndexTraceRecord["steps"][number] = {
-            stepId: step.stepId,
-            kind: step.kind,
-            title: typeof step.title === "string" ? step.title : step.kind,
-            status: stepStatus as IndexTraceRecord["steps"][number]["status"],
-            inputSummary: typeof step.inputSummary === "string" ? step.inputSummary : "",
-            outputSummary: typeof step.outputSummary === "string" ? step.outputSummary : "",
-          };
-          if (isRecord(step.refs)) {
-            nextStep.refs = step.refs;
-          }
-          if (isRecord(step.metrics)) {
-            nextStep.metrics = step.metrics;
-          }
-          if (Array.isArray(step.details)) {
-            nextStep.details = step.details as RetrievalTraceDetail[];
-          }
-          if (isRecord(step.promptDebug)) {
-            nextStep.promptDebug = step.promptDebug as unknown as RetrievalPromptDebug;
-          }
-          return nextStep;
-        })
-        .filter((step): step is IndexTraceRecord["steps"][number] => Boolean(step))
-    : [];
-  const storedResults = Array.isArray(value.storedResults)
-    ? value.storedResults
-        .map((item): IndexTraceRecord["storedResults"][number] | null => {
-          if (!isRecord(item)) return null;
-          if (typeof item.candidateType !== "string" || !["user", "feedback", "project"].includes(item.candidateType)) return null;
-          if (typeof item.candidateName !== "string") return null;
-          if (typeof item.scope !== "string" || !["global", "project"].includes(item.scope)) return null;
-          if (typeof item.relativePath !== "string" || !item.relativePath.trim()) return null;
-          if (typeof item.storageKind !== "string" || !["global_user", "tmp_project", "tmp_feedback", "formal_project", "formal_feedback"].includes(item.storageKind)) return null;
-          const candidateType = item.candidateType as IndexTraceRecord["storedResults"][number]["candidateType"];
-          const scope = item.scope as IndexTraceRecord["storedResults"][number]["scope"];
-          const storageKind = item.storageKind as IndexTraceRecord["storedResults"][number]["storageKind"];
-          return {
-            candidateType,
-            candidateName: item.candidateName,
-            scope,
-            ...(typeof item.projectId === "string" && item.projectId.trim() ? { projectId: item.projectId } : {}),
-            relativePath: item.relativePath,
-            storageKind,
-          };
-        })
-        .filter((item): item is IndexTraceRecord["storedResults"][number] => Boolean(item))
-    : [];
-  return {
-    indexTraceId: value.indexTraceId,
-    sessionKey: value.sessionKey,
-    trigger: trigger as IndexTraceRecord["trigger"],
-    startedAt: value.startedAt,
-    ...(typeof value.finishedAt === "string" && value.finishedAt.trim() ? { finishedAt: value.finishedAt } : {}),
-    status: status as IndexTraceRecord["status"],
-    batchSummary,
-    steps,
-    storedResults,
-  };
-}
-
-function parseDreamTraceRecord(value: unknown): DreamTraceRecord | null {
-  if (!isRecord(value)) return null;
-  if (typeof value.dreamTraceId !== "string" || !value.dreamTraceId.trim()) return null;
-  if (typeof value.startedAt !== "string" || !value.startedAt.trim()) return null;
-  const trigger = typeof value.trigger === "string" ? value.trigger : "";
-  if (!["manual", "scheduled"].includes(trigger)) return null;
-  const status = typeof value.status === "string" ? value.status : "";
-  if (!["running", "completed", "skipped", "error"].includes(status)) return null;
-  if (!isRecord(value.snapshotSummary)) return null;
-  if (!isRecord(value.outcome)) return null;
-  const snapshotSummary = {
-    formalProjectCount:
-      typeof value.snapshotSummary.formalProjectCount === "number" && Number.isFinite(value.snapshotSummary.formalProjectCount)
-        ? Math.max(0, Math.floor(value.snapshotSummary.formalProjectCount))
-        : 0,
-    tmpProjectCount:
-      typeof value.snapshotSummary.tmpProjectCount === "number" && Number.isFinite(value.snapshotSummary.tmpProjectCount)
-        ? Math.max(0, Math.floor(value.snapshotSummary.tmpProjectCount))
-        : 0,
-    tmpFeedbackCount:
-      typeof value.snapshotSummary.tmpFeedbackCount === "number" && Number.isFinite(value.snapshotSummary.tmpFeedbackCount)
-        ? Math.max(0, Math.floor(value.snapshotSummary.tmpFeedbackCount))
-        : 0,
-    formalProjectFileCount:
-      typeof value.snapshotSummary.formalProjectFileCount === "number" && Number.isFinite(value.snapshotSummary.formalProjectFileCount)
-        ? Math.max(0, Math.floor(value.snapshotSummary.formalProjectFileCount))
-        : 0,
-    formalFeedbackFileCount:
-      typeof value.snapshotSummary.formalFeedbackFileCount === "number" && Number.isFinite(value.snapshotSummary.formalFeedbackFileCount)
-        ? Math.max(0, Math.floor(value.snapshotSummary.formalFeedbackFileCount))
-        : 0,
-    hasUserProfile: Boolean(value.snapshotSummary.hasUserProfile),
-  };
-  const steps = Array.isArray(value.steps)
-    ? value.steps
-        .map((step): DreamTraceRecord["steps"][number] | null => {
-          if (!isRecord(step)) return null;
-          if (typeof step.stepId !== "string" || !step.stepId.trim()) return null;
-          if (typeof step.kind !== "string" || !isDreamTraceStepKind(step.kind)) return null;
-          const stepStatus = typeof step.status === "string" ? step.status : "";
-          if (!["info", "success", "warning", "error", "skipped"].includes(stepStatus)) return null;
-          const nextStep: DreamTraceRecord["steps"][number] = {
-            stepId: step.stepId,
-            kind: step.kind,
-            title: typeof step.title === "string" ? step.title : step.kind,
-            status: stepStatus as DreamTraceRecord["steps"][number]["status"],
-            inputSummary: typeof step.inputSummary === "string" ? step.inputSummary : "",
-            outputSummary: typeof step.outputSummary === "string" ? step.outputSummary : "",
-          };
-          if (isRecord(step.refs)) nextStep.refs = step.refs;
-          if (isRecord(step.metrics)) nextStep.metrics = step.metrics;
-          if (Array.isArray(step.details)) nextStep.details = step.details as RetrievalTraceDetail[];
-          if (isRecord(step.promptDebug)) nextStep.promptDebug = step.promptDebug as unknown as RetrievalPromptDebug;
-          return nextStep;
-        })
-        .filter((step): step is DreamTraceRecord["steps"][number] => Boolean(step))
-    : [];
-  const mutations = Array.isArray(value.mutations)
-    ? value.mutations
-        .map((item): DreamTraceRecord["mutations"][number] | null => {
-          if (!isRecord(item)) return null;
-          if (typeof item.mutationId !== "string" || !item.mutationId.trim()) return null;
-          if (typeof item.action !== "string" || !["write", "delete", "delete_project", "rewrite_user_profile"].includes(item.action)) return null;
-          const nextItem: DreamTraceRecord["mutations"][number] = {
-            mutationId: item.mutationId,
-            action: item.action as DreamTraceRecord["mutations"][number]["action"],
-          };
-          if (typeof item.relativePath === "string" && item.relativePath.trim()) nextItem.relativePath = item.relativePath;
-          if (typeof item.projectId === "string" && item.projectId.trim()) nextItem.projectId = item.projectId;
-          if (typeof item.projectName === "string" && item.projectName.trim()) nextItem.projectName = item.projectName;
-          if (typeof item.candidateType === "string" && ["user", "feedback", "project"].includes(item.candidateType)) {
-            nextItem.candidateType = item.candidateType as NonNullable<DreamTraceRecord["mutations"][number]["candidateType"]>;
-          }
-          if (typeof item.name === "string") nextItem.name = item.name;
-          if (typeof item.description === "string") nextItem.description = item.description;
-          if (typeof item.preview === "string") nextItem.preview = item.preview;
-          return nextItem;
-        })
-        .filter((item): item is DreamTraceRecord["mutations"][number] => Boolean(item))
-    : [];
-  const outcome = {
-    rewrittenProjects:
-      typeof value.outcome.rewrittenProjects === "number" && Number.isFinite(value.outcome.rewrittenProjects)
-        ? Math.max(0, Math.floor(value.outcome.rewrittenProjects))
-        : 0,
-    deletedProjects:
-      typeof value.outcome.deletedProjects === "number" && Number.isFinite(value.outcome.deletedProjects)
-        ? Math.max(0, Math.floor(value.outcome.deletedProjects))
-        : 0,
-    deletedFiles:
-      typeof value.outcome.deletedFiles === "number" && Number.isFinite(value.outcome.deletedFiles)
-        ? Math.max(0, Math.floor(value.outcome.deletedFiles))
-        : 0,
-    profileUpdated: Boolean(value.outcome.profileUpdated),
-    summary: typeof value.outcome.summary === "string" ? value.outcome.summary : "",
-  };
-  return {
-    dreamTraceId: value.dreamTraceId,
-    trigger: trigger as DreamTraceRecord["trigger"],
-    startedAt: value.startedAt,
-    ...(typeof value.finishedAt === "string" && value.finishedAt.trim() ? { finishedAt: value.finishedAt } : {}),
-    status: status as DreamTraceRecord["status"],
-    snapshotSummary,
-    steps,
-    mutations,
-    outcome,
-    ...(typeof value.skipReason === "string" && value.skipReason.trim() ? { skipReason: value.skipReason } : {}),
-  };
-}
-
-function requireString(value: unknown, field: string): string {
-  if (typeof value !== "string" || !value.trim()) {
-    throw new MemoryBundleValidationError(`Invalid ${field}`);
+function sanitizeTraceArray<T extends object>(
+  value: unknown,
+  key: keyof T & string,
+  sortKey: keyof T & string,
+): T[] {
+  if (!Array.isArray(value)) return [];
+  const sorted = value
+    .filter((item): item is T => {
+      if (!isRecord(item)) return false;
+      const keyed = item as Record<string, unknown>;
+      return typeof keyed[key] === "string" && typeof keyed[sortKey] === "string";
+    })
+    .sort((left, right) => {
+      const rightValue = (right as Record<string, unknown>)[sortKey];
+      const leftValue = (left as Record<string, unknown>)[sortKey];
+      return String(rightValue).localeCompare(String(leftValue));
+    });
+  const seen = new Set<string>();
+  const next: T[] = [];
+  for (const item of sorted) {
+    const id = String((item as Record<string, unknown>)[key]);
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    next.push(item);
   }
-  return value;
+  return next;
 }
 
-function readString(value: unknown, field: string): string {
-  if (typeof value !== "string") {
-    throw new MemoryBundleValidationError(`Invalid ${field}`);
-  }
-  return value;
+function sanitizeDreamStatus(value: unknown): DreamPipelineStatus | undefined {
+  return value === "running" || value === "success" || value === "skipped" || value === "failed"
+    ? value
+    : undefined;
 }
 
-function normalizeStringArray(value: unknown, field: string): string[] {
-  if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) {
-    throw new MemoryBundleValidationError(`Invalid ${field}`);
-  }
-  return value.map((item) => item.trim()).filter(Boolean);
+function clampInt(value: unknown, fallback: number, min: number, max: number): number {
+  const numeric = typeof value === "number"
+    ? value
+    : typeof value === "string" && value.trim()
+      ? Number.parseInt(value, 10)
+      : Number.NaN;
+  if (!Number.isFinite(numeric)) return fallback;
+  return Math.max(min, Math.min(max, Math.floor(numeric)));
 }
 
-function normalizeMessages(value: unknown, field: string): MemoryMessage[] {
-  if (!Array.isArray(value)) throw new MemoryBundleValidationError(`Invalid ${field}`);
-  return value.map((item, index) => {
-    if (!isRecord(item)) throw new MemoryBundleValidationError(`Invalid ${field}[${index}]`);
-    return {
-      ...(typeof item.msgId === "string" && item.msgId.trim() ? { msgId: item.msgId.trim() } : {}),
-      role: requireString(item.role, `${field}[${index}].role`),
-      content: requireString(item.content, `${field}[${index}].content`),
-    };
-  });
+function clampNonNegativeIntOrFallback(value: unknown, fallback: number, max: number): number {
+  const numeric = typeof value === "number"
+    ? value
+    : typeof value === "string" && value.trim()
+      ? Number.parseInt(value, 10)
+      : Number.NaN;
+  if (!Number.isFinite(numeric) || numeric < 0) return fallback;
+  return Math.min(max, Math.floor(numeric));
 }
 
-function normalizeL0Record(value: unknown, index: number): L0SessionRecord {
-  if (!isRecord(value)) throw new MemoryBundleValidationError(`Invalid l0Sessions[${index}]`);
+function sanitizeIndexingSettings(input: unknown, defaults: IndexingSettings): IndexingSettings {
+  const record = isRecord(input) ? input : {};
   return {
-    l0IndexId: requireString(value.l0IndexId, `l0Sessions[${index}].l0IndexId`),
-    sessionKey: requireString(value.sessionKey, `l0Sessions[${index}].sessionKey`),
-    timestamp: requireString(value.timestamp, `l0Sessions[${index}].timestamp`),
-    messages: normalizeMessages(value.messages, `l0Sessions[${index}].messages`),
-    source: requireString(value.source, `l0Sessions[${index}].source`),
-    indexed: Boolean(value.indexed),
-    createdAt: requireString(value.createdAt, `l0Sessions[${index}].createdAt`),
+    reasoningMode: record.reasoningMode === "accuracy_first" ? "accuracy_first" : defaults.reasoningMode,
+    recallTopK: clampInt(record.recallTopK, defaults.recallTopK, 1, 20),
+    autoIndexIntervalMinutes: clampInt(record.autoIndexIntervalMinutes, defaults.autoIndexIntervalMinutes, 0, 10_080),
+    autoDreamIntervalMinutes: clampInt(record.autoDreamIntervalMinutes, defaults.autoDreamIntervalMinutes, 0, 10_080),
+    autoDreamMinTmpEntries: clampInt(
+      record.autoDreamMinTmpEntries,
+      defaults.autoDreamMinTmpEntries,
+      0,
+      10_000,
+    ),
+    dreamProjectRebuildTimeoutMs: clampNonNegativeIntOrFallback(
+      record.dreamProjectRebuildTimeoutMs,
+      defaults.dreamProjectRebuildTimeoutMs,
+      3_600_000,
+    ),
   };
-}
-
-function normalizeFactCandidate(value: unknown, field: string): FactCandidate {
-  if (!isRecord(value)) throw new MemoryBundleValidationError(`Invalid ${field}`);
-  const confidence = typeof value.confidence === "number" && Number.isFinite(value.confidence)
-    ? value.confidence
-    : 0;
-  return {
-    factKey: requireString(value.factKey, `${field}.factKey`),
-    factValue: readString(value.factValue, `${field}.factValue`),
-    confidence,
-  };
-}
-
-function normalizeStoredProjectStatus(value: unknown): ProjectStatus {
-  if (typeof value !== "string") return "planned";
-  const normalized = value.trim().toLowerCase();
-  if (normalized === "planned") return "planned";
-  if (normalized === "in_progress" || normalized === "in progress") return "in_progress";
-  if (normalized === "blocked" || normalized === "on_hold" || normalized === "on hold") return "in_progress";
-  if (normalized === "unknown") return "planned";
-  if (normalized === "done" || normalized === "completed" || normalized === "complete") return "done";
-  return "planned";
-}
-
-function normalizeProjectDetail(value: unknown, field: string): L1WindowRecord["projectDetails"][number] {
-  if (!isRecord(value)) throw new MemoryBundleValidationError(`Invalid ${field}`);
-  const confidence = typeof value.confidence === "number" && Number.isFinite(value.confidence)
-    ? value.confidence
-    : 0;
-  return {
-    key: requireString(value.key, `${field}.key`),
-    name: readString(value.name, `${field}.name`),
-    status: normalizeStoredProjectStatus(requireString(value.status, `${field}.status`)),
-    summary: readString(value.summary, `${field}.summary`),
-    latestProgress: readString(value.latestProgress, `${field}.latestProgress`),
-    confidence,
-  };
-}
-
-function normalizeL1Record(value: unknown, index: number): L1WindowRecord {
-  if (!isRecord(value)) throw new MemoryBundleValidationError(`Invalid l1Windows[${index}]`);
-  return {
-    l1IndexId: requireString(value.l1IndexId, `l1Windows[${index}].l1IndexId`),
-    sessionKey: readString(value.sessionKey, `l1Windows[${index}].sessionKey`),
-    timePeriod: requireString(value.timePeriod, `l1Windows[${index}].timePeriod`),
-    startedAt: requireString(value.startedAt, `l1Windows[${index}].startedAt`),
-    endedAt: requireString(value.endedAt, `l1Windows[${index}].endedAt`),
-    summary: readString(value.summary, `l1Windows[${index}].summary`),
-    facts: Array.isArray(value.facts)
-      ? value.facts.map((item, factIndex) => normalizeFactCandidate(item, `l1Windows[${index}].facts[${factIndex}]`))
-      : (() => { throw new MemoryBundleValidationError(`Invalid l1Windows[${index}].facts`); })(),
-    situationTimeInfo: readString(value.situationTimeInfo, `l1Windows[${index}].situationTimeInfo`),
-    projectTags: normalizeStringArray(value.projectTags, `l1Windows[${index}].projectTags`),
-    projectDetails: Array.isArray(value.projectDetails)
-      ? value.projectDetails.map((item, projectIndex) => normalizeProjectDetail(item, `l1Windows[${index}].projectDetails[${projectIndex}]`))
-      : (() => { throw new MemoryBundleValidationError(`Invalid l1Windows[${index}].projectDetails`); })(),
-    l0Source: normalizeStringArray(value.l0Source, `l1Windows[${index}].l0Source`),
-    createdAt: requireString(value.createdAt, `l1Windows[${index}].createdAt`),
-  };
-}
-
-function normalizeL2TimeRecord(value: unknown, index: number): L2TimeIndexRecord {
-  if (!isRecord(value)) throw new MemoryBundleValidationError(`Invalid l2TimeIndexes[${index}]`);
-  return {
-    l2IndexId: requireString(value.l2IndexId, `l2TimeIndexes[${index}].l2IndexId`),
-    dateKey: requireString(value.dateKey, `l2TimeIndexes[${index}].dateKey`),
-    summary: readString(value.summary, `l2TimeIndexes[${index}].summary`),
-    l1Source: normalizeStringArray(value.l1Source, `l2TimeIndexes[${index}].l1Source`),
-    createdAt: requireString(value.createdAt, `l2TimeIndexes[${index}].createdAt`),
-    updatedAt: requireString(value.updatedAt, `l2TimeIndexes[${index}].updatedAt`),
-  };
-}
-
-function normalizeL2ProjectRecord(value: unknown, index: number): L2ProjectIndexRecord {
-  if (!isRecord(value)) throw new MemoryBundleValidationError(`Invalid l2ProjectIndexes[${index}]`);
-  return {
-    l2IndexId: requireString(value.l2IndexId, `l2ProjectIndexes[${index}].l2IndexId`),
-    projectKey: requireString(value.projectKey, `l2ProjectIndexes[${index}].projectKey`),
-    projectName: readString(value.projectName, `l2ProjectIndexes[${index}].projectName`),
-    summary: readString(value.summary, `l2ProjectIndexes[${index}].summary`),
-    currentStatus: normalizeStoredProjectStatus(requireString(value.currentStatus, `l2ProjectIndexes[${index}].currentStatus`)),
-    latestProgress: readString(value.latestProgress, `l2ProjectIndexes[${index}].latestProgress`),
-    l1Source: normalizeStringArray(value.l1Source, `l2ProjectIndexes[${index}].l1Source`),
-    createdAt: requireString(value.createdAt, `l2ProjectIndexes[${index}].createdAt`),
-    updatedAt: requireString(value.updatedAt, `l2ProjectIndexes[${index}].updatedAt`),
-  };
-}
-
-function normalizeGlobalProfile(value: unknown): GlobalProfileRecord {
-  if (!isRecord(value)) throw new MemoryBundleValidationError("Invalid globalProfile");
-  const recordId = requireString(value.recordId, "globalProfile.recordId");
-  if (recordId !== GLOBAL_PROFILE_RECORD_ID) {
-    throw new MemoryBundleValidationError("Invalid globalProfile.recordId");
-  }
-  return {
-    recordId: GLOBAL_PROFILE_RECORD_ID,
-    profileText: readString(value.profileText ?? "", "globalProfile.profileText"),
-    sourceL1Ids: normalizeStringArray(value.sourceL1Ids, "globalProfile.sourceL1Ids"),
-    createdAt: requireString(value.createdAt, "globalProfile.createdAt"),
-    updatedAt: requireString(value.updatedAt, "globalProfile.updatedAt"),
-  };
-}
-
-function normalizeIndexLink(value: unknown, index: number): IndexLinkRecord {
-  if (!isRecord(value)) throw new MemoryBundleValidationError(`Invalid indexLinks[${index}]`);
-  return {
-    linkId: requireString(value.linkId, `indexLinks[${index}].linkId`),
-    fromLevel: requireString(value.fromLevel, `indexLinks[${index}].fromLevel`) as IndexLinkRecord["fromLevel"],
-    fromId: requireString(value.fromId, `indexLinks[${index}].fromId`),
-    toLevel: requireString(value.toLevel, `indexLinks[${index}].toLevel`) as IndexLinkRecord["toLevel"],
-    toId: requireString(value.toId, `indexLinks[${index}].toId`),
-    createdAt: requireString(value.createdAt, `indexLinks[${index}].createdAt`),
-  };
-}
-
-function normalizeDreamPipelineStatus(value: unknown, field: string): DreamPipelineStatus {
-  if (value === "running" || value === "success" || value === "skipped" || value === "failed") {
-    return value;
-  }
-  throw new MemoryBundleValidationError(`Invalid ${field}`);
 }
 
 function normalizeMemoryFileExportRecord(value: unknown, index: number): MemoryFileExportRecord {
   if (!isRecord(value)) throw new MemoryBundleValidationError(`Invalid memoryFiles[${index}]`);
-  const type = requireString(value.type, `memoryFiles[${index}].type`);
-  const scope = requireString(value.scope, `memoryFiles[${index}].scope`);
+  const type = value.type;
+  const scope = value.scope;
   if (type !== "user" && type !== "feedback" && type !== "project") {
     throw new MemoryBundleValidationError(`Invalid memoryFiles[${index}].type`);
   }
@@ -542,41 +189,58 @@ function normalizeMemoryFileExportRecord(value: unknown, index: number): MemoryF
   if ((type === "feedback" || type === "project") && scope !== "project") {
     throw new MemoryBundleValidationError(`Invalid memoryFiles[${index}] project scope`);
   }
+  const file = normalizeString(value.file).trim();
+  const relativePath = normalizeString(value.relativePath).trim();
+  if (!file || !relativePath) {
+    throw new MemoryBundleValidationError(`Invalid memoryFiles[${index}] path`);
+  }
   return {
-    name: requireString(value.name, `memoryFiles[${index}].name`),
-    description: readString(value.description ?? "", `memoryFiles[${index}].description`),
+    name: normalizeString(value.name).trim() || file,
+    description: normalizeString(value.description).trim(),
     type,
     scope,
     ...(typeof value.projectId === "string" && value.projectId.trim() ? { projectId: value.projectId.trim() } : {}),
-    updatedAt: requireString(value.updatedAt, `memoryFiles[${index}].updatedAt`),
-    ...(Boolean(value.deprecated) ? { deprecated: true } : {}),
-    ...(typeof value.dreamAttempts === "number" && Number.isFinite(value.dreamAttempts) && value.dreamAttempts > 0
-      ? { dreamAttempts: value.dreamAttempts }
+    updatedAt: normalizeString(value.updatedAt).trim() || nowIso(),
+    ...(typeof value.capturedAt === "string" && value.capturedAt.trim() ? { capturedAt: value.capturedAt.trim() } : {}),
+    ...(typeof value.sourceSessionKey === "string" && value.sourceSessionKey.trim()
+      ? { sourceSessionKey: value.sourceSessionKey.trim() }
       : {}),
-    file: requireString(value.file, `memoryFiles[${index}].file`),
-    relativePath: requireString(value.relativePath, `memoryFiles[${index}].relativePath`),
-    content: readString(value.content ?? "", `memoryFiles[${index}].content`),
+    ...(value.deprecated === true ? { deprecated: true } : {}),
+    ...(typeof value.dreamAttempts === "number" && Number.isFinite(value.dreamAttempts)
+      ? { dreamAttempts: Math.max(0, Math.floor(value.dreamAttempts)) }
+      : {}),
+    file,
+    relativePath,
+    content: normalizeString(value.content),
   };
 }
 
 function normalizeProjectMetaExportRecord(value: unknown, index: number): ProjectMetaExportRecord {
   if (!isRecord(value)) throw new MemoryBundleValidationError(`Invalid projectMetas[${index}]`);
+  const projectId = normalizeString(value.projectId).trim();
+  const projectName = normalizeString(value.projectName).trim();
+  const relativePath = normalizeString(value.relativePath).trim();
+  if (!projectId || !projectName || !relativePath) {
+    throw new MemoryBundleValidationError(`Invalid projectMetas[${index}]`);
+  }
   return {
-    projectId: requireString(value.projectId, `projectMetas[${index}].projectId`),
-    projectName: requireString(value.projectName, `projectMetas[${index}].projectName`),
-    description: readString(value.description ?? "", `projectMetas[${index}].description`),
-    aliases: normalizeStringArray(value.aliases ?? [], `projectMetas[${index}].aliases`),
-    status: readString(value.status ?? "active", `projectMetas[${index}].status`),
-    createdAt: requireString(value.createdAt, `projectMetas[${index}].createdAt`),
-    updatedAt: requireString(value.updatedAt, `projectMetas[${index}].updatedAt`),
+    projectId,
+    projectName,
+    description: normalizeString(value.description).trim() || projectName,
+    aliases: Array.isArray(value.aliases)
+      ? Array.from(new Set(value.aliases.filter((item): item is string => typeof item === "string" && item.trim().length > 0).map((item) => item.trim()))).slice(0, 50)
+      : [],
+    status: normalizeString(value.status).trim() || "active",
+    createdAt: normalizeString(value.createdAt).trim() || nowIso(),
+    updatedAt: normalizeString(value.updatedAt).trim() || nowIso(),
     ...(typeof value.dreamUpdatedAt === "string" && value.dreamUpdatedAt.trim()
       ? { dreamUpdatedAt: value.dreamUpdatedAt.trim() }
       : {}),
-    relativePath: requireString(value.relativePath, `projectMetas[${index}].relativePath`),
+    relativePath,
   };
 }
 
-function normalizeFileMemoryExportBundle(value: unknown): MemoryExportBundle {
+function normalizeMemoryBundle(value: unknown): MemoryImportableBundle {
   if (!isRecord(value)) throw new MemoryBundleValidationError("Invalid memory bundle");
   if (value.formatVersion !== MEMORY_EXPORT_FORMAT_VERSION) {
     throw new MemoryBundleValidationError("Unsupported memory bundle formatVersion");
@@ -584,260 +248,86 @@ function normalizeFileMemoryExportBundle(value: unknown): MemoryExportBundle {
   if (!Array.isArray(value.projectMetas) || !Array.isArray(value.memoryFiles)) {
     throw new MemoryBundleValidationError("Invalid file memory bundle collections");
   }
-  return {
+  const bundle: MemoryImportableBundle = {
     formatVersion: MEMORY_EXPORT_FORMAT_VERSION,
-    exportedAt: requireString(value.exportedAt, "exportedAt"),
-    ...(typeof value.lastIndexedAt === "string" && value.lastIndexedAt.trim() ? { lastIndexedAt: value.lastIndexedAt } : {}),
-    ...(typeof value.lastDreamAt === "string" && value.lastDreamAt.trim() ? { lastDreamAt: value.lastDreamAt } : {}),
-    ...(typeof value.lastDreamStatus === "string"
-      ? { lastDreamStatus: normalizeDreamPipelineStatus(value.lastDreamStatus, "lastDreamStatus") }
-      : {}),
-    ...(typeof value.lastDreamSummary === "string" ? { lastDreamSummary: value.lastDreamSummary } : {}),
+    exportedAt: normalizeString(value.exportedAt).trim() || nowIso(),
     projectMetas: value.projectMetas.map((item, index) => normalizeProjectMetaExportRecord(item, index)),
     memoryFiles: value.memoryFiles.map((item, index) => normalizeMemoryFileExportRecord(item, index)),
+    ...(typeof value.lastIndexedAt === "string" && value.lastIndexedAt.trim() ? { lastIndexedAt: value.lastIndexedAt.trim() } : {}),
+    ...(typeof value.lastDreamAt === "string" && value.lastDreamAt.trim() ? { lastDreamAt: value.lastDreamAt.trim() } : {}),
+    ...(sanitizeDreamStatus(value.lastDreamStatus) ? { lastDreamStatus: sanitizeDreamStatus(value.lastDreamStatus)! } : {}),
+    ...(typeof value.lastDreamSummary === "string" && value.lastDreamSummary.trim()
+      ? { lastDreamSummary: value.lastDreamSummary.trim() }
+      : {}),
   };
-}
-
-function normalizeLegacyMemoryExportBundle(value: unknown): LegacyMemoryExportBundle {
-  if (!isRecord(value)) throw new MemoryBundleValidationError("Invalid memory bundle");
-  if (value.formatVersion !== LEGACY_MEMORY_EXPORT_FORMAT_VERSION) {
-    throw new MemoryBundleValidationError("Unsupported memory bundle formatVersion");
-  }
-  if (!Array.isArray(value.l0Sessions) || !Array.isArray(value.l1Windows) || !Array.isArray(value.l2TimeIndexes)
-    || !Array.isArray(value.l2ProjectIndexes) || !Array.isArray(value.indexLinks)) {
-    throw new MemoryBundleValidationError("Invalid memory bundle collections");
-  }
-  return {
-    formatVersion: LEGACY_MEMORY_EXPORT_FORMAT_VERSION,
-    exportedAt: requireString(value.exportedAt, "exportedAt"),
-    ...(typeof value.lastIndexedAt === "string" && value.lastIndexedAt.trim() ? { lastIndexedAt: value.lastIndexedAt } : {}),
-    l0Sessions: value.l0Sessions.map((item, index) => normalizeL0Record(item, index)),
-    l1Windows: value.l1Windows.map((item, index) => normalizeL1Record(item, index)),
-    l2TimeIndexes: value.l2TimeIndexes.map((item, index) => normalizeL2TimeRecord(item, index)),
-    l2ProjectIndexes: value.l2ProjectIndexes.map((item, index) => normalizeL2ProjectRecord(item, index)),
-    globalProfile: normalizeGlobalProfile(value.globalProfile),
-    indexLinks: value.indexLinks.map((item, index) => normalizeIndexLink(item, index)),
-  };
-}
-
-function normalizeImportableBundle(value: unknown): MemoryImportableBundle {
-  if (!isRecord(value) || typeof value.formatVersion !== "string") {
-    throw new MemoryBundleValidationError("Invalid memory bundle");
-  }
-  if (value.formatVersion === MEMORY_EXPORT_FORMAT_VERSION) {
-    return normalizeFileMemoryExportBundle(value);
-  }
-  if (value.formatVersion === LEGACY_MEMORY_EXPORT_FORMAT_VERSION) {
-    return normalizeLegacyMemoryExportBundle(value);
-  }
-  throw new MemoryBundleValidationError("Unsupported memory bundle formatVersion");
-}
-
-function parseL0Row(row: DbRow): L0SessionRecord {
-  return {
-    l0IndexId: String(row.l0_index_id),
-    sessionKey: String(row.session_key),
-    timestamp: String(row.timestamp),
-    messages: safeJsonParse(String(row.messages_json ?? "[]"), []),
-    source: String(row.source ?? "openclaw"),
-    indexed: Number(row.indexed ?? 0) === 1,
-    createdAt: String(row.created_at),
-  };
-}
-
-function parseActiveTopicBufferRow(row: DbRow): ActiveTopicBufferRecord {
-  return {
-    sessionKey: String(row.session_key),
-    startedAt: String(row.started_at),
-    updatedAt: String(row.updated_at),
-    topicSummary: String(row.topic_summary ?? ""),
-    userTurns: safeJsonParse(String(row.user_turns_json ?? "[]"), []),
-    l0Ids: safeJsonParse(String(row.l0_ids_json ?? "[]"), []),
-    lastL0Id: String(row.last_l0_id ?? ""),
-    createdAt: String(row.created_at),
-  };
-}
-
-function parseL1Row(row: DbRow): L1WindowRecord {
-  const rawProjectDetails = safeJsonParse(String(row.project_details_json ?? "[]"), []);
-  return {
-    l1IndexId: String(row.l1_index_id),
-    sessionKey: String(row.session_key ?? ""),
-    timePeriod: String(row.time_period),
-    startedAt: String(row.started_at ?? row.created_at),
-    endedAt: String(row.ended_at ?? row.created_at),
-    summary: String(row.summary),
-    facts: safeJsonParse(String(row.facts_json ?? "[]"), []),
-    situationTimeInfo: String(row.situation_time_info ?? ""),
-    projectTags: safeJsonParse(String(row.project_tags_json ?? "[]"), []),
-    projectDetails: Array.isArray(rawProjectDetails)
-      ? rawProjectDetails.map((item, index) => normalizeProjectDetail(item, `l1.projectDetails[${index}]`))
-      : [],
-    l0Source: safeJsonParse(String(row.l0_source_json ?? "[]"), []),
-    createdAt: String(row.created_at),
-  };
-}
-
-function parseL2TimeRow(row: DbRow): L2TimeIndexRecord {
-  return {
-    l2IndexId: String(row.l2_index_id),
-    dateKey: String(row.date_key),
-    summary: String(row.summary),
-    l1Source: safeJsonParse(String(row.l1_source_json ?? "[]"), []),
-    createdAt: String(row.created_at),
-    updatedAt: String(row.updated_at),
-  };
-}
-
-function parseL2ProjectRow(row: DbRow): L2ProjectIndexRecord {
-  return {
-    l2IndexId: String(row.l2_index_id),
-    projectKey: String(row.project_key ?? row.project_name),
-    projectName: String(row.project_name),
-    summary: String(row.summary),
-    currentStatus: normalizeStoredProjectStatus(row.current_status),
-    latestProgress: String(row.latest_progress),
-    l1Source: safeJsonParse(String(row.l1_source_json ?? "[]"), []),
-    createdAt: String(row.created_at),
-    updatedAt: String(row.updated_at),
-  };
-}
-
-function parseGlobalProfileRow(row: DbRow): GlobalProfileRecord {
-  return {
-    recordId: GLOBAL_PROFILE_RECORD_ID,
-    profileText: String(row.profile_text ?? ""),
-    sourceL1Ids: safeJsonParse(String(row.source_l1_ids_json ?? "[]"), []),
-    createdAt: String(row.created_at),
-    updatedAt: String(row.updated_at),
-  };
-}
-
-function parseIndexLinkRow(row: DbRow): IndexLinkRecord {
-  return {
-    linkId: String(row.link_id),
-    fromLevel: String(row.from_level) as IndexLinkRecord["fromLevel"],
-    fromId: String(row.from_id),
-    toLevel: String(row.to_level) as IndexLinkRecord["toLevel"],
-    toId: String(row.to_id),
-    createdAt: String(row.created_at),
-  };
-}
-
-function mergeSourceIds(existing: string[], incoming: string[]): string[] {
-  return Array.from(new Set([...existing, ...incoming]));
-}
-
-function tokenizeQuery(query: string): string[] {
-  const trimmed = query.trim();
-  if (!trimmed) return [];
-  const tokens = new Set<string>();
-  tokens.add(trimmed);
-  for (const token of trimmed.split(/[\s,.;:!?，。！？、]+/g)) {
-    const cleaned = token.trim();
-    if (cleaned.length >= 2) tokens.add(cleaned);
-  }
-  return Array.from(tokens);
-}
-
-function computeTokenScore(query: string, candidates: string[]): number {
-  const tokens = tokenizeQuery(query);
-  if (tokens.length === 0) return 1;
-  let best = 0;
-  for (const text of candidates) {
-    for (const token of tokens) {
-      best = Math.max(best, scoreMatch(token, text));
-    }
-  }
-  return best;
-}
-
-function buildSearchableMessageText(messages: MemoryMessage[]): string {
-  return messages
-    .map((message) => `${message.role}: ${message.content}`)
-    .join("\n");
-}
-
-function normalizeIndexingSettings(
-  input: Partial<IndexingSettings> | undefined,
-  defaults: IndexingSettings,
-): IndexingSettings {
-  const legacy = input as Record<string, unknown> | undefined;
-  const resolveNonNegativeIntOrDefault = (value: unknown, fallback: number): number => {
-    if (typeof value === "number" && Number.isFinite(value) && value >= 0) return Math.floor(value);
-    if (typeof value === "string" && value.trim()) {
-      const parsed = Number.parseInt(value, 10);
-      if (Number.isFinite(parsed) && parsed >= 0) return parsed;
-    }
-    return fallback;
-  };
-  const reasoningMode = input?.reasoningMode === "accuracy_first" ? "accuracy_first" : "answer_first";
-  const rawTopK = typeof input?.recallTopK === "number" && Number.isFinite(input.recallTopK)
-    ? input.recallTopK
-    : typeof legacy?.recallTopK === "number" && Number.isFinite(legacy.recallTopK)
-      ? legacy.recallTopK
-      : typeof legacy?.recallTopK === "string" && legacy.recallTopK.trim()
-        ? Number.parseInt(legacy.recallTopK, 10)
-        : typeof legacy?.maxAutoReplyLatencyMs === "number" && Number.isFinite(legacy.maxAutoReplyLatencyMs)
-          ? Math.max(1, Math.min(50, Math.round(legacy.maxAutoReplyLatencyMs / 180)))
-          : typeof legacy?.recallBudgetMs === "number" && Number.isFinite(legacy.recallBudgetMs)
-            ? Math.max(1, Math.min(50, Math.round(legacy.recallBudgetMs / 180)))
-            : defaults.recallTopK;
-  const rawAutoIndexIntervalMinutes = typeof input?.autoIndexIntervalMinutes === "number"
-    && Number.isFinite(input.autoIndexIntervalMinutes)
-    ? input.autoIndexIntervalMinutes
-    : typeof legacy?.autoIndexIntervalMinutes === "number" && Number.isFinite(legacy.autoIndexIntervalMinutes)
-      ? legacy.autoIndexIntervalMinutes
-      : typeof legacy?.autoIndexIntervalMinutes === "string" && legacy.autoIndexIntervalMinutes.trim()
-        ? Number.parseInt(legacy.autoIndexIntervalMinutes, 10)
-        : defaults.autoIndexIntervalMinutes;
-  const rawAutoDreamIntervalMinutes = typeof input?.autoDreamIntervalMinutes === "number"
-    && Number.isFinite(input.autoDreamIntervalMinutes)
-    ? input.autoDreamIntervalMinutes
-    : typeof legacy?.autoDreamIntervalMinutes === "number" && Number.isFinite(legacy.autoDreamIntervalMinutes)
-      ? legacy.autoDreamIntervalMinutes
-      : typeof legacy?.autoDreamIntervalMinutes === "string" && legacy.autoDreamIntervalMinutes.trim()
-        ? Number.parseInt(legacy.autoDreamIntervalMinutes, 10)
-        : defaults.autoDreamIntervalMinutes;
-  const rawAutoDreamMinNewL1 = typeof input?.autoDreamMinNewL1 === "number"
-    && Number.isFinite(input.autoDreamMinNewL1)
-    ? input.autoDreamMinNewL1
-    : typeof legacy?.autoDreamMinNewL1 === "number" && Number.isFinite(legacy.autoDreamMinNewL1)
-      ? legacy.autoDreamMinNewL1
-      : typeof legacy?.autoDreamMinNewL1 === "string" && legacy.autoDreamMinNewL1.trim()
-        ? Number.parseInt(legacy.autoDreamMinNewL1, 10)
-        : defaults.autoDreamMinNewL1;
-  const rawDreamProjectRebuildTimeoutMs = input?.dreamProjectRebuildTimeoutMs;
-  return {
-    reasoningMode,
-    recallTopK: Math.max(1, Math.min(50, Math.floor(rawTopK))),
-    autoIndexIntervalMinutes: Math.max(0, Math.floor(rawAutoIndexIntervalMinutes)),
-    autoDreamIntervalMinutes: Math.max(0, Math.floor(rawAutoDreamIntervalMinutes)),
-    autoDreamMinNewL1: Math.max(0, Math.floor(rawAutoDreamMinNewL1)),
-    dreamProjectRebuildTimeoutMs: resolveNonNegativeIntOrDefault(
-      rawDreamProjectRebuildTimeoutMs
-        ?? legacy?.dreamProjectRebuildTimeoutMs,
-      defaults.dreamProjectRebuildTimeoutMs,
-    ),
-  };
+  return bundle;
 }
 
 export class MemoryRepository {
   private readonly db: DatabaseSync;
   private readonly fileMemory: FileMemoryStore;
-  private ftsEnabled = false;
 
   constructor(
-    private readonly dbPath: string,
-    options: { memoryDir?: string } = {},
+    dbPath: string,
+    options: {
+      memoryDir?: string;
+    } = {},
   ) {
     mkdirSync(dirname(dbPath), { recursive: true });
+    const memoryDir = options.memoryDir ?? join(dirname(dbPath), "memory");
+    mkdirSync(memoryDir, { recursive: true });
     this.db = new DatabaseSync(dbPath);
-    this.fileMemory = new FileMemoryStore(options.memoryDir ?? dirname(dbPath));
-    this.db.exec("PRAGMA journal_mode = WAL;");
-    this.db.exec("PRAGMA synchronous = NORMAL;");
-    this.db.exec("PRAGMA temp_store = MEMORY;");
-    this.migrate();
+    this.fileMemory = new FileMemoryStore(memoryDir);
+    this.init();
+  }
+
+  private init(): void {
+    this.db.exec(`
+      PRAGMA journal_mode = WAL;
+      CREATE TABLE IF NOT EXISTS l0_sessions (
+        l0_index_id TEXT PRIMARY KEY,
+        session_key TEXT NOT NULL,
+        timestamp TEXT NOT NULL,
+        messages_json TEXT NOT NULL,
+        source TEXT NOT NULL,
+        indexed INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_l0_sessions_session ON l0_sessions(session_key);
+      CREATE INDEX IF NOT EXISTS idx_l0_sessions_pending ON l0_sessions(indexed, timestamp);
+      CREATE TABLE IF NOT EXISTS pipeline_state (
+        state_key TEXT PRIMARY KEY,
+        state_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `);
+    this.migratePipelineStateTable();
+  }
+
+  private migratePipelineStateTable(): void {
+    const columns = this.db.prepare("PRAGMA table_info(pipeline_state)").all() as DbRow[];
+    const columnNames = new Set(
+      columns
+        .map((column) => String(column.name ?? "").trim())
+        .filter(Boolean),
+    );
+    if (columnNames.has("state_json") && !columnNames.has("state_value")) return;
+    if (!columnNames.has("state_json") && !columnNames.has("state_value")) return;
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS pipeline_state_v2 (
+        state_key TEXT PRIMARY KEY,
+        state_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      INSERT INTO pipeline_state_v2 (state_key, state_json, updated_at)
+      SELECT
+        state_key,
+        COALESCE(state_json, state_value),
+        updated_at
+      FROM pipeline_state;
+      DROP TABLE pipeline_state;
+      ALTER TABLE pipeline_state_v2 RENAME TO pipeline_state;
+    `);
   }
 
   close(): void {
@@ -848,1110 +338,291 @@ export class MemoryRepository {
     return this.fileMemory;
   }
 
-  private buildFileTransferCounts(
-    memoryFiles: readonly Pick<MemoryFileExportRecord, "type" | "projectId">[],
-    projectMetas: readonly ProjectMetaExportRecord[],
-    legacy: Partial<MemoryTransferCounts> = {},
-  ): MemoryTransferCounts {
-    return {
-      memoryFiles: memoryFiles.length,
-      project: memoryFiles.filter((record) => record.type === "project" && record.projectId !== "_tmp").length,
-      feedback: memoryFiles.filter((record) => record.type === "feedback" && record.projectId !== "_tmp").length,
-      user: memoryFiles.filter((record) => record.type === "user").length,
-      tmp: memoryFiles.filter((record) => record.projectId === "_tmp").length,
-      projectMetas: projectMetas.length,
-      ...legacy,
-    };
+  private readPipelineState<T>(key: string, fallback: T): T {
+    const row = this.db.prepare("SELECT state_json FROM pipeline_state WHERE state_key = ?").get(key) as DbRow | undefined;
+    if (!row || typeof row.state_json !== "string") return fallback;
+    return parseJson(row.state_json, fallback);
   }
 
-  private resetDatabaseForFileImport(state: {
-    lastIndexedAt?: string;
-    lastDreamAt?: string;
-    lastDreamStatus?: DreamPipelineStatus;
-    lastDreamSummary?: string;
-  }): void {
-    const indexingSettings = this.getPipelineState(INDEXING_SETTINGS_STATE_KEY);
-    this.db.exec("BEGIN");
-    try {
-      this.db.exec(`
-        DELETE FROM active_topic_buffers;
-        DELETE FROM index_links;
-        DELETE FROM l2_project_indexes;
-        DELETE FROM l2_time_indexes;
-        DELETE FROM l1_windows;
-        DELETE FROM l0_sessions;
-        DELETE FROM global_profile_record;
-        DELETE FROM pipeline_state;
-      `);
-      const resetAt = nowIso();
-      this.saveGlobalProfileRecord({
-        recordId: GLOBAL_PROFILE_RECORD_ID,
-        profileText: "",
-        sourceL1Ids: [],
-        createdAt: resetAt,
-        updatedAt: resetAt,
-      });
-      if (indexingSettings) {
-        this.setPipelineState(INDEXING_SETTINGS_STATE_KEY, indexingSettings);
-      }
-      if (state.lastIndexedAt) {
-        this.setPipelineState(LAST_INDEXED_AT_STATE_KEY, state.lastIndexedAt);
-      }
-      if (state.lastDreamAt) {
-        this.setPipelineState(LAST_DREAM_AT_STATE_KEY, state.lastDreamAt);
-      }
-      if (state.lastDreamStatus) {
-        this.setPipelineState(LAST_DREAM_STATUS_STATE_KEY, state.lastDreamStatus);
-      }
-      if (typeof state.lastDreamSummary === "string") {
-        this.setPipelineState(LAST_DREAM_SUMMARY_STATE_KEY, state.lastDreamSummary);
-      }
-      this.db.exec("COMMIT");
-      this.rebuildSearchIndexes();
-    } catch (error) {
-      this.db.exec("ROLLBACK");
-      throw error;
-    }
+  getPipelineState<T = unknown>(key: string): T | undefined {
+    const row = this.db.prepare("SELECT state_json FROM pipeline_state WHERE state_key = ?").get(key) as DbRow | undefined;
+    if (!row || typeof row.state_json !== "string") return undefined;
+    return parseJson<T | undefined>(row.state_json, undefined);
   }
 
-  private buildLegacyProjectId(projectIndex: L2ProjectIndexRecord): string {
-    return `project_${hashText(`${projectIndex.projectKey}:${projectIndex.projectName}`)}`;
+  setPipelineState(key: string, value: unknown): void {
+    this.db.prepare(`
+      INSERT INTO pipeline_state (state_key, state_json, updated_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT(state_key) DO UPDATE SET state_json = excluded.state_json, updated_at = excluded.updated_at
+    `).run(key, JSON.stringify(value), nowIso());
   }
 
-  private importLegacyBundleIntoFileMemory(bundle: LegacyMemoryExportBundle): MemoryTransferCounts {
-    this.fileMemory.clearAllData();
-
-    if (bundle.globalProfile.profileText.trim()) {
-      this.fileMemory.upsertCandidate({
-        type: "user",
-        scope: "global",
-        name: "user-profile",
-        description: truncate(bundle.globalProfile.profileText, 120),
-        profile: bundle.globalProfile.profileText,
-      });
-    }
-
-    for (const projectIndex of bundle.l2ProjectIndexes) {
-      const projectId = this.buildLegacyProjectId(projectIndex);
-      this.fileMemory.upsertProjectMeta({
-        projectId,
-        projectName: projectIndex.projectName || projectIndex.projectKey,
-        description: projectIndex.summary || projectIndex.latestProgress || projectIndex.projectName || projectId,
-        aliases: [projectIndex.projectKey, projectIndex.projectName].filter(Boolean) as string[],
-        status: projectIndex.currentStatus,
-      });
-      this.fileMemory.upsertCandidate({
-        type: "project",
-        scope: "project",
-        projectId,
-        name: projectIndex.projectName || projectIndex.projectKey || projectId,
-        description: projectIndex.summary || projectIndex.latestProgress || projectIndex.projectName || projectId,
-        stage: projectIndex.latestProgress || projectIndex.summary || projectIndex.projectName || projectId,
-        notes: projectIndex.summary && projectIndex.latestProgress && projectIndex.summary !== projectIndex.latestProgress
-          ? [projectIndex.summary]
-          : [],
-      });
-    }
-
-    const exported = this.fileMemory.exportBundleRecords({ includeTmp: true });
-    return this.buildFileTransferCounts(exported.memoryFiles, exported.projectMetas, {
-      legacyL0: bundle.l0Sessions.length,
-      legacyL1: bundle.l1Windows.length,
-      legacyL2Time: bundle.l2TimeIndexes.length,
-      legacyL2Project: bundle.l2ProjectIndexes.length,
-      legacyProfile: bundle.globalProfile.profileText.trim() ? 1 : 0,
-      legacyLinks: bundle.indexLinks.length,
-    });
+  deletePipelineState(key: string): void {
+    this.db.prepare("DELETE FROM pipeline_state WHERE state_key = ?").run(key);
   }
 
-  private hasColumn(tableName: string, columnName: string): boolean {
-    const stmt = this.db.prepare(`PRAGMA table_info(${tableName})`);
-    const rows = stmt.all() as Array<{ name?: string }>;
-    return rows.some((row) => row.name === columnName);
-  }
-
-  private ensureColumn(tableName: string, columnName: string, definition: string): void {
-    if (this.hasColumn(tableName, columnName)) return;
-    this.db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition};`);
-  }
-
-  private ensureGlobalProfileRecord(): void {
-    const now = nowIso();
-    const stmt = this.db.prepare(`
-      INSERT INTO global_profile_record (
-        record_id, profile_text, source_l1_ids_json, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?)
-      ON CONFLICT(record_id) DO NOTHING
-    `);
-    stmt.run(GLOBAL_PROFILE_RECORD_ID, "", "[]", now, now);
-  }
-
-  private saveGlobalProfileRecord(record: GlobalProfileRecord): void {
-    const stmt = this.db.prepare(`
-      INSERT INTO global_profile_record (
-        record_id, profile_text, source_l1_ids_json, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?)
-      ON CONFLICT(record_id) DO UPDATE SET
-        profile_text = excluded.profile_text,
-        source_l1_ids_json = excluded.source_l1_ids_json,
-        created_at = excluded.created_at,
-        updated_at = excluded.updated_at
-    `);
-    stmt.run(
-      record.recordId,
-      record.profileText,
-      JSON.stringify(record.sourceL1Ids),
-      record.createdAt,
-      record.updatedAt,
-    );
-    this.syncProfileFts(record);
-  }
-
-  private initFts(): void {
-    try {
-      this.db.exec(`
-        CREATE VIRTUAL TABLE IF NOT EXISTS global_profile_fts USING fts5(record_id UNINDEXED, content);
-        CREATE VIRTUAL TABLE IF NOT EXISTS l2_time_fts USING fts5(l2_index_id UNINDEXED, content);
-        CREATE VIRTUAL TABLE IF NOT EXISTS l2_project_fts USING fts5(l2_index_id UNINDEXED, content);
-        CREATE VIRTUAL TABLE IF NOT EXISTS l1_window_fts USING fts5(l1_index_id UNINDEXED, content);
-      `);
-      this.ftsEnabled = true;
-    } catch {
-      this.ftsEnabled = false;
-    }
-  }
-
-  private upsertFtsDocument(tableName: string, idColumn: string, id: string, content: string): void {
-    if (!this.ftsEnabled || !id.trim()) return;
-    const deleteStmt = this.db.prepare(`DELETE FROM ${tableName} WHERE ${idColumn} = ?`);
-    const insertStmt = this.db.prepare(`INSERT INTO ${tableName} (${idColumn}, content) VALUES (?, ?)`);
-    deleteStmt.run(id);
-    insertStmt.run(id, content.trim());
-  }
-
-  private deleteFtsDocument(tableName: string, idColumn: string, id: string): void {
-    if (!this.ftsEnabled || !id.trim()) return;
-    const stmt = this.db.prepare(`DELETE FROM ${tableName} WHERE ${idColumn} = ?`);
-    stmt.run(id);
-  }
-
-  private buildFtsQuery(query: string): string {
-    const tokens = tokenizeQuery(query).slice(0, 8);
-    if (tokens.length === 0) return "";
-    return tokens
-      .map((token) => `"${token.replace(/"/g, "\"\"")}"`)
-      .join(" OR ");
-  }
-
-  private searchFts(tableName: string, idColumn: string, query: string, limit: number): SearchIdHit[] {
-    if (!this.ftsEnabled) return [];
-    const ftsQuery = this.buildFtsQuery(query);
-    if (!ftsQuery) return [];
-    try {
-      const stmt = this.db.prepare(`
-        SELECT ${idColumn} AS id, bm25(${tableName}) AS rank
-        FROM ${tableName}
-        WHERE ${tableName} MATCH ?
-        ORDER BY rank ASC
-        LIMIT ?
-      `);
-      const rows = stmt.all(ftsQuery, limit) as Array<{ id?: string; rank?: number }>;
-      return rows
-        .filter((row) => typeof row.id === "string" && row.id.trim())
-        .map((row, index) => ({
-          id: String(row.id),
-          score: Math.max(0.2, 1 - Math.min(6, index) * 0.12),
-        }));
-    } catch {
-      return [];
-    }
-  }
-
-  private compareL2SearchHits(left: L2SearchResult, right: L2SearchResult): number {
-    if (right.score !== left.score) return right.score - left.score;
-    if (left.level === right.level) {
-      if (left.level === "l2_time" && right.level === "l2_time") {
-        return right.item.dateKey.localeCompare(left.item.dateKey);
-      }
-      if (left.level === "l2_project" && right.level === "l2_project") {
-        return right.item.updatedAt.localeCompare(left.item.updatedAt);
-      }
-    }
-    const leftRecency = left.level === "l2_time" ? left.item.dateKey : left.item.updatedAt;
-    const rightRecency = right.level === "l2_time" ? right.item.dateKey : right.item.updatedAt;
-    return rightRecency.localeCompare(leftRecency);
-  }
-
-  private searchRankedL2TimeIndexes(query: string, limit: number): Array<Extract<L2SearchResult, { level: "l2_time" }>> {
-    if (limit <= 0) return [];
-    const recent = this.listRecentL2Time(Math.max(50, limit * 8));
-    const recentById = new Map(recent.map((item) => [item.l2IndexId, item]));
-    const ftsHits = this.searchFts("l2_time_fts", "l2_index_id", query, Math.max(limit * 2, 8));
-    const missingFtsIds = ftsHits
-      .map((hit) => hit.id)
-      .filter((id) => !recentById.has(id));
-    for (const item of this.getL2TimeByIds(missingFtsIds)) {
-      recentById.set(item.l2IndexId, item);
-    }
-
-    const ordered: Array<Extract<L2SearchResult, { level: "l2_time" }>> = [];
-    const seen = new Set<string>();
-    for (const hit of ftsHits) {
-      const item = recentById.get(hit.id);
-      if (!item || seen.has(item.l2IndexId)) continue;
-      seen.add(item.l2IndexId);
-      ordered.push({ level: "l2_time", score: hit.score, item });
-      if (ordered.length >= limit) return ordered;
-    }
-
-    const fallback = recent
-      .filter((item) => !seen.has(item.l2IndexId))
-      .map((item) => ({
-        item,
-        score: computeTokenScore(query, [item.dateKey, item.summary]),
-      }))
-      .filter((hit) => hit.score > 0.12)
-      .sort((left, right) => {
-        if (right.score !== left.score) return right.score - left.score;
-        return right.item.dateKey.localeCompare(left.item.dateKey);
-      })
-      .slice(0, Math.max(0, limit - ordered.length))
-      .map((hit) => ({
-        level: "l2_time" as const,
-        score: ordered.length > 0 ? Math.min(0.19, hit.score) : hit.score,
-        item: hit.item,
-      }));
-
-    return [...ordered, ...fallback];
-  }
-
-  private searchRankedL2ProjectIndexes(query: string, limit: number): Array<Extract<L2SearchResult, { level: "l2_project" }>> {
-    if (limit <= 0) return [];
-    const recent = this.listRecentL2Projects(Math.max(50, limit * 8));
-    const recentById = new Map(recent.map((item) => [item.l2IndexId, item]));
-    const ftsHits = this.searchFts("l2_project_fts", "l2_index_id", query, Math.max(limit * 2, 8));
-    const missingFtsIds = ftsHits
-      .map((hit) => hit.id)
-      .filter((id) => !recentById.has(id));
-    for (const item of this.getL2ProjectByIds(missingFtsIds)) {
-      recentById.set(item.l2IndexId, item);
-    }
-
-    const ordered: Array<Extract<L2SearchResult, { level: "l2_project" }>> = [];
-    const seen = new Set<string>();
-    for (const hit of ftsHits) {
-      const item = recentById.get(hit.id);
-      if (!item || seen.has(item.l2IndexId)) continue;
-      seen.add(item.l2IndexId);
-      ordered.push({ level: "l2_project", score: hit.score, item });
-      if (ordered.length >= limit) return ordered;
-    }
-
-    const fallback = recent
-      .filter((item) => !seen.has(item.l2IndexId))
-      .map((item) => ({
-        item,
-        score: computeTokenScore(query, [item.projectKey, item.projectName, item.summary, item.currentStatus, item.latestProgress]),
-      }))
-      .filter((hit) => hit.score > 0.12)
-      .sort((left, right) => {
-        if (right.score !== left.score) return right.score - left.score;
-        return right.item.updatedAt.localeCompare(left.item.updatedAt);
-      })
-      .slice(0, Math.max(0, limit - ordered.length))
-      .map((hit) => ({
-        level: "l2_project" as const,
-        score: ordered.length > 0 ? Math.min(0.19, hit.score) : hit.score,
-        item: hit.item,
-      }));
-
-    return [...ordered, ...fallback];
-  }
-
-  private syncProfileFts(profile: GlobalProfileRecord): void {
-    this.upsertFtsDocument(
-      "global_profile_fts",
-      "record_id",
-      profile.recordId,
-      [profile.profileText, profile.sourceL1Ids.join(" ")].filter(Boolean).join("\n"),
-    );
-  }
-
-  private syncL1Fts(window: L1WindowRecord): void {
-    this.upsertFtsDocument(
-      "l1_window_fts",
-      "l1_index_id",
-      window.l1IndexId,
-      [
-        window.sessionKey,
-        window.timePeriod,
-        window.summary,
-        window.situationTimeInfo,
-        window.projectTags.join(" "),
-        window.projectDetails.map((project) => `${project.name} ${project.summary} ${project.latestProgress}`).join(" "),
-        window.facts.map((fact) => `${fact.factKey} ${fact.factValue}`).join(" "),
-      ].filter(Boolean).join("\n"),
-    );
-  }
-
-  private syncL2TimeFts(index: L2TimeIndexRecord): void {
-    this.upsertFtsDocument(
-      "l2_time_fts",
-      "l2_index_id",
-      index.l2IndexId,
-      [index.dateKey, index.summary, index.l1Source.join(" ")].filter(Boolean).join("\n"),
-    );
-  }
-
-  private syncL2ProjectFts(index: L2ProjectIndexRecord): void {
-    this.upsertFtsDocument(
-      "l2_project_fts",
-      "l2_index_id",
-      index.l2IndexId,
-      [
-        index.projectKey,
-        index.projectName,
-        index.summary,
-        index.latestProgress,
-        index.currentStatus,
-        index.l1Source.join(" "),
-      ].filter(Boolean).join("\n"),
-    );
-  }
-
-  migrate(): void {
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS l0_sessions (
-        l0_index_id TEXT PRIMARY KEY,
-        session_key TEXT NOT NULL,
-        timestamp TEXT NOT NULL,
-        messages_json TEXT NOT NULL,
-        source TEXT NOT NULL,
-        indexed INTEGER NOT NULL DEFAULT 0,
-        created_at TEXT NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS active_topic_buffers (
-        session_key TEXT PRIMARY KEY,
-        started_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        topic_summary TEXT NOT NULL DEFAULT '',
-        user_turns_json TEXT NOT NULL DEFAULT '[]',
-        l0_ids_json TEXT NOT NULL DEFAULT '[]',
-        last_l0_id TEXT NOT NULL DEFAULT '',
-        created_at TEXT NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS l1_windows (
-        l1_index_id TEXT PRIMARY KEY,
-        session_key TEXT NOT NULL DEFAULT '',
-        time_period TEXT NOT NULL,
-        started_at TEXT NOT NULL DEFAULT '',
-        ended_at TEXT NOT NULL DEFAULT '',
-        summary TEXT NOT NULL,
-        facts_json TEXT NOT NULL,
-        situation_time_info TEXT NOT NULL,
-        project_tags_json TEXT NOT NULL,
-        project_details_json TEXT NOT NULL DEFAULT '[]',
-        l0_source_json TEXT NOT NULL,
-        created_at TEXT NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS l2_time_indexes (
-        l2_index_id TEXT PRIMARY KEY,
-        date_key TEXT NOT NULL UNIQUE,
-        summary TEXT NOT NULL,
-        l1_source_json TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS l2_project_indexes (
-        l2_index_id TEXT PRIMARY KEY,
-        project_key TEXT NOT NULL DEFAULT '',
-        project_name TEXT NOT NULL UNIQUE,
-        summary TEXT NOT NULL,
-        current_status TEXT NOT NULL,
-        latest_progress TEXT NOT NULL,
-        l1_source_json TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS global_profile_record (
-        record_id TEXT PRIMARY KEY,
-        profile_text TEXT NOT NULL,
-        source_l1_ids_json TEXT NOT NULL DEFAULT '[]',
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS index_links (
-        link_id TEXT PRIMARY KEY,
-        from_level TEXT NOT NULL,
-        from_id TEXT NOT NULL,
-        to_level TEXT NOT NULL,
-        to_id TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        UNIQUE(from_level, from_id, to_level, to_id)
-      );
-
-      CREATE TABLE IF NOT EXISTS pipeline_state (
-        state_key TEXT PRIMARY KEY,
-        state_value TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_l0_session_time ON l0_sessions(session_key, timestamp);
-      CREATE INDEX IF NOT EXISTS idx_l0_indexed ON l0_sessions(indexed, timestamp);
-      CREATE INDEX IF NOT EXISTS idx_l1_time_period ON l1_windows(time_period);
-      CREATE INDEX IF NOT EXISTS idx_l2_time_date ON l2_time_indexes(date_key);
-      CREATE INDEX IF NOT EXISTS idx_l2_project_name ON l2_project_indexes(project_name);
-      CREATE INDEX IF NOT EXISTS idx_l2_project_key ON l2_project_indexes(project_key);
-      CREATE INDEX IF NOT EXISTS idx_active_topic_updated ON active_topic_buffers(updated_at);
-    `);
-
-    this.ensureColumn("l1_windows", "session_key", "TEXT NOT NULL DEFAULT ''");
-    this.ensureColumn("l1_windows", "started_at", "TEXT NOT NULL DEFAULT ''");
-    this.ensureColumn("l1_windows", "ended_at", "TEXT NOT NULL DEFAULT ''");
-    this.ensureColumn("l1_windows", "project_details_json", "TEXT NOT NULL DEFAULT '[]'");
-    this.ensureColumn("l2_project_indexes", "project_key", "TEXT NOT NULL DEFAULT ''");
-    this.ensureGlobalProfileRecord();
-    this.initFts();
-    this.rebuildSearchIndexes();
-  }
-
-  private rebuildSearchIndexes(): void {
-    if (!this.ftsEnabled) return;
-    this.db.exec(`
-      DELETE FROM global_profile_fts;
-      DELETE FROM l2_time_fts;
-      DELETE FROM l2_project_fts;
-      DELETE FROM l1_window_fts;
-    `);
-    this.syncProfileFts(this.getGlobalProfileRecord());
-    for (const item of this.listAllL2Time()) this.syncL2TimeFts(item);
-    for (const item of this.listAllL2Projects()) this.syncL2ProjectFts(item);
-    for (const item of this.listAllL1()) this.syncL1Fts(item);
-  }
-
-  insertL0Session(record: Omit<L0SessionRecord, "createdAt"> & { createdAt?: string }): void {
-    const createdAt = record.createdAt ?? nowIso();
-    const stmt = this.db.prepare(`
-      INSERT OR IGNORE INTO l0_sessions (
-        l0_index_id, session_key, timestamp, messages_json, source, indexed, created_at
+  insertL0Session(record: L0SessionRecord): void {
+    const createdAt = record.createdAt || nowIso();
+    this.db.prepare(`
+      INSERT INTO l0_sessions (
+        l0_index_id,
+        session_key,
+        timestamp,
+        messages_json,
+        source,
+        indexed,
+        created_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?)
-    `);
-    stmt.run(
+      ON CONFLICT(l0_index_id) DO UPDATE SET
+        session_key = excluded.session_key,
+        timestamp = excluded.timestamp,
+        messages_json = excluded.messages_json,
+        source = excluded.source,
+        indexed = excluded.indexed,
+        created_at = excluded.created_at
+    `).run(
       record.l0IndexId,
       record.sessionKey,
       record.timestamp,
       JSON.stringify(record.messages),
-      record.source,
+      record.source || "openclaw",
       record.indexed ? 1 : 0,
       createdAt,
     );
   }
 
-  listUnindexedL0Sessions(limit = 20, sessionKeys?: string[]): L0SessionRecord[] {
-    const keys = Array.isArray(sessionKeys) ? sessionKeys.filter(Boolean) : [];
-    const whereParts = ["indexed = 0"];
-    const params: Array<string | number> = [];
-    if (keys.length > 0) {
-      whereParts.push(`session_key IN (${keys.map(() => "?").join(", ")})`);
-      params.push(...keys);
+  listPendingSessionKeys(limit = 50, preferredSessionKeys?: string[]): string[] {
+    const normalizedPreferred = Array.isArray(preferredSessionKeys)
+      ? preferredSessionKeys.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+      : [];
+    if (normalizedPreferred.length > 0) {
+      const placeholders = normalizedPreferred.map(() => "?").join(", ");
+      const rows = this.db.prepare(`
+        SELECT DISTINCT session_key, MIN(timestamp) AS first_timestamp
+        FROM l0_sessions
+        WHERE indexed = 0 AND session_key IN (${placeholders})
+        GROUP BY session_key
+        ORDER BY first_timestamp ASC
+      `).all(...normalizedPreferred) as DbRow[];
+      return rows.map((row) => String(row.session_key)).slice(0, Math.max(1, limit));
     }
-    const limitSql = Number.isFinite(limit) ? "LIMIT ?" : "";
-    if (Number.isFinite(limit)) params.push(limit);
-    const stmt = this.db.prepare(`
-      SELECT * FROM l0_sessions
-      WHERE ${whereParts.join(" AND ")}
-      ORDER BY timestamp ASC
-      ${limitSql}
-    `);
-    const rows = stmt.all(...params) as DbRow[];
-    return rows.map(parseL0Row);
-  }
-
-  listPendingSessionKeys(limit = 20, sessionKeys?: string[]): string[] {
-    const keys = Array.isArray(sessionKeys) ? sessionKeys.filter(Boolean) : [];
-    const whereParts = ["indexed = 0"];
-    const params: Array<string | number> = [];
-    if (keys.length > 0) {
-      whereParts.push(`session_key IN (${keys.map(() => "?").join(", ")})`);
-      params.push(...keys);
-    }
-    const limitSql = Number.isFinite(limit) ? "LIMIT ?" : "";
-    if (Number.isFinite(limit)) params.push(limit);
-    const stmt = this.db.prepare(`
-      SELECT session_key, MIN(timestamp) AS first_timestamp
+    const rows = this.db.prepare(`
+      SELECT DISTINCT session_key, MIN(timestamp) AS first_timestamp
       FROM l0_sessions
-      WHERE ${whereParts.join(" AND ")}
+      WHERE indexed = 0
       GROUP BY session_key
       ORDER BY first_timestamp ASC
-      ${limitSql}
-    `);
-    return (stmt.all(...params) as Array<{ session_key?: string }>)
-      .map((row) => (typeof row.session_key === "string" ? row.session_key.trim() : ""))
-      .filter(Boolean);
+      LIMIT ?
+    `).all(Math.max(1, limit)) as DbRow[];
+    return rows.map((row) => String(row.session_key));
   }
 
   listUnindexedL0BySession(sessionKey: string): L0SessionRecord[] {
-    const trimmed = sessionKey.trim();
-    if (!trimmed) return [];
-    const stmt = this.db.prepare(`
+    const rows = this.db.prepare(`
       SELECT * FROM l0_sessions
-      WHERE indexed = 0 AND session_key = ?
-      ORDER BY timestamp ASC
-    `);
-    const rows = stmt.all(trimmed) as DbRow[];
-    return rows.map(parseL0Row);
+      WHERE session_key = ? AND indexed = 0
+      ORDER BY timestamp ASC, created_at ASC
+    `).all(sessionKey) as DbRow[];
+    return rows.map((row) => normalizeL0Row(row));
   }
 
   markL0Indexed(ids: string[]): void {
-    if (ids.length === 0) return;
-    const placeholders = ids.map(() => "?").join(", ");
-    const stmt = this.db.prepare(`UPDATE l0_sessions SET indexed = 1 WHERE l0_index_id IN (${placeholders})`);
-    stmt.run(...ids);
+    const uniqueIds = Array.from(new Set(ids.filter((item) => typeof item === "string" && item.trim().length > 0)));
+    if (uniqueIds.length === 0) return;
+    const placeholders = uniqueIds.map(() => "?").join(", ");
+    this.db.prepare(`UPDATE l0_sessions SET indexed = 1 WHERE l0_index_id IN (${placeholders})`).run(...uniqueIds);
   }
 
   getL0ByIds(ids: string[]): L0SessionRecord[] {
-    if (ids.length === 0) return [];
-    const placeholders = ids.map(() => "?").join(", ");
-    const stmt = this.db.prepare(`SELECT * FROM l0_sessions WHERE l0_index_id IN (${placeholders}) ORDER BY timestamp ASC`);
-    const rows = stmt.all(...ids) as DbRow[];
-    return rows.map(parseL0Row);
-  }
-
-  searchL0(query: string, limit = 8): L0SessionRecord[] {
-    const rows = this.listRecentL0(Math.max(50, limit * 10));
-    const scored = rows.map((item) => ({
-      item,
-      score: computeTokenScore(query, [item.sessionKey, buildSearchableMessageText(item.messages)]),
-    }));
-    return scored
-      .filter((hit) => hit.score > 0.2)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, limit)
-      .map((hit) => hit.item);
-  }
-
-  getL0ByL1Ids(l1Ids: string[], limit = 4): L0SessionRecord[] {
-    if (l1Ids.length === 0) return [];
-    const l1Rows = this.getL1ByIds(l1Ids);
-    const l0Ids = Array.from(new Set(l1Rows.flatMap((item) => item.l0Source))).slice(0, limit * 3);
-    return this.getL0ByIds(l0Ids).slice(0, limit);
+    const uniqueIds = Array.from(new Set(ids.filter((item) => typeof item === "string" && item.trim().length > 0)));
+    if (uniqueIds.length === 0) return [];
+    const placeholders = uniqueIds.map(() => "?").join(", ");
+    const rows = this.db.prepare(`
+      SELECT * FROM l0_sessions
+      WHERE l0_index_id IN (${placeholders})
+      ORDER BY timestamp DESC, created_at DESC
+    `).all(...uniqueIds) as DbRow[];
+    return rows.map((row) => normalizeL0Row(row));
   }
 
   listRecentL0(limit = 20, offset = 0): L0SessionRecord[] {
-    const stmt = this.db.prepare("SELECT * FROM l0_sessions ORDER BY timestamp DESC LIMIT ? OFFSET ?");
-    const rows = stmt.all(limit, offset) as DbRow[];
-    return rows.map(parseL0Row);
+    const rows = this.db.prepare(`
+      SELECT * FROM l0_sessions
+      ORDER BY timestamp DESC, created_at DESC
+      LIMIT ? OFFSET ?
+    `).all(Math.max(1, limit), Math.max(0, offset)) as DbRow[];
+    return rows.map((row) => normalizeL0Row(row));
   }
 
   listAllL0(): L0SessionRecord[] {
-    const stmt = this.db.prepare("SELECT * FROM l0_sessions ORDER BY timestamp ASC");
-    const rows = stmt.all() as DbRow[];
-    return rows.map(parseL0Row);
+    const rows = this.db.prepare("SELECT * FROM l0_sessions ORDER BY timestamp ASC, created_at ASC").all() as DbRow[];
+    return rows.map((row) => normalizeL0Row(row));
   }
 
-  getActiveTopicBuffer(sessionKey: string): ActiveTopicBufferRecord | undefined {
-    const stmt = this.db.prepare("SELECT * FROM active_topic_buffers WHERE session_key = ?");
-    const row = stmt.get(sessionKey) as DbRow | undefined;
-    return row ? parseActiveTopicBufferRow(row) : undefined;
-  }
-
-  listActiveTopicBuffers(sessionKeys?: string[]): ActiveTopicBufferRecord[] {
-    const keys = Array.isArray(sessionKeys) ? sessionKeys.filter(Boolean) : [];
-    if (keys.length === 0) {
-      const stmt = this.db.prepare("SELECT * FROM active_topic_buffers ORDER BY updated_at DESC");
-      return (stmt.all() as DbRow[]).map(parseActiveTopicBufferRow);
+  repairL0Sessions(transform: (record: L0SessionRecord) => MemoryMessage[]): RepairMemoryResult {
+    const rows = this.listAllL0();
+    let updated = 0;
+    let removed = 0;
+    for (const row of rows) {
+      const nextMessages = transform(row);
+      if (nextMessages.length === 0) {
+        this.db.prepare("DELETE FROM l0_sessions WHERE l0_index_id = ?").run(row.l0IndexId);
+        removed += 1;
+        continue;
+      }
+      if (JSON.stringify(nextMessages) === JSON.stringify(row.messages)) continue;
+      this.db.prepare("UPDATE l0_sessions SET messages_json = ?, indexed = 0 WHERE l0_index_id = ?")
+        .run(JSON.stringify(nextMessages), row.l0IndexId);
+      updated += 1;
     }
-    const placeholders = keys.map(() => "?").join(", ");
-    const stmt = this.db.prepare(`
-      SELECT * FROM active_topic_buffers
-      WHERE session_key IN (${placeholders})
-      ORDER BY updated_at DESC
-    `);
-    return (stmt.all(...keys) as DbRow[]).map(parseActiveTopicBufferRow);
-  }
-
-  upsertActiveTopicBuffer(buffer: ActiveTopicBufferRecord): void {
-    const stmt = this.db.prepare(`
-      INSERT INTO active_topic_buffers (
-        session_key, started_at, updated_at, topic_summary, user_turns_json, l0_ids_json, last_l0_id, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(session_key) DO UPDATE SET
-        started_at = excluded.started_at,
-        updated_at = excluded.updated_at,
-        topic_summary = excluded.topic_summary,
-        user_turns_json = excluded.user_turns_json,
-        l0_ids_json = excluded.l0_ids_json,
-        last_l0_id = excluded.last_l0_id,
-        created_at = excluded.created_at
-    `);
-    stmt.run(
-      buffer.sessionKey,
-      buffer.startedAt,
-      buffer.updatedAt,
-      buffer.topicSummary,
-      JSON.stringify(buffer.userTurns),
-      JSON.stringify(buffer.l0Ids),
-      buffer.lastL0Id,
-      buffer.createdAt,
-    );
-  }
-
-  deleteActiveTopicBuffer(sessionKey: string): void {
-    const stmt = this.db.prepare("DELETE FROM active_topic_buffers WHERE session_key = ?");
-    stmt.run(sessionKey);
-  }
-
-  insertL1Window(window: L1WindowRecord): void {
-    const stmt = this.db.prepare(`
-      INSERT OR IGNORE INTO l1_windows (
-        l1_index_id, session_key, time_period, started_at, ended_at, summary, facts_json, situation_time_info, project_tags_json, project_details_json, l0_source_json, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    stmt.run(
-      window.l1IndexId,
-      window.sessionKey,
-      window.timePeriod,
-      window.startedAt,
-      window.endedAt,
-      window.summary,
-      JSON.stringify(window.facts),
-      window.situationTimeInfo,
-      JSON.stringify(window.projectTags),
-      JSON.stringify(window.projectDetails),
-      JSON.stringify(window.l0Source),
-      window.createdAt,
-    );
-    this.syncL1Fts(window);
-  }
-
-  getL1ByIds(ids: string[]): L1WindowRecord[] {
-    if (ids.length === 0) return [];
-    const placeholders = ids.map(() => "?").join(", ");
-    const stmt = this.db.prepare(`SELECT * FROM l1_windows WHERE l1_index_id IN (${placeholders}) ORDER BY created_at DESC`);
-    const rows = stmt.all(...ids) as DbRow[];
-    return rows.map(parseL1Row);
-  }
-
-  searchL1(query: string, limit = 10): L1WindowRecord[] {
-    return this.searchL1Hits(query, limit).map((hit) => hit.item);
-  }
-
-  listRecentL1(limit = 20, offset = 0): L1WindowRecord[] {
-    const stmt = this.db.prepare("SELECT * FROM l1_windows ORDER BY ended_at DESC, created_at DESC LIMIT ? OFFSET ?");
-    const rows = stmt.all(limit, offset) as DbRow[];
-    return rows.map(parseL1Row);
-  }
-
-  listAllL1(): L1WindowRecord[] {
-    const stmt = this.db.prepare("SELECT * FROM l1_windows ORDER BY ended_at ASC, created_at ASC");
-    const rows = stmt.all() as DbRow[];
-    return rows.map(parseL1Row);
-  }
-
-  searchL1Hits(query: string, limit = 10): L1SearchResult[] {
-    const recent = this.listRecentL1(Math.max(60, limit * 10));
-    const recentById = new Map(recent.map((item) => [item.l1IndexId, item]));
-    const ftsHits = this.searchFts("l1_window_fts", "l1_index_id", query, Math.max(limit * 2, 8));
-    const missingFtsIds = ftsHits
-      .map((hit) => hit.id)
-      .filter((id) => !recentById.has(id));
-    for (const item of this.getL1ByIds(missingFtsIds)) {
-      recentById.set(item.l1IndexId, item);
-    }
-
-    const ordered: L1SearchResult[] = [];
-    const seen = new Set<string>();
-    for (const hit of ftsHits) {
-      const item = recentById.get(hit.id);
-      if (!item || seen.has(item.l1IndexId)) continue;
-      seen.add(item.l1IndexId);
-      ordered.push({ item, score: hit.score });
-      if (ordered.length >= limit) return ordered;
-    }
-
-    const fallback = recent
-      .filter((item) => !seen.has(item.l1IndexId))
-      .map((item) => ({
-        item,
-        score: computeTokenScore(query, [
-          item.sessionKey,
-          item.timePeriod,
-          item.summary,
-          item.situationTimeInfo,
-          item.projectTags.join(" "),
-          item.projectDetails.map((project) => `${project.name} ${project.summary} ${project.latestProgress}`).join(" "),
-          JSON.stringify(item.facts),
-        ]),
-      }))
-      .filter((hit) => hit.score > 0.15)
-      .sort((left, right) => {
-        if (right.score !== left.score) return right.score - left.score;
-        const endedCompare = right.item.endedAt.localeCompare(left.item.endedAt);
-        return endedCompare !== 0 ? endedCompare : right.item.createdAt.localeCompare(left.item.createdAt);
-      })
-      .slice(0, Math.max(0, limit - ordered.length))
-      .map((hit) => ({
-        item: hit.item,
-        score: ordered.length > 0 ? Math.min(0.19, hit.score) : hit.score,
-      }));
-
-    return [...ordered, ...fallback];
-  }
-
-  getL2TimeByDate(dateKey: string): L2TimeIndexRecord | undefined {
-    const stmt = this.db.prepare("SELECT * FROM l2_time_indexes WHERE date_key = ?");
-    const row = stmt.get(dateKey) as DbRow | undefined;
-    return row ? parseL2TimeRow(row) : undefined;
-  }
-
-  getL2TimeByIds(ids: string[]): L2TimeIndexRecord[] {
-    if (ids.length === 0) return [];
-    const placeholders = ids.map(() => "?").join(", ");
-    const stmt = this.db.prepare(`SELECT * FROM l2_time_indexes WHERE l2_index_id IN (${placeholders}) ORDER BY updated_at DESC`);
-    const rows = stmt.all(...ids) as DbRow[];
-    return rows.map(parseL2TimeRow);
-  }
-
-  upsertL2TimeIndex(index: L2TimeIndexRecord): void {
-    const previous = this.getL2TimeByDate(index.dateKey);
-    const now = nowIso();
-    const mergedSources = mergeSourceIds(previous?.l1Source ?? [], index.l1Source);
-    if (previous) {
-      const updateStmt = this.db.prepare(`
-        UPDATE l2_time_indexes
-        SET summary = ?, l1_source_json = ?, updated_at = ?
-        WHERE l2_index_id = ?
-      `);
-      updateStmt.run(index.summary, JSON.stringify(mergedSources), now, previous.l2IndexId);
-      this.syncL2TimeFts({
-        ...previous,
-        summary: index.summary,
-        l1Source: mergedSources,
-        updatedAt: now,
-      });
-      return;
-    }
-
-    const insertStmt = this.db.prepare(`
-      INSERT INTO l2_time_indexes (
-        l2_index_id, date_key, summary, l1_source_json, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?)
-    `);
-    insertStmt.run(
-      index.l2IndexId,
-      index.dateKey,
-      index.summary,
-      JSON.stringify(mergedSources),
-      index.createdAt,
-      now,
-    );
-    this.syncL2TimeFts({
-      ...index,
-      l1Source: mergedSources,
-      updatedAt: now,
-    });
-  }
-
-  searchL2TimeIndexes(query: string, limit = 10): L2SearchResult[] {
-    return this.searchRankedL2TimeIndexes(query, limit);
-  }
-
-  listRecentL2Time(limit = 20, offset = 0): L2TimeIndexRecord[] {
-    const stmt = this.db.prepare("SELECT * FROM l2_time_indexes ORDER BY updated_at DESC LIMIT ? OFFSET ?");
-    const rows = stmt.all(limit, offset) as DbRow[];
-    return rows.map(parseL2TimeRow);
-  }
-
-  listAllL2Time(): L2TimeIndexRecord[] {
-    const stmt = this.db.prepare("SELECT * FROM l2_time_indexes ORDER BY date_key ASC, created_at ASC");
-    const rows = stmt.all() as DbRow[];
-    return rows.map(parseL2TimeRow);
-  }
-
-  getL2ProjectByKey(projectKey: string): L2ProjectIndexRecord | undefined {
-    const stmt = this.db.prepare("SELECT * FROM l2_project_indexes WHERE project_key = ?");
-    const row = stmt.get(projectKey) as DbRow | undefined;
-    return row ? parseL2ProjectRow(row) : undefined;
-  }
-
-  getL2ProjectByIds(ids: string[]): L2ProjectIndexRecord[] {
-    if (ids.length === 0) return [];
-    const placeholders = ids.map(() => "?").join(", ");
-    const stmt = this.db.prepare(`SELECT * FROM l2_project_indexes WHERE l2_index_id IN (${placeholders}) ORDER BY updated_at DESC`);
-    const rows = stmt.all(...ids) as DbRow[];
-    return rows.map(parseL2ProjectRow);
-  }
-
-  upsertL2ProjectIndex(index: L2ProjectIndexRecord): void {
-    const previous = this.getL2ProjectByKey(index.projectKey);
-    const now = nowIso();
-    const mergedSources = mergeSourceIds(previous?.l1Source ?? [], index.l1Source);
-    if (previous) {
-      const updateStmt = this.db.prepare(`
-        UPDATE l2_project_indexes
-        SET project_name = ?, summary = ?, current_status = ?, latest_progress = ?, l1_source_json = ?, updated_at = ?
-        WHERE l2_index_id = ?
-      `);
-      updateStmt.run(
-        index.projectName,
-        index.summary,
-        index.currentStatus,
-        index.latestProgress,
-        JSON.stringify(mergedSources),
-        now,
-        previous.l2IndexId,
-      );
-      this.syncL2ProjectFts({
-        ...previous,
-        projectName: index.projectName,
-        summary: index.summary,
-        currentStatus: index.currentStatus,
-        latestProgress: index.latestProgress,
-        l1Source: mergedSources,
-        updatedAt: now,
-      });
-      return;
-    }
-
-    const insertStmt = this.db.prepare(`
-      INSERT INTO l2_project_indexes (
-        l2_index_id, project_key, project_name, summary, current_status, latest_progress, l1_source_json, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    insertStmt.run(
-      index.l2IndexId,
-      index.projectKey,
-      index.projectName,
-      index.summary,
-      index.currentStatus,
-      index.latestProgress,
-      JSON.stringify(mergedSources),
-      index.createdAt,
-      now,
-    );
-    this.syncL2ProjectFts({
-      ...index,
-      l1Source: mergedSources,
-      updatedAt: now,
-    });
-  }
-
-  searchL2ProjectIndexes(query: string, limit = 10): L2SearchResult[] {
-    return this.searchRankedL2ProjectIndexes(query, limit);
-  }
-
-  listRecentL2Projects(limit = 20, offset = 0): L2ProjectIndexRecord[] {
-    const stmt = this.db.prepare("SELECT * FROM l2_project_indexes ORDER BY updated_at DESC LIMIT ? OFFSET ?");
-    const rows = stmt.all(limit, offset) as DbRow[];
-    return rows.map(parseL2ProjectRow);
-  }
-
-  listAllL2Projects(): L2ProjectIndexRecord[] {
-    const stmt = this.db.prepare("SELECT * FROM l2_project_indexes ORDER BY updated_at ASC, created_at ASC");
-    const rows = stmt.all() as DbRow[];
-    return rows.map(parseL2ProjectRow);
-  }
-
-  searchL2Hits(query: string, limit = 10): L2SearchResult[] {
-    const timeHits = this.searchRankedL2TimeIndexes(query, limit);
-    const projectHits = this.searchRankedL2ProjectIndexes(query, limit);
-    return [...timeHits, ...projectHits]
-      .sort((left, right) => this.compareL2SearchHits(left, right))
-      .slice(0, limit);
-  }
-
-  getGlobalProfileRecord(): GlobalProfileRecord {
-    this.ensureGlobalProfileRecord();
-    const stmt = this.db.prepare("SELECT * FROM global_profile_record WHERE record_id = ?");
-    const row = stmt.get(GLOBAL_PROFILE_RECORD_ID) as DbRow | undefined;
-    if (row) return parseGlobalProfileRow(row);
-    const now = nowIso();
     return {
-      recordId: GLOBAL_PROFILE_RECORD_ID,
-      profileText: "",
-      sourceL1Ids: [],
-      createdAt: now,
-      updatedAt: now,
+      inspected: rows.length,
+      updated,
+      removed,
+      rebuilt: updated > 0 || removed > 0,
     };
   }
 
-  upsertGlobalProfile(profileText: string, sourceL1Ids: string[]): GlobalProfileRecord {
-    const current = this.getGlobalProfileRecord();
-    const now = nowIso();
-    const next: GlobalProfileRecord = {
-      recordId: GLOBAL_PROFILE_RECORD_ID,
-      profileText: profileText.trim(),
-      sourceL1Ids: mergeSourceIds(current.sourceL1Ids, sourceL1Ids),
-      createdAt: current.createdAt,
-      updatedAt: now,
-    };
-    this.saveGlobalProfileRecord(next);
-    this.syncProfileFts(next);
+  saveCaseTrace(record: CaseTraceRecord, limit = 30): void {
+    const next = sanitizeTraceArray<CaseTraceRecord>(
+      [record, ...this.readPipelineState<unknown[]>(RECENT_CASE_TRACES_STATE_KEY, [])],
+      "caseId",
+      "startedAt",
+    ).slice(0, Math.max(1, limit));
+    this.setPipelineState(RECENT_CASE_TRACES_STATE_KEY, next);
+  }
+
+  listRecentCaseTraces(limit = 30): CaseTraceRecord[] {
+    return sanitizeTraceArray<CaseTraceRecord>(
+      this.readPipelineState<unknown[]>(RECENT_CASE_TRACES_STATE_KEY, []),
+      "caseId",
+      "startedAt",
+    ).slice(0, Math.max(1, limit));
+  }
+
+  getCaseTrace(caseId: string): CaseTraceRecord | undefined {
+    return this.listRecentCaseTraces(200).find((item) => item.caseId === caseId);
+  }
+
+  saveIndexTrace(record: IndexTraceRecord, limit = 30): void {
+    const next = sanitizeTraceArray<IndexTraceRecord>(
+      [record, ...this.readPipelineState<unknown[]>(RECENT_INDEX_TRACES_STATE_KEY, [])],
+      "indexTraceId",
+      "startedAt",
+    ).slice(0, Math.max(1, limit));
+    this.setPipelineState(RECENT_INDEX_TRACES_STATE_KEY, next);
+  }
+
+  listRecentIndexTraces(limit = 30): IndexTraceRecord[] {
+    return sanitizeTraceArray<IndexTraceRecord>(
+      this.readPipelineState<unknown[]>(RECENT_INDEX_TRACES_STATE_KEY, []),
+      "indexTraceId",
+      "startedAt",
+    ).slice(0, Math.max(1, limit));
+  }
+
+  getIndexTrace(indexTraceId: string): IndexTraceRecord | undefined {
+    return this.listRecentIndexTraces(200).find((item) => item.indexTraceId === indexTraceId);
+  }
+
+  saveDreamTrace(record: DreamTraceRecord, limit = 30): void {
+    const next = sanitizeTraceArray<DreamTraceRecord>(
+      [record, ...this.readPipelineState<unknown[]>(RECENT_DREAM_TRACES_STATE_KEY, [])],
+      "dreamTraceId",
+      "startedAt",
+    ).slice(0, Math.max(1, limit));
+    this.setPipelineState(RECENT_DREAM_TRACES_STATE_KEY, next);
+  }
+
+  listRecentDreamTraces(limit = 30): DreamTraceRecord[] {
+    return sanitizeTraceArray<DreamTraceRecord>(
+      this.readPipelineState<unknown[]>(RECENT_DREAM_TRACES_STATE_KEY, []),
+      "dreamTraceId",
+      "startedAt",
+    ).slice(0, Math.max(1, limit));
+  }
+
+  getDreamTrace(dreamTraceId: string): DreamTraceRecord | undefined {
+    return this.listRecentDreamTraces(200).find((item) => item.dreamTraceId === dreamTraceId);
+  }
+
+  getIndexingSettings(defaults: IndexingSettings): IndexingSettings {
+    return sanitizeIndexingSettings(this.getPipelineState(INDEXING_SETTINGS_STATE_KEY), defaults);
+  }
+
+  saveIndexingSettings(partial: Partial<IndexingSettings>, defaults: IndexingSettings): IndexingSettings {
+    const current = this.getIndexingSettings(defaults);
+    const next = sanitizeIndexingSettings({ ...current, ...partial }, defaults);
+    this.setPipelineState(INDEXING_SETTINGS_STATE_KEY, next);
     return next;
   }
 
-  applyDreamRewrite(input: {
-    projects: L2ProjectIndexRecord[];
-    profileText: string;
-    profileSourceL1Ids: string[];
-  }): void {
-    const currentProfile = this.getGlobalProfileRecord();
-    const currentProjects = this.listAllL2Projects();
-    const currentProjectIds = currentProjects.map((project) => project.l2IndexId).filter(Boolean);
-    const deleteProjectLinksStmt = currentProjectIds.length > 0
-      ? this.db.prepare(`
-          DELETE FROM index_links
-          WHERE from_level = 'l2'
-            AND from_id IN (${currentProjectIds.map(() => "?").join(", ")})
-        `)
-      : null;
-    const deleteProjectRowsStmt = this.db.prepare("DELETE FROM l2_project_indexes");
-    const insertProjectStmt = this.db.prepare(`
-      INSERT INTO l2_project_indexes (
-        l2_index_id, project_key, project_name, summary, current_status, latest_progress, l1_source_json, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    const insertLinkStmt = this.db.prepare(`
-      INSERT OR IGNORE INTO index_links (link_id, from_level, from_id, to_level, to_id, created_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `);
-
-    this.db.exec("BEGIN");
-    try {
-      if (deleteProjectLinksStmt) deleteProjectLinksStmt.run(...currentProjectIds);
-      deleteProjectRowsStmt.run();
-
-      for (const project of input.projects) {
-        insertProjectStmt.run(
-          project.l2IndexId,
-          project.projectKey,
-          project.projectName,
-          project.summary,
-          project.currentStatus,
-          project.latestProgress,
-          JSON.stringify(project.l1Source),
-          project.createdAt,
-          project.updatedAt,
-        );
-        for (const l1Id of project.l1Source) {
-          insertLinkStmt.run(
-            buildLinkId("l2", project.l2IndexId, "l1", l1Id),
-            "l2",
-            project.l2IndexId,
-            "l1",
-            l1Id,
-            project.updatedAt || nowIso(),
-          );
-        }
-      }
-
-      this.saveGlobalProfileRecord({
-        recordId: GLOBAL_PROFILE_RECORD_ID,
-        profileText: input.profileText.trim(),
-        sourceL1Ids: Array.from(new Set(input.profileSourceL1Ids.filter(Boolean))),
-        createdAt: currentProfile.createdAt,
-        updatedAt: nowIso(),
-      });
-
-      this.db.exec("COMMIT");
-      this.rebuildSearchIndexes();
-    } catch (error) {
-      this.db.exec("ROLLBACK");
-      throw error;
-    }
+  exportMemoryBundle(): MemoryExportBundle {
+    return {
+      formatVersion: MEMORY_EXPORT_FORMAT_VERSION,
+      exportedAt: nowIso(),
+      ...(typeof this.getPipelineState<string>(LAST_INDEXED_AT_STATE_KEY) === "string"
+        ? { lastIndexedAt: this.getPipelineState<string>(LAST_INDEXED_AT_STATE_KEY)! }
+        : {}),
+      ...(typeof this.getPipelineState<string>(LAST_DREAM_AT_STATE_KEY) === "string"
+        ? { lastDreamAt: this.getPipelineState<string>(LAST_DREAM_AT_STATE_KEY)! }
+        : {}),
+      ...(sanitizeDreamStatus(this.getPipelineState(LAST_DREAM_STATUS_STATE_KEY))
+        ? { lastDreamStatus: sanitizeDreamStatus(this.getPipelineState(LAST_DREAM_STATUS_STATE_KEY))! }
+        : {}),
+      ...(typeof this.getPipelineState<string>(LAST_DREAM_SUMMARY_STATE_KEY) === "string"
+        ? { lastDreamSummary: this.getPipelineState<string>(LAST_DREAM_SUMMARY_STATE_KEY)! }
+        : {}),
+      ...this.fileMemory.exportBundleRecords({ includeTmp: true }),
+    };
   }
 
-  appendToGlobalProfile(content: string): GlobalProfileRecord {
-    const current = this.getGlobalProfileRecord();
-    const nextText = [current.profileText, content.trim()].filter(Boolean).join("\n");
-    return this.upsertGlobalProfile(nextText, []);
-  }
-
-  searchGlobalProfile(query: string, limit = 1): GlobalProfileRecord[] {
-    const profile = this.getGlobalProfileRecord();
-    if (!profile.profileText.trim()) return [];
-    if (!query.trim()) return [profile].slice(0, limit);
-    const score = computeTokenScore(query, [profile.profileText, profile.sourceL1Ids.join(" ")]);
-    return score > 0.15 ? [profile].slice(0, limit) : [];
-  }
-
-  shortlistGlobalProfile(query: string): { item: GlobalProfileRecord; score: number } | null {
-    const profile = this.getGlobalProfileRecord();
-    if (!profile.profileText.trim()) return null;
-    const ftsScore = this.searchFts("global_profile_fts", "record_id", query, 1)[0]?.score ?? 0;
-    const tokenScore = computeTokenScore(query, [profile.profileText, profile.sourceL1Ids.join(" ")]);
-    const score = ftsScore > 0 ? ftsScore : tokenScore;
-    if (query.trim() && score <= 0.1) return null;
-    return { item: profile, score: Math.max(score, query.trim() ? score : 0.2) };
-  }
-
-  getSnapshotVersion(): string {
-    const overview = this.getOverview();
-    return JSON.stringify({
-      lastIndexedAt: overview.lastIndexedAt ?? "",
-      totalL1: overview.totalL1,
-      totalL2Time: overview.totalL2Time,
-      totalL2Project: overview.totalL2Project,
-      totalProfiles: overview.totalProfiles,
-      totalMemoryFiles: overview.totalMemoryFiles ?? 0,
-      totalUserMemories: overview.totalUserMemories ?? 0,
-      totalFeedbackMemories: overview.totalFeedbackMemories ?? 0,
-      totalProjectMemories: overview.totalProjectMemories ?? 0,
+  importMemoryBundle(bundle: MemoryImportableBundle): MemoryImportResult {
+    const normalized = normalizeMemoryBundle(bundle);
+    const imported = this.fileMemory.replaceFromBundle({
+      projectMetas: normalized.projectMetas,
+      memoryFiles: normalized.memoryFiles,
     });
-  }
-
-  insertLink(fromLevel: "l2" | "l1" | "l0", fromId: string, toLevel: "l2" | "l1" | "l0", toId: string): void {
-    const linkId = buildLinkId(fromLevel, fromId, toLevel, toId);
-    const stmt = this.db.prepare(`
-      INSERT OR IGNORE INTO index_links (link_id, from_level, from_id, to_level, to_id, created_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `);
-    stmt.run(linkId, fromLevel, fromId, toLevel, toId, nowIso());
-  }
-
-  listAllIndexLinks(): IndexLinkRecord[] {
-    const stmt = this.db.prepare("SELECT * FROM index_links ORDER BY created_at ASC");
-    const rows = stmt.all() as DbRow[];
-    return rows.map(parseIndexLinkRow);
+    if (normalized.lastIndexedAt) this.setPipelineState(LAST_INDEXED_AT_STATE_KEY, normalized.lastIndexedAt);
+    else this.deletePipelineState(LAST_INDEXED_AT_STATE_KEY);
+    if (normalized.lastDreamAt) this.setPipelineState(LAST_DREAM_AT_STATE_KEY, normalized.lastDreamAt);
+    else this.deletePipelineState(LAST_DREAM_AT_STATE_KEY);
+    if (normalized.lastDreamStatus) this.setPipelineState(LAST_DREAM_STATUS_STATE_KEY, normalized.lastDreamStatus);
+    else this.deletePipelineState(LAST_DREAM_STATUS_STATE_KEY);
+    if (normalized.lastDreamSummary) this.setPipelineState(LAST_DREAM_SUMMARY_STATE_KEY, normalized.lastDreamSummary);
+    else this.deletePipelineState(LAST_DREAM_SUMMARY_STATE_KEY);
+    const counts: MemoryTransferCounts = {
+      memoryFiles: imported.memoryFiles.length,
+      project: imported.memoryFiles.filter((item) => item.type === "project" && item.projectId && item.projectId !== "_tmp").length,
+      feedback: imported.memoryFiles.filter((item) => item.type === "feedback" && item.projectId && item.projectId !== "_tmp").length,
+      user: imported.memoryFiles.filter((item) => item.type === "user").length,
+      tmp: imported.memoryFiles.filter((item) => item.projectId === "_tmp").length,
+      projectMetas: imported.projectMetas.length,
+    };
+    return {
+      formatVersion: MEMORY_EXPORT_FORMAT_VERSION,
+      imported: counts,
+      importedAt: nowIso(),
+      ...(normalized.lastIndexedAt ? { lastIndexedAt: normalized.lastIndexedAt } : {}),
+      ...(normalized.lastDreamAt ? { lastDreamAt: normalized.lastDreamAt } : {}),
+      ...(normalized.lastDreamStatus ? { lastDreamStatus: normalized.lastDreamStatus } : {}),
+      ...(normalized.lastDreamSummary ? { lastDreamSummary: normalized.lastDreamSummary } : {}),
+    };
   }
 
   getOverview(): DashboardOverview {
-    const count = (tableName: string): number => {
-      const stmt = this.db.prepare(`SELECT COUNT(1) AS total FROM ${tableName}`);
-      const row = stmt.get() as { total?: number } | undefined;
-      return Number(row?.total ?? 0);
-    };
-    const stateStmt = this.db.prepare("SELECT state_value FROM pipeline_state WHERE state_key = ?");
-    const readState = (key: string): string | undefined => {
-      const row = stateStmt.get(key) as { state_value?: string } | undefined;
-      return typeof row?.state_value === "string" && row.state_value.trim() ? row.state_value : undefined;
-    };
-    const profile = this.getGlobalProfileRecord();
-    const lastDreamAt = readState(LAST_DREAM_AT_STATE_KEY);
-    const fileOverview = this.fileMemory.getOverview(lastDreamAt);
-    const overview: DashboardOverview = {
-      totalL0: count("l0_sessions"),
-      pendingL0: (() => {
-        const stmt = this.db.prepare("SELECT COUNT(DISTINCT session_key) AS total FROM l0_sessions WHERE indexed = 0");
-        const row = stmt.get() as { total?: number } | undefined;
-        return Number(row?.total ?? 0);
-      })(),
-      pendingSegments: (() => {
-        const stmt = this.db.prepare("SELECT COUNT(1) AS total FROM l0_sessions WHERE indexed = 0");
-        const row = stmt.get() as { total?: number } | undefined;
-        return Number(row?.total ?? 0);
-      })(),
-      openTopics: count("active_topic_buffers"),
-      totalL1: count("l1_windows"),
-      totalL2Time: count("l2_time_indexes"),
-      totalL2Project: count("l2_project_indexes"),
-      totalProfiles: profile.profileText.trim() ? 1 : 0,
+    const pendingSessions = Number(
+      (this.db.prepare("SELECT COUNT(DISTINCT session_key) AS count FROM l0_sessions WHERE indexed = 0").get() as DbRow | undefined)?.count ?? 0,
+    );
+    const pendingSegments = Number(
+      (this.db.prepare("SELECT COUNT(*) AS count FROM l0_sessions WHERE indexed = 0").get() as DbRow | undefined)?.count ?? 0,
+    );
+    const lastDreamAt = this.getPipelineState<string>(LAST_DREAM_AT_STATE_KEY);
+    const fileOverview = this.fileMemory.getOverview(typeof lastDreamAt === "string" ? lastDreamAt : undefined);
+    return {
+      pendingSessions,
+      pendingSegments,
       totalMemoryFiles: fileOverview.totalMemoryFiles,
       totalUserMemories: fileOverview.totalUserMemories,
       totalFeedbackMemories: fileOverview.totalFeedbackMemories,
@@ -1959,504 +630,36 @@ export class MemoryRepository {
       tmpTotalFiles: fileOverview.tmpTotalFiles,
       tmpProjectMemories: fileOverview.tmpProjectMemories,
       tmpFeedbackMemories: fileOverview.tmpFeedbackMemories,
+      changedFilesSinceLastDream: fileOverview.changedFilesSinceLastDream,
       queuedSessions: 0,
       lastRecallMs: 0,
       recallTimeouts: 0,
       lastRecallMode: "none",
-      changedFilesSinceLastDream: fileOverview.changedFilesSinceLastDream,
-    };
-    const lastIndexedAt = readState(LAST_INDEXED_AT_STATE_KEY);
-    const lastDreamStatus = readState(LAST_DREAM_STATUS_STATE_KEY);
-    const lastDreamSummary = readState(LAST_DREAM_SUMMARY_STATE_KEY);
-    const lastDreamL1EndedAt = readState(LAST_DREAM_L1_ENDED_AT_STATE_KEY);
-    if (lastIndexedAt) overview.lastIndexedAt = lastIndexedAt;
-    if (lastDreamAt) overview.lastDreamAt = lastDreamAt;
-    if (lastDreamStatus) overview.lastDreamStatus = lastDreamStatus as NonNullable<DashboardOverview["lastDreamStatus"]>;
-    if (lastDreamSummary) overview.lastDreamSummary = lastDreamSummary;
-    if (lastDreamL1EndedAt) overview.lastDreamL1EndedAt = lastDreamL1EndedAt;
-    return overview;
-  }
-
-  setPipelineState(key: string, value: string): void {
-    const stmt = this.db.prepare(`
-      INSERT INTO pipeline_state (state_key, state_value, updated_at)
-      VALUES (?, ?, ?)
-      ON CONFLICT(state_key) DO UPDATE SET
-        state_value = excluded.state_value,
-        updated_at = excluded.updated_at
-    `);
-    const now = nowIso();
-    stmt.run(key, value, now);
-  }
-
-  getPipelineState(key: string): string | undefined {
-    const stmt = this.db.prepare("SELECT state_value FROM pipeline_state WHERE state_key = ?");
-    const row = stmt.get(key) as { state_value?: string } | undefined;
-    return row?.state_value;
-  }
-
-  deletePipelineState(key: string): void {
-    const stmt = this.db.prepare("DELETE FROM pipeline_state WHERE state_key = ?");
-    stmt.run(key);
-  }
-
-  listRecentCaseTraces(limit: number): CaseTraceRecord[] {
-    const raw = this.getPipelineState(RECENT_CASE_TRACES_STATE_KEY);
-    if (!raw) return [];
-    const parsed = safeJsonParse<unknown[]>(raw, []);
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .map(parseCaseTraceRecord)
-      .filter((record): record is CaseTraceRecord => Boolean(record))
-      .slice(0, Math.max(1, Math.min(200, limit)));
-  }
-
-  getCaseTrace(caseId: string): CaseTraceRecord | undefined {
-    if (!caseId.trim()) return undefined;
-    return this.listRecentCaseTraces(200).find((record) => record.caseId === caseId.trim());
-  }
-
-  saveCaseTrace(record: CaseTraceRecord, maxRecords = 30): void {
-    const normalized = parseCaseTraceRecord(record);
-    if (!normalized) return;
-    const next = this.listRecentCaseTraces(Math.max(1, Math.min(200, maxRecords + 20)))
-      .filter((item) => item.caseId !== normalized.caseId);
-    next.unshift(normalized);
-    this.setPipelineState(
-      RECENT_CASE_TRACES_STATE_KEY,
-      JSON.stringify(next.slice(0, Math.max(1, Math.min(200, maxRecords)))),
-    );
-  }
-
-  listRecentIndexTraces(limit: number): IndexTraceRecord[] {
-    const raw = this.getPipelineState(RECENT_INDEX_TRACES_STATE_KEY);
-    if (!raw) return [];
-    const parsed = safeJsonParse<unknown[]>(raw, []);
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .map(parseIndexTraceRecord)
-      .filter((record): record is IndexTraceRecord => Boolean(record))
-      .slice(0, Math.max(1, Math.min(200, limit)));
-  }
-
-  getIndexTrace(indexTraceId: string): IndexTraceRecord | undefined {
-    if (!indexTraceId.trim()) return undefined;
-    return this.listRecentIndexTraces(200).find((record) => record.indexTraceId === indexTraceId.trim());
-  }
-
-  saveIndexTrace(record: IndexTraceRecord, maxRecords = 30): void {
-    const normalized = parseIndexTraceRecord(record);
-    if (!normalized) return;
-    const next = this.listRecentIndexTraces(Math.max(1, Math.min(200, maxRecords + 20)))
-      .filter((item) => item.indexTraceId !== normalized.indexTraceId);
-    next.unshift(normalized);
-    this.setPipelineState(
-      RECENT_INDEX_TRACES_STATE_KEY,
-      JSON.stringify(next.slice(0, Math.max(1, Math.min(200, maxRecords)))),
-    );
-  }
-
-  listRecentDreamTraces(limit: number): DreamTraceRecord[] {
-    const raw = this.getPipelineState(RECENT_DREAM_TRACES_STATE_KEY);
-    if (!raw) return [];
-    const parsed = safeJsonParse<unknown[]>(raw, []);
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .map(parseDreamTraceRecord)
-      .filter((record): record is DreamTraceRecord => Boolean(record))
-      .slice(0, Math.max(1, Math.min(200, limit)));
-  }
-
-  getDreamTrace(dreamTraceId: string): DreamTraceRecord | undefined {
-    if (!dreamTraceId.trim()) return undefined;
-    return this.listRecentDreamTraces(200).find((record) => record.dreamTraceId === dreamTraceId.trim());
-  }
-
-  saveDreamTrace(record: DreamTraceRecord, maxRecords = 30): void {
-    const normalized = parseDreamTraceRecord(record);
-    if (!normalized) return;
-    const next = this.listRecentDreamTraces(Math.max(1, Math.min(200, maxRecords + 20)))
-      .filter((item) => item.dreamTraceId !== normalized.dreamTraceId);
-    next.unshift(normalized);
-    this.setPipelineState(
-      RECENT_DREAM_TRACES_STATE_KEY,
-      JSON.stringify(next.slice(0, Math.max(1, Math.min(200, maxRecords)))),
-    );
-  }
-
-  getIndexingSettings(defaults: IndexingSettings): IndexingSettings {
-    const raw = this.getPipelineState(INDEXING_SETTINGS_STATE_KEY);
-    if (!raw) return normalizeIndexingSettings(undefined, defaults);
-    const parsed = safeJsonParse<Partial<IndexingSettings>>(raw, {});
-    return normalizeIndexingSettings(parsed, defaults);
-  }
-
-  saveIndexingSettings(input: Partial<IndexingSettings>, defaults: IndexingSettings): IndexingSettings {
-    const next = normalizeIndexingSettings(input, defaults);
-    this.setPipelineState(INDEXING_SETTINGS_STATE_KEY, JSON.stringify(next));
-    return next;
-  }
-
-  exportMemoryBundle(): MemoryExportBundle {
-    const lastIndexedAt = this.getPipelineState(LAST_INDEXED_AT_STATE_KEY);
-    const lastDreamAt = this.getPipelineState(LAST_DREAM_AT_STATE_KEY);
-    const lastDreamStatus = this.getPipelineState(LAST_DREAM_STATUS_STATE_KEY);
-    const lastDreamSummary = this.getPipelineState(LAST_DREAM_SUMMARY_STATE_KEY);
-    const exported = this.fileMemory.exportBundleRecords({ includeTmp: true });
-    return {
-      formatVersion: MEMORY_EXPORT_FORMAT_VERSION,
-      exportedAt: nowIso(),
-      ...(lastIndexedAt ? { lastIndexedAt } : {}),
-      ...(lastDreamAt ? { lastDreamAt } : {}),
-      ...(lastDreamStatus ? { lastDreamStatus: lastDreamStatus as DreamPipelineStatus } : {}),
-      ...(typeof lastDreamSummary === "string" ? { lastDreamSummary } : {}),
-      projectMetas: exported.projectMetas,
-      memoryFiles: exported.memoryFiles,
+      ...(typeof this.getPipelineState<string>(LAST_INDEXED_AT_STATE_KEY) === "string"
+        ? { lastIndexedAt: this.getPipelineState<string>(LAST_INDEXED_AT_STATE_KEY)! }
+        : {}),
+      ...(typeof lastDreamAt === "string" ? { lastDreamAt } : {}),
+      ...(sanitizeDreamStatus(this.getPipelineState(LAST_DREAM_STATUS_STATE_KEY))
+        ? { lastDreamStatus: sanitizeDreamStatus(this.getPipelineState(LAST_DREAM_STATUS_STATE_KEY))! }
+        : {}),
+      ...(typeof this.getPipelineState<string>(LAST_DREAM_SUMMARY_STATE_KEY) === "string"
+        ? { lastDreamSummary: this.getPipelineState<string>(LAST_DREAM_SUMMARY_STATE_KEY)! }
+        : {}),
     };
   }
 
-  importMemoryBundle(bundleLike: unknown): MemoryImportResult {
-    const bundle = normalizeImportableBundle(bundleLike);
-    const importedAt = nowIso();
-
-    if (bundle.formatVersion === MEMORY_EXPORT_FORMAT_VERSION) {
-      const restored = this.fileMemory.replaceFromBundle({
-        projectMetas: bundle.projectMetas,
-        memoryFiles: bundle.memoryFiles,
-      });
-      const restoredProjectMetas: ProjectMetaExportRecord[] = restored.projectMetas.map((meta) => ({
-        projectId: meta.projectId,
-        projectName: meta.projectName,
-        description: meta.description,
-        aliases: meta.aliases,
-        status: meta.status,
-        createdAt: meta.createdAt,
-        updatedAt: meta.updatedAt,
-        ...(meta.dreamUpdatedAt ? { dreamUpdatedAt: meta.dreamUpdatedAt } : {}),
-        relativePath: meta.relativePath,
-      }));
-      const restoredMemoryFiles: MemoryFileExportRecord[] = restored.memoryFiles.map((record) => ({
-        name: record.name,
-        description: record.description,
-        type: record.type,
-        scope: record.scope,
-        ...(record.projectId ? { projectId: record.projectId } : {}),
-        updatedAt: record.updatedAt,
-        ...(record.deprecated ? { deprecated: true } : {}),
-        ...(typeof record.dreamAttempts === "number" ? { dreamAttempts: record.dreamAttempts } : {}),
-        file: record.file,
-        relativePath: record.relativePath,
-        content: record.content,
-      }));
-      this.resetDatabaseForFileImport({
-        ...(bundle.lastIndexedAt ? { lastIndexedAt: bundle.lastIndexedAt } : {}),
-        ...(bundle.lastDreamAt ? { lastDreamAt: bundle.lastDreamAt } : {}),
-        ...(bundle.lastDreamStatus ? { lastDreamStatus: bundle.lastDreamStatus } : {}),
-        ...(typeof bundle.lastDreamSummary === "string" ? { lastDreamSummary: bundle.lastDreamSummary } : {}),
-      });
-      return {
-        formatVersion: MEMORY_EXPORT_FORMAT_VERSION,
-        imported: this.buildFileTransferCounts(restoredMemoryFiles, restoredProjectMetas),
-        importedAt,
-        ...(bundle.lastIndexedAt ? { lastIndexedAt: bundle.lastIndexedAt } : {}),
-        ...(bundle.lastDreamAt ? { lastDreamAt: bundle.lastDreamAt } : {}),
-        ...(bundle.lastDreamStatus ? { lastDreamStatus: bundle.lastDreamStatus } : {}),
-        ...(typeof bundle.lastDreamSummary === "string" ? { lastDreamSummary: bundle.lastDreamSummary } : {}),
-      };
-    }
-
-    this.db.exec("BEGIN");
-    try {
-      this.db.exec(`
-        DELETE FROM active_topic_buffers;
-        DELETE FROM index_links;
-        DELETE FROM l2_project_indexes;
-        DELETE FROM l2_time_indexes;
-        DELETE FROM l1_windows;
-        DELETE FROM l0_sessions;
-        DELETE FROM global_profile_record;
-      `);
-      const clearStateStmt = this.db.prepare(`DELETE FROM pipeline_state WHERE state_key = ?`);
-      clearStateStmt.run(LAST_DREAM_AT_STATE_KEY);
-      clearStateStmt.run(LAST_DREAM_STATUS_STATE_KEY);
-      clearStateStmt.run(LAST_DREAM_SUMMARY_STATE_KEY);
-      clearStateStmt.run(LAST_DREAM_L1_ENDED_AT_STATE_KEY);
-      clearStateStmt.run(RECENT_CASE_TRACES_STATE_KEY);
-
-      const insertL0Stmt = this.db.prepare(`
-        INSERT INTO l0_sessions (
-          l0_index_id, session_key, timestamp, messages_json, source, indexed, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-      `);
-      const insertL1Stmt = this.db.prepare(`
-        INSERT INTO l1_windows (
-          l1_index_id, session_key, time_period, started_at, ended_at, summary, facts_json, situation_time_info, project_tags_json, project_details_json, l0_source_json, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-      const insertL2TimeStmt = this.db.prepare(`
-        INSERT INTO l2_time_indexes (
-          l2_index_id, date_key, summary, l1_source_json, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?)
-      `);
-      const insertL2ProjectStmt = this.db.prepare(`
-        INSERT INTO l2_project_indexes (
-          l2_index_id, project_key, project_name, summary, current_status, latest_progress, l1_source_json, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-      const insertLinkStmt = this.db.prepare(`
-        INSERT INTO index_links (link_id, from_level, from_id, to_level, to_id, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `);
-
-      for (const session of bundle.l0Sessions) {
-        insertL0Stmt.run(
-          session.l0IndexId,
-          session.sessionKey,
-          session.timestamp,
-          JSON.stringify(session.messages),
-          session.source,
-          session.indexed ? 1 : 0,
-          session.createdAt,
-        );
-      }
-
-      for (const window of bundle.l1Windows) {
-        insertL1Stmt.run(
-          window.l1IndexId,
-          window.sessionKey,
-          window.timePeriod,
-          window.startedAt,
-          window.endedAt,
-          window.summary,
-          JSON.stringify(window.facts),
-          window.situationTimeInfo,
-          JSON.stringify(window.projectTags),
-          JSON.stringify(window.projectDetails),
-          JSON.stringify(window.l0Source),
-          window.createdAt,
-        );
-      }
-
-      for (const timeIndex of bundle.l2TimeIndexes) {
-        insertL2TimeStmt.run(
-          timeIndex.l2IndexId,
-          timeIndex.dateKey,
-          timeIndex.summary,
-          JSON.stringify(timeIndex.l1Source),
-          timeIndex.createdAt,
-          timeIndex.updatedAt,
-        );
-      }
-
-      for (const projectIndex of bundle.l2ProjectIndexes) {
-        insertL2ProjectStmt.run(
-          projectIndex.l2IndexId,
-          projectIndex.projectKey,
-          projectIndex.projectName,
-          projectIndex.summary,
-          projectIndex.currentStatus,
-          projectIndex.latestProgress,
-          JSON.stringify(projectIndex.l1Source),
-          projectIndex.createdAt,
-          projectIndex.updatedAt,
-        );
-      }
-
-      this.saveGlobalProfileRecord(bundle.globalProfile);
-
-      for (const link of bundle.indexLinks) {
-        insertLinkStmt.run(link.linkId, link.fromLevel, link.fromId, link.toLevel, link.toId, link.createdAt);
-      }
-
-      if (bundle.lastIndexedAt) {
-        this.setPipelineState(LAST_INDEXED_AT_STATE_KEY, bundle.lastIndexedAt);
-      } else {
-        this.deletePipelineState(LAST_INDEXED_AT_STATE_KEY);
-      }
-
-      this.db.exec("COMMIT");
-      this.rebuildSearchIndexes();
-      const imported = this.importLegacyBundleIntoFileMemory(bundle);
-      return {
-        formatVersion: LEGACY_MEMORY_EXPORT_FORMAT_VERSION,
-        imported,
-        importedAt,
-        ...(bundle.lastIndexedAt ? { lastIndexedAt: bundle.lastIndexedAt } : {}),
-      };
-    } catch (error) {
-      this.db.exec("ROLLBACK");
-      throw error;
-    }
-  }
-
-  resetDerivedIndexes(): void {
-    const currentProfile = this.getGlobalProfileRecord();
-    this.db.exec("BEGIN");
-    try {
-      this.db.exec(`
-        DELETE FROM active_topic_buffers;
-        DELETE FROM index_links;
-        DELETE FROM l2_project_indexes;
-        DELETE FROM l2_time_indexes;
-        DELETE FROM l1_windows;
-        UPDATE l0_sessions SET indexed = 0;
-      `);
-      const clearStateStmt = this.db.prepare(`DELETE FROM pipeline_state WHERE state_key = ?`);
-      clearStateStmt.run(LAST_INDEXED_AT_STATE_KEY);
-      clearStateStmt.run(LAST_DREAM_AT_STATE_KEY);
-      clearStateStmt.run(LAST_DREAM_STATUS_STATE_KEY);
-      clearStateStmt.run(LAST_DREAM_SUMMARY_STATE_KEY);
-      clearStateStmt.run(LAST_DREAM_L1_ENDED_AT_STATE_KEY);
-      this.saveGlobalProfileRecord({
-        recordId: GLOBAL_PROFILE_RECORD_ID,
-        profileText: "",
-        sourceL1Ids: [],
-        createdAt: currentProfile.createdAt,
-        updatedAt: nowIso(),
-      });
-      this.db.exec("COMMIT");
-      this.rebuildSearchIndexes();
-    } catch (error) {
-      this.db.exec("ROLLBACK");
-      throw error;
-    }
-  }
-
-  repairL0Sessions(
-    cleaner: (record: L0SessionRecord) => MemoryMessage[],
-  ): RepairMemoryResult {
-    const rows = this.listAllL0();
-    const stats: RepairMemoryResult = {
-      inspected: rows.length,
-      updated: 0,
-      removed: 0,
-      rebuilt: false,
-    };
-    if (rows.length === 0) return stats;
-
-    const updateStmt = this.db.prepare(`
-      UPDATE l0_sessions
-      SET messages_json = ?, indexed = 0
-      WHERE l0_index_id = ?
-    `);
-    const deleteStmt = this.db.prepare(`DELETE FROM l0_sessions WHERE l0_index_id = ?`);
-
-    this.db.exec("BEGIN");
-    try {
-      for (const row of rows) {
-        const cleaned = cleaner(row);
-        if (cleaned.length === 0) {
-          deleteStmt.run(row.l0IndexId);
-          stats.removed += 1;
-          continue;
-        }
-
-        const previousJson = JSON.stringify(row.messages);
-        const nextJson = JSON.stringify(cleaned);
-        if (previousJson !== nextJson) {
-          updateStmt.run(nextJson, row.l0IndexId);
-          stats.updated += 1;
-        }
-      }
-
-      if (stats.updated > 0 || stats.removed > 0) {
-        this.db.exec(`
-          DELETE FROM active_topic_buffers;
-          DELETE FROM index_links;
-          DELETE FROM l2_project_indexes;
-          DELETE FROM l2_time_indexes;
-          DELETE FROM l1_windows;
-          UPDATE l0_sessions SET indexed = 0;
-        `);
-        const clearStateStmt = this.db.prepare(`DELETE FROM pipeline_state WHERE state_key = ?`);
-        clearStateStmt.run(LAST_INDEXED_AT_STATE_KEY);
-        clearStateStmt.run(LAST_DREAM_AT_STATE_KEY);
-        clearStateStmt.run(LAST_DREAM_STATUS_STATE_KEY);
-        clearStateStmt.run(LAST_DREAM_SUMMARY_STATE_KEY);
-        clearStateStmt.run(LAST_DREAM_L1_ENDED_AT_STATE_KEY);
-        const currentProfile = this.getGlobalProfileRecord();
-        this.saveGlobalProfileRecord({
-          recordId: GLOBAL_PROFILE_RECORD_ID,
-          profileText: "",
-          sourceL1Ids: [],
-          createdAt: currentProfile.createdAt,
-          updatedAt: nowIso(),
-        });
-        stats.rebuilt = true;
-      }
-
-      this.db.exec("COMMIT");
-      if (stats.rebuilt) this.rebuildSearchIndexes();
-      return stats;
-    } catch (error) {
-      this.db.exec("ROLLBACK");
-      throw error;
-    }
-  }
-
-  clearAllMemoryData(): ClearMemoryResult {
-    const runDelete = (table: string): number => {
-      const stmt = this.db.prepare(`DELETE FROM ${table}`);
-      const result = stmt.run() as { changes?: number };
-      return Number(result.changes ?? 0);
-    };
-
-    const profileCount = this.getGlobalProfileRecord().profileText.trim() ? 1 : 0;
-    const indexingSettings = this.getPipelineState(INDEXING_SETTINGS_STATE_KEY);
-    this.db.exec("BEGIN");
-    try {
-      const cleared = {
-        activeTopics: runDelete("active_topic_buffers"),
-        links: runDelete("index_links"),
-        l2Project: runDelete("l2_project_indexes"),
-        l2Time: runDelete("l2_time_indexes"),
-        l1: runDelete("l1_windows"),
-        l0: runDelete("l0_sessions"),
-        profile: profileCount,
-        pipelineState: runDelete("pipeline_state"),
-      };
-      runDelete("global_profile_record");
-      const resetAt = nowIso();
-      this.saveGlobalProfileRecord({
-        recordId: GLOBAL_PROFILE_RECORD_ID,
-        profileText: "",
-        sourceL1Ids: [],
-        createdAt: resetAt,
-        updatedAt: resetAt,
-      });
-      if (indexingSettings) {
-        this.setPipelineState(INDEXING_SETTINGS_STATE_KEY, indexingSettings);
-      }
-      this.db.exec("COMMIT");
-      this.fileMemory.clearAllData();
-      this.rebuildSearchIndexes();
-      return {
-        cleared,
-        clearedAt: resetAt,
-      };
-    } catch (error) {
-      this.db.exec("ROLLBACK");
-      throw error;
-    }
-  }
-
-  getUiSnapshot(limit = 20): MemoryUiSnapshot {
+  getUiSnapshot(limit = 50): MemoryUiSnapshot {
     return {
       overview: this.getOverview(),
       settings: this.getIndexingSettings({
         reasoningMode: "answer_first",
-        recallTopK: 10,
+        recallTopK: 5,
         autoIndexIntervalMinutes: 60,
         autoDreamIntervalMinutes: 360,
-        autoDreamMinNewL1: 10,
+        autoDreamMinTmpEntries: 10,
         dreamProjectRebuildTimeoutMs: 180_000,
       }),
-      recentTimeIndexes: this.listRecentL2Time(limit),
-      recentProjectIndexes: this.listRecentL2Projects(limit),
-      recentL1Windows: this.listRecentL1(limit),
-      recentSessions: this.listRecentL0(limit),
-      globalProfile: this.getGlobalProfileRecord(),
-      recentMemoryFiles: this.fileMemory.listMemoryEntries({ limit }),
+      recentMemoryFiles: this.fileMemory.listMemoryEntries({ includeTmp: true, limit }),
     };
   }
 
@@ -2484,5 +687,29 @@ export class MemoryRepository {
 
   getMemoryRecordsByIds(ids: string[], maxLines = 80): MemoryFileRecord[] {
     return this.fileMemory.getMemoryRecordsByIds(ids, maxLines);
+  }
+
+  getSnapshotVersion(): string {
+    return this.fileMemory.getSnapshotVersion(this.getPipelineState<string>(LAST_DREAM_AT_STATE_KEY));
+  }
+
+  clearAllMemoryData(): ClearMemoryResult {
+    const l0Sessions = Number((this.db.prepare("SELECT COUNT(*) AS count FROM l0_sessions").get() as DbRow | undefined)?.count ?? 0);
+    const pipelineState = Number((this.db.prepare("SELECT COUNT(*) AS count FROM pipeline_state").get() as DbRow | undefined)?.count ?? 0);
+    const before = this.fileMemory.exportBundleRecords({ includeTmp: true });
+    this.db.exec(`
+      DELETE FROM l0_sessions;
+      DELETE FROM pipeline_state;
+    `);
+    this.fileMemory.clearAllData();
+    return {
+      cleared: {
+        l0Sessions,
+        pipelineState,
+        memoryFiles: before.memoryFiles.length,
+        projectMetas: before.projectMetas.length,
+      },
+      clearedAt: nowIso(),
+    };
   }
 }

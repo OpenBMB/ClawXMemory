@@ -3,11 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  LEGACY_MEMORY_EXPORT_FORMAT_VERSION,
   MEMORY_EXPORT_FORMAT_VERSION,
   MemoryRepository,
-  type GlobalProfileRecord,
-  type L2ProjectIndexRecord,
 } from "../src/core/index.js";
 
 async function createRepositoryHarness() {
@@ -133,50 +130,5 @@ describe("memory bundle import/export", () => {
       limit: 20,
     });
     expect(tmpEntries).toHaveLength(1);
-  });
-
-  it("imports legacy bundles and synthesizes file-memory records", async () => {
-    const repository = await createRepository();
-    const legacyProject: L2ProjectIndexRecord = {
-      l2IndexId: "l2-project-alpha",
-      projectKey: "alpha-retrieval",
-      projectName: "Alpha Retrieval",
-      summary: "Alpha retrieval is moving to file-memory.",
-      currentStatus: "in_progress",
-      latestProgress: "Retriever now reads MEMORY.md first.",
-      l1Source: ["l1-alpha"],
-      createdAt: "2026-04-08T00:00:00.000Z",
-      updatedAt: "2026-04-08T01:00:00.000Z",
-    };
-    const globalProfile: GlobalProfileRecord = {
-      recordId: "global_profile_record",
-      profileText: "The user prefers concise updates and practical code.",
-      sourceL1Ids: [],
-      createdAt: "2026-04-08T00:00:00.000Z",
-      updatedAt: "2026-04-08T00:30:00.000Z",
-    };
-
-    const result = repository.importMemoryBundle({
-      formatVersion: LEGACY_MEMORY_EXPORT_FORMAT_VERSION,
-      exportedAt: "2026-04-09T09:00:00.000Z",
-      lastIndexedAt: "2026-04-09T08:00:00.000Z",
-      l0Sessions: [],
-      l1Windows: [],
-      l2TimeIndexes: [],
-      l2ProjectIndexes: [legacyProject],
-      globalProfile,
-      indexLinks: [],
-    });
-
-    expect(result.formatVersion).toBe(LEGACY_MEMORY_EXPORT_FORMAT_VERSION);
-    expect(result.imported.project).toBe(1);
-    expect(result.imported.user).toBe(1);
-    expect(result.imported.feedback).toBe(0);
-    expect(result.imported.legacyL2Project).toBe(1);
-    expect(repository.listAllL2Projects()).toHaveLength(1);
-    expect(repository.getFileMemoryStore().listProjectMetas()).toHaveLength(1);
-    const entries = repository.listMemoryEntries({ limit: 20 });
-    expect(entries.some((entry) => entry.type === "user")).toBe(true);
-    expect(entries.some((entry) => entry.type === "project")).toBe(true);
   });
 });

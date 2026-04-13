@@ -7,13 +7,7 @@ const activeServers: LocalUiServer[] = [];
 function createDefaultRepository() {
   return {
     getOverview: () => ({
-      totalL0: 0,
-      pendingL0: 0,
-      openTopics: 0,
-      totalL1: 0,
-      totalL2Time: 0,
-      totalL2Project: 0,
-      totalProfiles: 0,
+      pendingSessions: 0,
       totalMemoryFiles: 3,
       totalProjectMemories: 1,
       totalFeedbackMemories: 1,
@@ -29,13 +23,7 @@ function createDefaultRepository() {
     }),
     getUiSnapshot: () => ({
       overview: {
-        totalL0: 0,
-        pendingL0: 0,
-        openTopics: 0,
-        totalL1: 0,
-        totalL2Time: 0,
-        totalL2Project: 0,
-        totalProfiles: 0,
+        pendingSessions: 0,
         totalMemoryFiles: 3,
         totalProjectMemories: 1,
         totalFeedbackMemories: 1,
@@ -54,19 +42,8 @@ function createDefaultRepository() {
         recallTopK: 10,
         autoIndexIntervalMinutes: 60,
         autoDreamIntervalMinutes: 360,
-        autoDreamMinNewL1: 10,
+        autoDreamMinTmpEntries: 10,
         dreamProjectRebuildTimeoutMs: 180_000,
-      },
-      recentTimeIndexes: [],
-      recentProjectIndexes: [],
-      recentL1Windows: [],
-      recentSessions: [],
-      globalProfile: {
-        recordId: "global_profile_record",
-        profileText: "",
-        sourceL1Ids: [],
-        createdAt: "2026-04-01T00:00:00.000Z",
-        updatedAt: "2026-04-01T00:00:00.000Z",
       },
       recentMemoryFiles: [
         {
@@ -132,7 +109,7 @@ async function startUiServer(
         recallTopK: 10,
         autoIndexIntervalMinutes: 60,
         autoDreamIntervalMinutes: 360,
-        autoDreamMinNewL1: 10,
+        autoDreamMinTmpEntries: 10,
         dreamProjectRebuildTimeoutMs: 180_000,
       }),
       saveSettings: () => ({
@@ -140,32 +117,41 @@ async function startUiServer(
         recallTopK: 10,
         autoIndexIntervalMinutes: 60,
         autoDreamIntervalMinutes: 360,
-        autoDreamMinNewL1: 10,
+        autoDreamMinTmpEntries: 10,
         dreamProjectRebuildTimeoutMs: 180_000,
       }),
-      runIndexNow: async () => ({ l0Captured: 0, l1Created: 0, l2TimeUpdated: 0, l2ProjectUpdated: 0, profileUpdated: 0, failed: 0 }),
+      runIndexNow: async () => ({
+        capturedSessions: 0,
+        writtenFiles: 0,
+        writtenProjectFiles: 0,
+        writtenFeedbackFiles: 0,
+        userProfilesUpdated: 0,
+        failedSessions: 0,
+      }),
       runDreamNow: async () => ({
-        prepFlush: { l0Captured: 0, l1Created: 0, l2TimeUpdated: 0, l2ProjectUpdated: 0, profileUpdated: 0, failed: 0 },
-        reviewedL1: 0,
+        prepFlush: {
+          capturedSessions: 0,
+          writtenFiles: 0,
+          writtenProjectFiles: 0,
+          writtenFeedbackFiles: 0,
+          userProfilesUpdated: 0,
+          failedSessions: 0,
+        },
+        reviewedFiles: 0,
         rewrittenProjects: 0,
         deletedProjects: 0,
+        deletedFiles: 0,
         profileUpdated: false,
         duplicateTopicCount: 0,
         conflictTopicCount: 0,
-        prunedProjectL1Refs: 0,
-        prunedProfileL1Refs: 0,
         summary: "noop",
       }),
       clearMemoryNow: async () => ({
         cleared: {
-          activeTopics: 0,
-          links: 0,
-          l2Project: 0,
-          l2Time: 0,
-          l1: 0,
           l0: 0,
-          profile: 0,
           pipelineState: 0,
+          memoryFiles: 0,
+          projectMetas: 0,
         },
         clearedAt: "2026-04-01T00:00:00.000Z",
       }),
@@ -245,7 +231,7 @@ describe("LocalUiServer static assets", () => {
     expect(html).toContain('id="dreamRunBtn"');
     expect(html).toContain('id="autoIndexIntervalHoursInput"');
     expect(html).toContain('id="autoDreamIntervalHoursInput"');
-    expect(html).toContain('id="autoDreamMinL1Input"');
+    expect(html).toContain('id="autoDreamMinTmpEntriesInput"');
     expect(html).toContain('id="dreamRebuildTimeoutSecondsInput"');
     expect(html).toContain('data-page="project"');
     expect(html).toContain('data-page="user"');
@@ -309,12 +295,9 @@ describe("LocalUiServer static assets", () => {
       toolEvents: [],
       assistantReply: "上周主要在推进检索链路改造。",
       retrieval: {
-        intent: "project",
-        enoughAt: "l1",
+        intent: "project_memory",
         injected: true,
         contextPreview: "## Evidence Note",
-        evidenceNotePreview: "上周主要在推进检索链路改造。",
-        pathSummary: "l2->l1",
         trace: {
           traceId: "trace-1",
           query: "我上周项目进展如何",
@@ -440,15 +423,21 @@ describe("LocalUiServer static assets", () => {
 
   it("routes manual Dream runs through POST /api/dream/run", async () => {
     const runDreamNow = vi.fn().mockResolvedValue({
-      prepFlush: { l0Captured: 1, l1Created: 1, l2TimeUpdated: 0, l2ProjectUpdated: 1, profileUpdated: 1, failed: 0 },
-      reviewedL1: 12,
+      prepFlush: {
+        capturedSessions: 1,
+        writtenFiles: 1,
+        writtenProjectFiles: 1,
+        writtenFeedbackFiles: 0,
+        userProfilesUpdated: 1,
+        failedSessions: 0,
+      },
+      reviewedFiles: 12,
       rewrittenProjects: 3,
       deletedProjects: 1,
+      deletedFiles: 2,
       profileUpdated: true,
       duplicateTopicCount: 2,
       conflictTopicCount: 1,
-      prunedProjectL1Refs: 4,
-      prunedProfileL1Refs: 2,
       summary: "Dream finished",
     });
     const baseUrl = await startUiServer({ controls: { runDreamNow } });
@@ -456,7 +445,7 @@ describe("LocalUiServer static assets", () => {
     const postResponse = await fetch(`${baseUrl}/api/dream/run`, { method: "POST" });
     expect(postResponse.status).toBe(200);
     await expect(postResponse.json()).resolves.toMatchObject({
-      reviewedL1: 12,
+      reviewedFiles: 12,
       rewrittenProjects: 3,
       deletedProjects: 1,
       profileUpdated: true,
@@ -661,7 +650,7 @@ describe("LocalUiServer static assets", () => {
       recallTopK: partial.recallTopK ?? 12,
       autoIndexIntervalMinutes: partial.autoIndexIntervalMinutes ?? 120,
       autoDreamIntervalMinutes: partial.autoDreamIntervalMinutes ?? 360,
-      autoDreamMinNewL1: partial.autoDreamMinNewL1 ?? 10,
+      autoDreamMinTmpEntries: partial.autoDreamMinTmpEntries ?? 10,
       dreamProjectRebuildTimeoutMs: partial.dreamProjectRebuildTimeoutMs ?? 240_000,
     }));
     const baseUrl = await startUiServer({
@@ -671,7 +660,7 @@ describe("LocalUiServer static assets", () => {
           recallTopK: 10,
           autoIndexIntervalMinutes: 60,
           autoDreamIntervalMinutes: 360,
-          autoDreamMinNewL1: 10,
+          autoDreamMinTmpEntries: 10,
           dreamProjectRebuildTimeoutMs: 180_000,
         }),
         saveSettings,
@@ -685,7 +674,7 @@ describe("LocalUiServer static assets", () => {
       recallTopK: 10,
       autoIndexIntervalMinutes: 60,
       autoDreamIntervalMinutes: 360,
-      autoDreamMinNewL1: 10,
+      autoDreamMinTmpEntries: 10,
       dreamProjectRebuildTimeoutMs: 180_000,
     });
 
@@ -697,7 +686,7 @@ describe("LocalUiServer static assets", () => {
         recallTopK: 12,
         autoIndexIntervalMinutes: 120,
         autoDreamIntervalMinutes: 180,
-        autoDreamMinNewL1: 15,
+        autoDreamMinTmpEntries: 15,
         dreamProjectRebuildTimeoutMs: 0,
       }),
     });
@@ -707,7 +696,7 @@ describe("LocalUiServer static assets", () => {
       recallTopK: 12,
       autoIndexIntervalMinutes: 120,
       autoDreamIntervalMinutes: 180,
-      autoDreamMinNewL1: 15,
+      autoDreamMinTmpEntries: 15,
       dreamProjectRebuildTimeoutMs: 0,
     });
     expect(saveSettings).toHaveBeenCalledWith(expect.objectContaining({
@@ -715,7 +704,7 @@ describe("LocalUiServer static assets", () => {
       recallTopK: 12,
       autoIndexIntervalMinutes: 120,
       autoDreamIntervalMinutes: 180,
-      autoDreamMinNewL1: 15,
+      autoDreamMinTmpEntries: 15,
       dreamProjectRebuildTimeoutMs: 0,
     }));
   });
@@ -725,14 +714,10 @@ describe("LocalUiServer API", () => {
   it("delegates clear requests to runtime controls instead of clearing the repository directly", async () => {
     const clearMemoryNow = vi.fn().mockResolvedValue({
       cleared: {
-        activeTopics: 1,
-        links: 2,
-        l2Project: 3,
-        l2Time: 4,
-        l1: 5,
         l0: 6,
-        profile: 1,
         pipelineState: 7,
+        memoryFiles: 8,
+        projectMetas: 2,
       },
       clearedAt: "2026-04-10T00:00:00.000Z",
     });

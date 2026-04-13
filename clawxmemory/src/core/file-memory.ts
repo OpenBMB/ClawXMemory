@@ -327,7 +327,7 @@ function findMarkdownFiles(dir: string): string[] {
   for (const entry of entries) {
     if (entry.isDirectory()) continue;
     if (!entry.name.endsWith(".md")) continue;
-    if (entry.name === MANIFEST_FILE || entry.name === PROJECT_META_FILE || entry.name === "overview.md") continue;
+    if (entry.name === MANIFEST_FILE || entry.name === PROJECT_META_FILE) continue;
     files.push(join(dir, entry.name));
   }
   return files.sort();
@@ -1435,16 +1435,6 @@ export class FileMemoryStore {
     const root = this.projectRoot(normalized);
     if (!existsSync(root)) return false;
     rmSync(root, { recursive: true, force: true });
-    return true;
-  }
-
-  deleteLegacyProjectOverview(projectId: string): boolean {
-    const normalized = normalizeProjectId(projectId);
-    if (!normalized || normalized === TMP_PROJECT_ID) return false;
-    const absolutePath = join(this.projectRoot(normalized), PROJECT_DIR, "overview.md");
-    if (!existsSync(absolutePath)) return false;
-    unlinkSync(absolutePath);
-    this.rebuildManifest("project", normalized);
     return true;
   }
 

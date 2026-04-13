@@ -52,10 +52,7 @@ export interface UiServerControls {
     | "lastRecallMode"
     | "currentReasoningMode"
     | "lastRecallPath"
-    | "lastRecallBudgetLimited"
-    | "lastShadowDeepQueued"
     | "lastRecallInjected"
-    | "lastRecallEnoughAt"
     | "lastRecallCacheHit"
     | "slotOwner"
     | "dynamicMemoryRuntime"
@@ -516,33 +513,6 @@ export class LocalUiServer {
     if (relativePath === "/api/tmp") {
       if (upperMethod !== "GET") return sendMethodNotAllowed(res, "GET");
       return sendJson(res, buildTmpSnapshot(this.repository, { query, limit, offset }));
-    }
-    if (relativePath === "/api/l2/time") {
-      if (!query.trim()) return sendJson(res, this.repository.listRecentL2Time(limit, offset));
-      return sendJson(res, this.repository.searchL2TimeIndexes(query, limit));
-    }
-    if (relativePath === "/api/l2/project") {
-      if (!query.trim()) return sendJson(res, this.repository.listRecentL2Projects(limit, offset));
-      return sendJson(res, this.repository.searchL2ProjectIndexes(query, limit));
-    }
-    if (relativePath === "/api/l1") {
-      if (!query.trim()) return sendJson(res, this.repository.listRecentL1(limit, offset));
-      return sendJson(res, this.repository.searchL1(query, limit));
-    }
-    if (relativePath === "/api/l0") {
-      if (!query.trim()) return sendJson(res, this.repository.listRecentL0(limit, offset));
-      return sendJson(res, this.repository.searchL0(query, limit));
-    }
-    if (relativePath === "/api/l1/byIds") {
-      const ids = (url.searchParams.get("ids") ?? "").split(",").filter(Boolean);
-      return sendJson(res, this.repository.getL1ByIds(ids));
-    }
-    if (relativePath === "/api/l0/byIds") {
-      const ids = (url.searchParams.get("ids") ?? "").split(",").filter(Boolean);
-      return sendJson(res, this.repository.getL0ByIds(ids));
-    }
-    if (relativePath === "/api/profile" || relativePath === "/api/facts") {
-      return sendJson(res, this.repository.searchGlobalProfile(query, limit));
     }
     if (relativePath === "/api/cases") {
       if (upperMethod !== "GET") return sendMethodNotAllowed(res, "GET");

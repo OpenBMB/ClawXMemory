@@ -36,14 +36,13 @@ interface DreamReviewRunnerOptions {
 }
 
 export interface DreamRewriteOutcome {
-  reviewedL1: number;
+  reviewedFiles: number;
   rewrittenProjects: number;
   deletedProjects: number;
+  deletedFiles: number;
   profileUpdated: boolean;
   duplicateTopicCount: number;
   conflictTopicCount: number;
-  prunedProjectL1Refs: number;
-  prunedProfileL1Refs: number;
   summary: string;
 }
 
@@ -683,14 +682,13 @@ export class DreamRewriteRunner {
         });
         persistTrace();
         return {
-          reviewedL1: 0,
+          reviewedFiles: 0,
           rewrittenProjects: 0,
           deletedProjects: 0,
+          deletedFiles: 0,
           profileUpdated: false,
           duplicateTopicCount: 0,
           conflictTopicCount: 0,
-          prunedProjectL1Refs: 0,
-          prunedProfileL1Refs: 0,
           summary,
         };
       }
@@ -998,15 +996,6 @@ export class DreamRewriteRunner {
           });
         }
       }
-      const legacyOverviewRemoved = new Set<string>();
-      for (const projectId of store.listProjectIds()) {
-        if (projectId === TMP_PROJECT_ID) continue;
-        if (store.deleteLegacyProjectOverview(projectId)) legacyOverviewRemoved.add(projectId);
-      }
-      if (legacyOverviewRemoved.size > 0) {
-        this.options.logger?.info?.(`[clawxmemory] deleted ${legacyOverviewRemoved.size} legacy Dream overview files`);
-      }
-
       let userProfileRewritten = false;
       let userRewriteDebug: RetrievalPromptDebug | undefined;
       const userSummary = store.getUserSummary();
@@ -1093,14 +1082,13 @@ export class DreamRewriteRunner {
       });
 
       const outcome = {
-        reviewedL1: before.length,
+        reviewedFiles: before.length,
         rewrittenProjects: executionPlans.length,
         deletedProjects,
+        deletedFiles: deletedFiles.length,
         profileUpdated: userProfileRewritten,
         duplicateTopicCount: plan.duplicateTopicCount,
         conflictTopicCount: plan.conflictTopicCount,
-        prunedProjectL1Refs: deletedFiles.length,
-        prunedProfileL1Refs: 0,
         summary,
       };
       finalizeDreamTrace(trace, "completed", {

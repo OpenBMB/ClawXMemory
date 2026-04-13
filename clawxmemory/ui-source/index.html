@@ -63,8 +63,8 @@
             <div class="popover-section-body" id="advancedSettingsBody">
               <div class="popover-section-inner">
                 <div class="popover-group popover-group-stack" id="latencyFieldWrap">
-                  <span class="popover-label" data-i18n="settings.maxLatency">召回数量</span>
-                  <input id="maxAutoReplyLatencyInput" class="popover-input" type="number" min="1" max="50" step="1" placeholder="10" />
+                  <span class="popover-label" data-i18n="settings.recallTopK">召回数量</span>
+                  <input id="recallTopKInput" class="popover-input" type="number" min="1" max="50" step="1" placeholder="10" />
                 </div>
                 <div class="popover-group popover-group-stack" id="autoIndexIntervalWrap">
                   <span class="popover-label" data-i18n="settings.autoIndexInterval">自动索引间隔（小时）</span>
@@ -77,8 +77,8 @@
                   <span class="popover-note" data-i18n="settings.autoDreamHint">只有变更的记忆文件达到门槛时，自动 Dream 才会真正执行。</span>
                 </div>
                 <div class="popover-group popover-group-stack" id="autoDreamThresholdWrap">
-                  <span class="popover-label" data-i18n="settings.autoDreamMinL1">自动 Dream 最小变更文件数</span>
-                  <input id="autoDreamMinL1Input" class="popover-input" type="number" min="0" step="1" placeholder="10" />
+                  <span class="popover-label" data-i18n="settings.autoDreamMinTmpEntries">自动 Dream 最小变更文件数</span>
+                  <input id="autoDreamMinTmpEntriesInput" class="popover-input" type="number" min="0" step="1" placeholder="10" />
                 </div>
                 <div class="popover-group popover-group-stack" id="dreamRebuildTimeoutWrap">
                   <span class="popover-label" data-i18n="settings.dreamRebuildTimeout">Dream 整理超时（秒）</span>

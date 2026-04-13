@@ -7,31 +7,9 @@ function createSettings(overrides: Record<string, unknown> = {}) {
     recallTopK: 5,
     autoIndexIntervalMinutes: 60,
     autoDreamIntervalMinutes: 360,
-    autoDreamMinNewL1: 10,
+    autoDreamMinTmpEntries: 10,
     dreamProjectRebuildTimeoutMs: 180_000,
     ...overrides,
-  };
-}
-
-function createSkillsRuntime() {
-  return {
-    intentRules: { timeKeywords: [], projectKeywords: [], factKeywords: [] },
-    extractionRules: {
-      projectPatterns: [],
-      factRules: [],
-      maxProjectTags: 8,
-      maxFacts: 16,
-      projectTagMinLength: 2,
-      projectTagMaxLength: 50,
-      summaryLimits: { head: 80, tail: 80, assistant: 80 },
-    },
-    projectStatusRules: { defaultStatus: "in_progress", rules: [] },
-    contextTemplate: "",
-    metadata: {
-      source: "fallback" as const,
-      skillsDir: "",
-      errors: [],
-    },
   };
 }
 
@@ -137,7 +115,6 @@ describe("ReasoningRetriever", () => {
     });
     const retriever = new ReasoningRetriever(
       repository as never,
-      createSkillsRuntime() as never,
       extractor as never,
       { getSettings: () => createSettings() },
     );
@@ -145,7 +122,6 @@ describe("ReasoningRetriever", () => {
     const result = await retriever.retrieve("今天天气怎么样", { retrievalMode: "explicit" });
 
     expect(result.intent).toBe("none");
-    expect(result.enoughAt).toBe("none");
     expect(result.context).toBe("");
     expect(result.trace?.steps.map((step) => step.kind)).toEqual([
       "recall_start",
@@ -167,7 +143,6 @@ describe("ReasoningRetriever", () => {
     const extractor = createExtractor();
     const retriever = new ReasoningRetriever(
       repository as never,
-      createSkillsRuntime() as never,
       extractor as never,
       { getSettings: () => createSettings() },
     );
@@ -190,7 +165,6 @@ describe("ReasoningRetriever", () => {
       "projects/project_clawxmemory/Project/current-stage.md",
     ]);
     expect(result.intent).toBe("project_memory");
-    expect(result.enoughAt).toBe("file");
     expect(result.context).toContain("global/User/user-profile.md");
     expect(result.context).toContain("projects/project_clawxmemory/project.meta.md");
     expect(result.context).toContain("projects/project_clawxmemory/Project/current-stage.md");
@@ -236,7 +210,6 @@ describe("ReasoningRetriever", () => {
     const extractor = createExtractor();
     const retriever = new ReasoningRetriever(
       repository as never,
-      createSkillsRuntime() as never,
       extractor as never,
       { getSettings: () => createSettings() },
     );
@@ -263,7 +236,6 @@ describe("ReasoningRetriever", () => {
     });
     const retriever = new ReasoningRetriever(
       repository as never,
-      createSkillsRuntime() as never,
       extractor as never,
       { getSettings: () => createSettings() },
     );
@@ -321,7 +293,6 @@ describe("ReasoningRetriever", () => {
     });
     const retriever = new ReasoningRetriever(
       repository as never,
-      createSkillsRuntime() as never,
       extractor as never,
       { getSettings: () => createSettings() },
     );
@@ -382,7 +353,6 @@ describe("ReasoningRetriever", () => {
     });
     const retriever = new ReasoningRetriever(
       repository as never,
-      createSkillsRuntime() as never,
       extractor as never,
       { getSettings: () => createSettings() },
     );
@@ -431,7 +401,6 @@ describe("ReasoningRetriever", () => {
     });
     const retriever = new ReasoningRetriever(
       repository as never,
-      createSkillsRuntime() as never,
       extractor as never,
       { getSettings: () => createSettings() },
     );
@@ -480,7 +449,6 @@ describe("ReasoningRetriever", () => {
     });
     const retriever = new ReasoningRetriever(
       repository as never,
-      createSkillsRuntime() as never,
       extractor as never,
       { getSettings: () => createSettings() },
     );
@@ -532,7 +500,6 @@ describe("ReasoningRetriever", () => {
     });
     const retriever = new ReasoningRetriever(
       repository as never,
-      createSkillsRuntime() as never,
       extractor as never,
       { getSettings: () => createSettings() },
     );
@@ -543,7 +510,6 @@ describe("ReasoningRetriever", () => {
 
     expect(store.scanRecallHeaderEntries).not.toHaveBeenCalled();
     expect(result.debug?.resolvedProjectId).toBeUndefined();
-    expect(result.enoughAt).toBe("profile");
     expect(result.context).toContain("global/User/user-profile.md");
     expect(result.context).not.toContain("project.meta.md");
   });
@@ -562,7 +528,6 @@ describe("ReasoningRetriever", () => {
     const extractor = createExtractor();
     const retriever = new ReasoningRetriever(
       repository as never,
-      createSkillsRuntime() as never,
       extractor as never,
       { getSettings: () => createSettings() },
     );
