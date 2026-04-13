@@ -16,6 +16,8 @@ import {
   type DreamRunResult,
   type HeartbeatStats,
   type IndexingSettings,
+  type MemoryActionRequest,
+  type MemoryActionResult,
   type MemoryImportableBundle,
   type MemoryMessage,
   type MemoryExportBundle,
@@ -726,6 +728,7 @@ export class MemoryPluginRuntime {
           saveSettings: (partial) => this.applyIndexingSettings(partial),
           runIndexNow: () => this.flushAllNow("manual"),
           runDreamNow: () => this.runDreamNow("manual"),
+          runMemoryAction: (input) => this.runMemoryAction(input),
           clearMemoryNow: () => this.clearMemoryNow(),
           exportMemoryBundle: () => this.repository.exportMemoryBundle(),
           importMemoryBundle: (bundle) => this.replaceMemoryBundle(bundle),
@@ -1048,6 +1051,92 @@ export class MemoryPluginRuntime {
     }
     this.clearEphemeralMemoryState();
     return this.repository.clearAllMemoryData();
+  }
+
+  private async runMemoryAction(input: MemoryActionRequest): Promise<MemoryActionResult> {
+    if (this.queuePromise) {
+      try {
+        await this.queuePromise;
+      } catch (error) {
+        this.logger.warn?.(`[clawxmemory] pending index queue failed before memory action: ${String(error)}`);
+      }
+    }
+    if (this.dreamRunPromise) {
+      try {
+        await this.dreamRunPromise;
+      } catch (error) {
+        this.logger.warn?.(`[clawxmemory] dream run failed before memory action: ${String(error)}`);
+      }
+    }
+
+    const messages: string[] = [];
+    let mutatedIds: string[] = [];
+    let deletedProjectIds: string[] = [];
+
+    if (input.action === "edit_project_meta") {
+      const project = this.repository.editProjectMeta({
+        projectId: input.projectId,
+        projectName: input.projectName,
+        description: input.description,
+        aliases: input.aliases,
+        status: input.status,
+      });
+      messages.push(`Updated project meta for ${project.projectName}.`);
+      mutatedIds = [project.relativePath];
+    } else if (input.action === "edit_entry") {
+      const record = this.repository.editMemoryEntry({
+        id: input.id,
+        name: input.name,
+        description: input.description,
+        ...(input.fields ? { fields: input.fields } : {}),
+      });
+      mutatedIds = [record.relativePath];
+      messages.push(`Updated memory entry ${record.name}.`);
+    } else if (input.action === "delete_entries") {
+      const result = this.repository.deleteMemoryEntries(input.ids);
+      mutatedIds = result.mutatedIds;
+      deletedProjectIds = result.deletedProjectIds;
+      messages.push(`Deleted ${result.mutatedIds.length} memory file${result.mutatedIds.length === 1 ? "" : "s"}.`);
+      if (deletedProjectIds.length) {
+        messages.push(`Removed ${deletedProjectIds.length} empty project${deletedProjectIds.length === 1 ? "" : "s"}.`);
+      }
+    } else if (input.action === "deprecate_entries") {
+      const result = this.repository.deprecateMemoryEntries(input.ids);
+      mutatedIds = result.mutatedIds;
+      deletedProjectIds = result.deletedProjectIds;
+      messages.push(`Deprecated ${result.mutatedIds.length} memory file${result.mutatedIds.length === 1 ? "" : "s"}.`);
+    } else if (input.action === "restore_entries") {
+      const result = this.repository.restoreMemoryEntries(input.ids);
+      mutatedIds = result.mutatedIds;
+      deletedProjectIds = result.deletedProjectIds;
+      messages.push(`Restored ${result.mutatedIds.length} memory file${result.mutatedIds.length === 1 ? "" : "s"}.`);
+    } else {
+      const result = this.repository.archiveTmpEntries({
+        ids: input.ids,
+        ...(input.targetProjectId ? { targetProjectId: input.targetProjectId } : {}),
+        ...(input.newProjectName ? { newProjectName: input.newProjectName } : {}),
+      });
+      mutatedIds = result.mutatedIds;
+      messages.push(
+        result.createdProjectId
+          ? `Archived ${result.mutatedIds.length} tmp file${result.mutatedIds.length === 1 ? "" : "s"} into new project ${result.targetProjectId}.`
+          : `Archived ${result.mutatedIds.length} tmp file${result.mutatedIds.length === 1 ? "" : "s"} into ${result.targetProjectId}.`,
+      );
+    }
+
+    this.retriever.resetTransientState();
+    const updatedOverview = {
+      ...this.repository.getOverview(),
+      ...this.getRuntimeOverview(),
+    };
+    return {
+      ok: true,
+      action: input.action,
+      updatedOverview,
+      mutatedIds,
+      deletedProjectIds,
+      messages,
+    };
   }
 
   getTools() {

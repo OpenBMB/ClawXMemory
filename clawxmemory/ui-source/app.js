@@ -87,6 +87,56 @@ const LOCALES = {
     "confirm.import.body": "这会用导入文件覆盖当前本地记忆。确定继续吗？",
     "confirm.import.ok": "确认导入",
     "confirm.cancel": "取消",
+    "confirm.memory.delete.title": "删除记忆",
+    "confirm.memory.delete.body": "此操作会永久删除这条已废弃记忆，且不可恢复。确定继续吗？",
+    "confirm.memory.delete.ok": "删除",
+    "confirm.memory.deprecate.title": "标记废弃",
+    "confirm.memory.deprecate.body": "这条记忆会退出当前工作记忆，但会保留在磁盘中，可稍后恢复。确定继续吗？",
+    "confirm.memory.deprecate.ok": "标记废弃",
+    "confirm.memory.restore.title": "恢复记忆",
+    "confirm.memory.restore.body": "这条记忆会重新参与默认列表、计数与 recall。确定继续吗？",
+    "confirm.memory.restore.ok": "恢复",
+    "prompt.editProjectMeta.title": "编辑项目信息",
+    "prompt.editProjectMeta.body": "修改项目 meta，不会直接重写已有记忆正文。若项目名变化，旧名称会自动加入 aliases。",
+    "prompt.editProjectMeta.projectName": "项目名称",
+    "prompt.editProjectMeta.description": "项目描述",
+    "prompt.editProjectMeta.aliases": "项目别名（每行一个）",
+    "prompt.editProjectMeta.status": "项目状态",
+    "prompt.editProjectMeta.ok": "保存项目信息",
+    "prompt.editEntry.title.project": "编辑项目记忆",
+    "prompt.editEntry.title.feedback": "编辑协作反馈",
+    "prompt.editEntry.body": "只编辑结构化字段，不直接暴露原始 markdown。",
+    "prompt.editEntry.name": "记忆名称",
+    "prompt.editEntry.description": "记忆描述",
+    "prompt.editEntry.stage": "Current Stage",
+    "prompt.editEntry.decisions": "Decisions（每行一个）",
+    "prompt.editEntry.constraints": "Constraints（每行一个）",
+    "prompt.editEntry.nextSteps": "Next Steps（每行一个）",
+    "prompt.editEntry.blockers": "Blockers（每行一个）",
+    "prompt.editEntry.timeline": "Timeline（每行一个）",
+    "prompt.editEntry.notes": "Notes（每行一个）",
+    "prompt.editEntry.rule": "Rule",
+    "prompt.editEntry.why": "Why",
+    "prompt.editEntry.howToApply": "How to apply",
+    "prompt.editEntry.ok": "保存记忆",
+    "prompt.archiveExisting.title": "归档到现有项目",
+    "prompt.archiveExisting.body": "把这条未归档记忆归到一个已有正式项目，不会触发 Dream。",
+    "prompt.archiveExisting.label": "目标项目",
+    "prompt.archiveExisting.ok": "归档",
+    "prompt.archiveNew.title": "归档为新项目",
+    "prompt.archiveNew.body": "将这条未归档项目记忆提升为新的正式项目。",
+    "prompt.archiveNew.label": "新项目名称",
+    "prompt.archiveNew.placeholder": "输入新项目名称",
+    "prompt.archiveNew.ok": "创建并归档",
+    "action.editProjectMeta": "编辑项目信息",
+    "action.editMemory": "编辑记忆",
+    "action.viewDetail": "查看详情",
+    "action.deleteMemory": "删除记忆",
+    "action.deprecateMemory": "标记废弃",
+    "action.restoreMemory": "恢复记忆",
+    "action.archiveToProject": "归档到现有项目",
+    "action.archiveAsProject": "归档为新项目",
+    "action.unavailable": "当前没有可用操作",
     "status.refreshing": "刷新中…",
     "status.refreshed": "已刷新",
     "status.loading": "加载中…",
@@ -109,6 +159,9 @@ const LOCALES = {
     "status.searching": "搜索中…",
     "status.searched": "搜索完成",
     "status.loadFail": "加载失败：{0}",
+    "status.memoryActionRunning": "正在更新记忆…",
+    "status.memoryActionDone": "{0}",
+    "status.memoryActionFailed": "记忆更新失败：{0}",
     "level.project.label": "项目记忆",
     "level.tmp.label": "Tmp 暂存",
     "level.user.label": "用户画像",
@@ -119,6 +172,9 @@ const LOCALES = {
     "level.memory_trace.empty": "暂无记忆追踪案例",
     "board.project": "项目记忆",
     "board.project.unarchived": "未归档记忆",
+    "board.project.deprecatedProjectFiles": "已废弃项目记忆",
+    "board.project.deprecatedFeedbackFiles": "已废弃协作反馈",
+    "board.project.deprecatedTmpFiles": "已废弃未归档记忆",
     "board.tmp": "Tmp 暂存",
     "board.tmp.manifest": "_tmp 索引",
     "board.tmp.projectFiles": "待整理项目文件",
@@ -221,6 +277,7 @@ const LOCALES = {
     "route.none": "无记忆",
     "route.user": "用户画像",
     "route.project_memory": "项目记忆",
+    "project.active": "进行中",
     "project.planned": "计划中",
     "project.in_progress": "进行中",
     "project.done": "已完成",
@@ -336,6 +393,56 @@ const LOCALES = {
     "confirm.import.body": "This replaces the current local memory with the imported bundle. Continue?",
     "confirm.import.ok": "Import",
     "confirm.cancel": "Cancel",
+    "confirm.memory.delete.title": "Delete Memory",
+    "confirm.memory.delete.body": "This permanently deletes the deprecated memory file and cannot be undone. Continue?",
+    "confirm.memory.delete.ok": "Delete",
+    "confirm.memory.deprecate.title": "Deprecate Memory",
+    "confirm.memory.deprecate.body": "This removes the memory from active recall and default lists, but keeps the file on disk so it can be restored later. Continue?",
+    "confirm.memory.deprecate.ok": "Deprecate",
+    "confirm.memory.restore.title": "Restore Memory",
+    "confirm.memory.restore.body": "This puts the memory back into active lists, counts, and recall. Continue?",
+    "confirm.memory.restore.ok": "Restore",
+    "prompt.editProjectMeta.title": "Edit Project Meta",
+    "prompt.editProjectMeta.body": "This updates project.meta.md without rewriting existing memory bodies. If the project name changes, the old name is appended to aliases.",
+    "prompt.editProjectMeta.projectName": "Project name",
+    "prompt.editProjectMeta.description": "Description",
+    "prompt.editProjectMeta.aliases": "Aliases (one per line)",
+    "prompt.editProjectMeta.status": "Status",
+    "prompt.editProjectMeta.ok": "Save Project",
+    "prompt.editEntry.title.project": "Edit Project Memory",
+    "prompt.editEntry.title.feedback": "Edit Feedback Memory",
+    "prompt.editEntry.body": "Only structured fields are editable. Raw markdown is not exposed.",
+    "prompt.editEntry.name": "Memory name",
+    "prompt.editEntry.description": "Description",
+    "prompt.editEntry.stage": "Current Stage",
+    "prompt.editEntry.decisions": "Decisions (one per line)",
+    "prompt.editEntry.constraints": "Constraints (one per line)",
+    "prompt.editEntry.nextSteps": "Next Steps (one per line)",
+    "prompt.editEntry.blockers": "Blockers (one per line)",
+    "prompt.editEntry.timeline": "Timeline (one per line)",
+    "prompt.editEntry.notes": "Notes (one per line)",
+    "prompt.editEntry.rule": "Rule",
+    "prompt.editEntry.why": "Why",
+    "prompt.editEntry.howToApply": "How to apply",
+    "prompt.editEntry.ok": "Save Memory",
+    "prompt.archiveExisting.title": "Archive Into Existing Project",
+    "prompt.archiveExisting.body": "Attach this unarchived memory to an existing formal project without running Dream.",
+    "prompt.archiveExisting.label": "Target project",
+    "prompt.archiveExisting.ok": "Archive",
+    "prompt.archiveNew.title": "Archive As New Project",
+    "prompt.archiveNew.body": "Promote this unarchived project memory into a new formal project.",
+    "prompt.archiveNew.label": "New project name",
+    "prompt.archiveNew.placeholder": "Enter a new project name",
+    "prompt.archiveNew.ok": "Create and Archive",
+    "action.editProjectMeta": "Edit Project Meta",
+    "action.editMemory": "Edit Memory",
+    "action.viewDetail": "View Detail",
+    "action.deleteMemory": "Delete Memory",
+    "action.deprecateMemory": "Deprecate Memory",
+    "action.restoreMemory": "Restore Memory",
+    "action.archiveToProject": "Archive to Existing Project",
+    "action.archiveAsProject": "Archive as New Project",
+    "action.unavailable": "No available actions",
     "status.refreshing": "Refreshing…",
     "status.refreshed": "Refreshed",
     "status.loading": "Loading…",
@@ -358,6 +465,9 @@ const LOCALES = {
     "status.searching": "Searching…",
     "status.searched": "Search complete",
     "status.loadFail": "Load failed: {0}",
+    "status.memoryActionRunning": "Updating memory…",
+    "status.memoryActionDone": "{0}",
+    "status.memoryActionFailed": "Memory update failed: {0}",
     "level.project.label": "Project Memory",
     "level.tmp.label": "Tmp Staging",
     "level.user.label": "User Portrait",
@@ -367,6 +477,10 @@ const LOCALES = {
     "level.user.empty": "No user memories yet",
     "level.memory_trace.empty": "No traced conversations yet",
     "board.project": "Project Memory",
+    "board.project.unarchived": "Unarchived Memory",
+    "board.project.deprecatedProjectFiles": "Deprecated Project Memory",
+    "board.project.deprecatedFeedbackFiles": "Deprecated Feedback Memory",
+    "board.project.deprecatedTmpFiles": "Deprecated Unarchived Memory",
     "board.tmp": "Tmp Staging",
     "board.tmp.manifest": "_tmp Manifest",
     "board.tmp.projectFiles": "Tmp Project Files",
@@ -470,6 +584,7 @@ const LOCALES = {
     "route.none": "None",
     "route.user": "User",
     "route.project_memory": "Project Memory",
+    "project.active": "In Progress",
     "project.planned": "Planned",
     "project.in_progress": "In Progress",
     "project.done": "Done",
@@ -547,6 +662,7 @@ const projectDetailBoard = document.getElementById("projectDetailBoard");
 const projectDetailBackBtn = document.getElementById("projectDetailBackBtn");
 const projectDetailTitle = document.getElementById("projectDetailTitle");
 const projectDetailSubtitle = document.getElementById("projectDetailSubtitle");
+const projectDetailHeadActions = document.getElementById("projectDetailHeadActions");
 const projectDetailMeta = document.getElementById("projectDetailMeta");
 const projectDetailBody = document.getElementById("projectDetailBody");
 const fileDetailBoard = document.getElementById("fileDetailBoard");
@@ -572,8 +688,10 @@ const importMemoryInput = document.getElementById("importMemoryInput");
 const navToggleBtn = document.getElementById("navToggleBtn");
 const navCloseBtn = document.getElementById("navCloseBtn");
 const modalOverlay = document.getElementById("modalOverlay");
+const modalCard = document.getElementById("modalCard");
 const modalTitle = document.getElementById("modalTitle");
 const modalBody = document.getElementById("modalBody");
+const modalFields = document.getElementById("modalFields");
 const modalConfirm = document.getElementById("modalConfirm");
 const modalCancel = document.getElementById("modalCancel");
 
@@ -622,6 +740,7 @@ const state = {
   settingsPopoverOpen: false,
   traceSelectorOpen: false,
   modalResolver: null,
+  modalSubmitHandler: null,
 };
 
 /* ── utils ─────────────────────────────────────────────── */
@@ -790,14 +909,26 @@ function inferProjectStatus(entry, record) {
   return "in_progress";
 }
 
+function normalizeProjectStatusValue(value) {
+  const normalized = normalizeText(value).toLowerCase();
+  if (!normalized) return "in_progress";
+  if (normalized === "done" || normalized === "completed") return "done";
+  if (normalized === "planned" || normalized === "plan") return "planned";
+  if (normalized === "active" || normalized === "in_progress" || normalized === "progress" || normalized === "ongoing") {
+    return "in_progress";
+  }
+  return normalized;
+}
+
 function getPrimaryProjectEntry(group) {
   return safeArray(group?.projectEntries)[0] || null;
 }
 
 function inferProjectGroupStatus(group) {
-  const normalized = normalizeText(group?.status).toLowerCase();
-  if (normalized === "done" || normalized === "completed") return "done";
-  if (normalized === "planned" || normalized === "plan") return "planned";
+  const normalized = normalizeProjectStatusValue(group?.status);
+  if (normalized === "done" || normalized === "planned" || normalized === "in_progress") {
+    return normalized;
+  }
   return inferProjectStatus(getPrimaryProjectEntry(group));
 }
 
@@ -971,24 +1102,119 @@ function setSettingsPopover(open) {
 /* ── modal ─────────────────────────────────────────────── */
 
 function confirmAction({ title, body: description, confirmLabel }) {
-  if (!modalOverlay || !modalTitle || !modalBody || !modalConfirm || !modalCancel) {
+  if (!modalOverlay || !modalTitle || !modalBody || !modalConfirm || !modalCancel || !modalFields) {
     return Promise.resolve(window.confirm(`${title}\n\n${description}`));
   }
   modalTitle.textContent = title;
   modalBody.textContent = description;
+  clearNode(modalFields);
   modalConfirm.textContent = confirmLabel;
+  modalConfirm.classList.remove("danger");
   modalCancel.textContent = t("confirm.cancel");
+  modalOverlay.classList.remove("form-mode");
+  modalCard?.classList.remove("form-mode");
   modalOverlay.classList.add("open");
   return new Promise((resolve) => {
     state.modalResolver = resolve;
+    state.modalSubmitHandler = () => closeModal(true);
   });
 }
 
 function closeModal(result) {
   if (modalOverlay) modalOverlay.classList.remove("open");
+  if (modalOverlay) modalOverlay.classList.remove("form-mode");
+  modalCard?.classList.remove("form-mode");
+  if (modalFields) clearNode(modalFields);
+  if (modalConfirm) modalConfirm.classList.remove("danger");
   const resolver = state.modalResolver;
   state.modalResolver = null;
-  if (resolver) resolver(Boolean(result));
+  state.modalSubmitHandler = null;
+  if (resolver) resolver(result);
+}
+
+function requestActionForm({
+  title,
+  body: description,
+  confirmLabel,
+  danger = false,
+  fields = [],
+}) {
+  if (!modalOverlay || !modalTitle || !modalBody || !modalConfirm || !modalCancel || !modalFields) {
+    const fallbackValue = window.prompt(description);
+    if (fallbackValue == null) return Promise.resolve(null);
+    if (!fields.length) return Promise.resolve({ value: fallbackValue });
+    return Promise.resolve({ [fields[0].id]: fallbackValue });
+  }
+  modalTitle.textContent = title;
+  modalBody.textContent = description;
+  clearNode(modalFields);
+  modalOverlay.classList.add("form-mode");
+  modalCard?.classList.add("form-mode");
+  fields.forEach((field) => {
+    const wrapper = el("label", "modal-field");
+    wrapper.dataset.span = field.span || "full";
+    wrapper.append(el("span", "modal-field-label", field.label));
+    if (field.kind === "select") {
+      const select = document.createElement("select");
+      select.className = "modal-field-control";
+      select.dataset.modalField = field.id;
+      select.dataset.required = field.required === false ? "false" : "true";
+      safeArray(field.options).forEach((option) => {
+        const node = document.createElement("option");
+        node.value = option.value;
+        node.textContent = option.label;
+        if (field.value === option.value) node.selected = true;
+        select.append(node);
+      });
+      wrapper.append(select);
+    } else if (field.kind === "textarea") {
+      const textarea = document.createElement("textarea");
+      textarea.className = "modal-field-control";
+      textarea.dataset.modalField = field.id;
+      textarea.dataset.required = field.required === false ? "false" : "true";
+      textarea.value = field.value || "";
+      textarea.rows = Number(field.rows || 4);
+      if (field.placeholder) textarea.placeholder = field.placeholder;
+      wrapper.append(textarea);
+    } else {
+      const input = document.createElement("input");
+      input.className = "modal-field-control";
+      input.dataset.modalField = field.id;
+      input.dataset.required = field.required === false ? "false" : "true";
+      input.type = "text";
+      input.value = field.value || "";
+      if (field.placeholder) input.placeholder = field.placeholder;
+      wrapper.append(input);
+    }
+    modalFields.append(wrapper);
+  });
+  modalConfirm.textContent = confirmLabel;
+  modalConfirm.classList.toggle("danger", Boolean(danger));
+  modalCancel.textContent = t("confirm.cancel");
+  modalOverlay.classList.add("open");
+  return new Promise((resolve) => {
+    state.modalResolver = resolve;
+    state.modalSubmitHandler = () => {
+      const payload = {};
+      const controls = modalFields.querySelectorAll("[data-modal-field]");
+      for (const control of controls) {
+        const id = control.dataset.modalField;
+        if (!id) continue;
+        const rawValue = typeof control.value === "string" ? control.value : "";
+        const value = control.tagName === "TEXTAREA" ? rawValue.trimEnd() : normalizeText(rawValue);
+        const required = control.dataset.required !== "false";
+        if (required && !normalizeText(value)) {
+          control.focus();
+          return;
+        }
+        payload[id] = value;
+      }
+      closeModal(payload);
+    };
+    const firstControl = modalFields.querySelector("[data-modal-field]");
+    if (modalFields) modalFields.scrollTop = 0;
+    if (firstControl) setTimeout(() => firstControl.focus(), 0);
+  });
 }
 
 /* ── api ───────────────────────────────────────────────── */
@@ -1013,6 +1239,70 @@ async function postJson(url, body = undefined) {
     throw new Error(text || `HTTP ${response.status}`);
   }
   return response.json();
+}
+
+function getFormalProjectChoices() {
+  return safeArray(state.projectGroups)
+    .map((group) => ({
+      value: group.projectId,
+      label: `${group.projectName} · ${group.projectId}`,
+    }))
+    .sort((left, right) => left.label.localeCompare(right.label));
+}
+
+function splitMultilineItems(value) {
+  return String(value || "")
+    .split("\n")
+    .map((item) => normalizeText(item))
+    .filter(Boolean);
+}
+
+function joinMultilineItems(items) {
+  return safeArray(items).map((item) => normalizeText(item)).filter(Boolean).join("\n");
+}
+
+function getProjectStatusOptions(current) {
+  const values = ["planned", "in_progress", "done"];
+  const currentValue = normalizeProjectStatusValue(current);
+  if (currentValue && !values.includes(currentValue)) values.unshift(currentValue);
+  return values.map((value) => ({
+    value,
+    label: t(`project.${value}`) !== `project.${value}` ? t(`project.${value}`) : value,
+  }));
+}
+
+async function refreshAfterMemoryMutation({ view = state.mainView, projectId = state.selectedProjectId } = {}) {
+  invalidateMemoryCaches();
+  await loadSnapshot({ silent: true });
+  await ensureActiveData({ force: true });
+  state.selectedFileId = "";
+  state.selectedFileType = "";
+  if (view === "project-detail" && projectId && safeArray(state.projectGroups).some((item) => item.projectId === projectId)) {
+    state.selectedProjectId = projectId;
+    state.mainView = "project-detail";
+  } else if (view === "user") {
+    state.mainView = "user";
+  } else if (view === "tmp") {
+    state.mainView = "project-list";
+    state.selectedProjectId = "";
+  } else {
+    state.mainView = "project-list";
+    if (view !== "project-detail") state.selectedProjectId = "";
+  }
+  renderActiveView();
+}
+
+async function runMemoryMutation(body, options = {}) {
+  setActivity("status.memoryActionRunning");
+  try {
+    const result = await postJson("./api/memory/actions", body);
+    await refreshAfterMemoryMutation(options);
+    setActivity("status.memoryActionDone", safeArray(result.messages).join(" ") || t("common.none"));
+    return result;
+  } catch (error) {
+    setActivity("status.memoryActionFailed", error instanceof Error ? error.message : String(error));
+    return null;
+  }
 }
 
 function extractDownloadFilename(response, fallback) {
@@ -1307,6 +1597,30 @@ function createBoardCard(entry, { status, active = false, subtitle, meta, onClic
   return card;
 }
 
+function createInlineActionBar(actions) {
+  const row = el("div", "detail-actions");
+  safeArray(actions).forEach((action) => {
+    const button = el("button", `tool-btn${action.danger ? " danger" : ""}`, action.label);
+    button.type = "button";
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      void action.onClick();
+    });
+    row.append(button);
+  });
+  return row;
+}
+
+function createDetailSectionHeader(label, count) {
+  const header = el("div", "detail-section-head");
+  header.append(el("h4", "", label));
+  if (Number.isFinite(Number(count))) {
+    header.append(el("span", "detail-section-count", formatNumber(Number(count))));
+  }
+  return header;
+}
+
 /* ── overview ──────────────────────────────────────────── */
 
 function createOverviewGroup(title, bodyNode) {
@@ -1504,29 +1818,63 @@ function fillRecordDetail(metaNode, bodyNode, record) {
 
 function appendMemoryFileListSection(container, label, entries, projectId) {
   if (!safeArray(entries).length) return;
-  const section = el("section", "detail-section");
-  section.append(el("h4", "", label));
+  const section = el("section", "detail-section detail-section-card");
+  section.append(createDetailSectionHeader(label, safeArray(entries).length));
   const list = el("div", "entry-stream detail-file-list");
   safeArray(entries).forEach((entry) => {
     const meta = [formatDateTime(entry.updatedAt)];
     if (entry.relativePath) meta.push(entry.relativePath);
-    list.append(createEntryCard({
+    const card = createEntryCard({
       title: entry.name || entry.file || t("common.unknown"),
       subtitle: entry.description || t("common.none"),
       badge: t(`type.${entry.type}`),
       meta: meta.join(" · "),
       active: state.selectedFileId === entry.relativePath,
       onClick: () => void openMemoryDetail(entry.relativePath, { projectId, originView: "project-detail" }),
-    }));
+    });
+    const actions = getRecordActions(entry);
+    if (actions.length) {
+      const wrapper = el("div", "detail-action-card detail-action-card--active");
+      wrapper.append(card, createInlineActionBar(actions));
+      list.append(wrapper);
+      return;
+    }
+    list.append(card);
   });
   section.append(list);
   container.append(section);
 }
 
+function appendDeprecatedMemorySection(container, label, entries, { projectId = "", originView = "project-detail" } = {}) {
+  if (!safeArray(entries).length) return;
+  const details = document.createElement("details");
+  details.className = "detail-section detail-section-card";
+  const summary = el("summary", "detail-section-summary", "");
+  summary.append(createDetailSectionHeader(label, safeArray(entries).length));
+  const list = el("div", "entry-stream detail-file-list");
+  safeArray(entries).forEach((record) => {
+    const meta = [formatDateTime(record.updatedAt)];
+    if (record.relativePath) meta.push(record.relativePath);
+    const card = createEntryCard({
+      title: record.name || record.file || t("common.unknown"),
+      subtitle: record.description || record.preview || t("common.none"),
+      badge: t(`type.${record.type}`),
+      meta: meta.join(" · "),
+      active: state.selectedFileId === record.relativePath,
+      onClick: () => void openMemoryDetail(record.relativePath, { projectId, originView }),
+    });
+    const wrapper = el("div", "detail-action-card");
+    wrapper.append(card, createInlineActionBar(getDeprecatedSectionActions(record, { projectId, originView })));
+    list.append(wrapper);
+  });
+  details.append(summary, list);
+  container.append(details);
+}
+
 function appendTmpFileListSection(container, label, entries) {
   if (!safeArray(entries).length) return;
-  const section = el("section", "detail-section");
-  section.append(el("h4", "", label));
+  const section = el("section", "detail-section detail-section-card");
+  section.append(createDetailSectionHeader(label, safeArray(entries).length));
   const list = el("div", "entry-stream detail-file-list");
   safeArray(entries).forEach((record) => {
     const meta = [
@@ -1536,14 +1884,17 @@ function appendTmpFileListSection(container, label, entries) {
       `${t("meta.sessionKey")}: ${normalizeText(record.sourceSessionKey) || t("common.none")}`,
       `${t("meta.dreamAttempts")}: ${formatNumber(Number(record.dreamAttempts || 0))}`,
     ];
-    list.append(createEntryCard({
+    const card = createEntryCard({
       title: record.name || record.file || t("common.unknown"),
       subtitle: record.description || record.preview || t("common.none"),
       badge: t(`type.${record.type}`),
       meta: meta.join(" · "),
       active: state.selectedFileId === record.relativePath,
       onClick: () => void openMemoryDetail(record.relativePath, { originView: "tmp" }),
-    }));
+    });
+    const wrapper = el("div", "detail-action-card");
+    wrapper.append(card, createInlineActionBar(getRecordActions(record)));
+    list.append(wrapper);
   });
   section.append(list);
   container.append(section);
@@ -1583,10 +1934,314 @@ function getVisibleTmpRecords(records) {
   });
 }
 
+function getDeprecatedSectionActions(record, { projectId = "", originView = "project-detail" } = {}) {
+  return [
+    {
+      label: t("action.viewDetail"),
+      onClick: () => void openMemoryDetail(record.relativePath, { projectId, originView }),
+    },
+    ...getRecordActions(record),
+  ];
+}
+
+async function editProjectMeta(group) {
+  const payload = await requestActionForm({
+    title: t("prompt.editProjectMeta.title"),
+    body: t("prompt.editProjectMeta.body"),
+    confirmLabel: t("prompt.editProjectMeta.ok"),
+    fields: [
+      {
+        id: "projectName",
+        kind: "text",
+        label: t("prompt.editProjectMeta.projectName"),
+        value: group?.projectName || "",
+        span: "half",
+      },
+      {
+        id: "status",
+        kind: "select",
+        label: t("prompt.editProjectMeta.status"),
+        value: normalizeProjectStatusValue(group?.status),
+        options: getProjectStatusOptions(group?.status),
+        span: "half",
+      },
+      {
+        id: "description",
+        kind: "textarea",
+        label: t("prompt.editProjectMeta.description"),
+        value: group?.description || "",
+        rows: 3,
+        span: "full",
+      },
+      {
+        id: "aliases",
+        kind: "textarea",
+        label: t("prompt.editProjectMeta.aliases"),
+        value: joinMultilineItems(group?.aliases),
+        rows: 3,
+        required: false,
+        span: "full",
+      },
+    ],
+  });
+  if (!payload?.projectName) return;
+  await runMemoryMutation(
+    {
+      action: "edit_project_meta",
+      projectId: group.projectId,
+      projectName: payload.projectName,
+      description: payload.description || "",
+      aliases: splitMultilineItems(payload.aliases),
+      status: normalizeProjectStatusValue(payload.status),
+    },
+    { view: "project-detail", projectId: group.projectId },
+  );
+}
+
+function buildEditEntryPayload(record) {
+  const sections = parseSections(record.content);
+  if (record.type === "feedback") {
+    return {
+      title: t("prompt.editEntry.title.feedback"),
+      fields: [
+        { id: "name", kind: "text", label: t("prompt.editEntry.name"), value: record.name || "" },
+        { id: "description", kind: "textarea", label: t("prompt.editEntry.description"), value: record.description || "", rows: 3, required: false, span: "full" },
+        { id: "rule", kind: "textarea", label: t("prompt.editEntry.rule"), value: readTextFromSection(sections.get("Rule")) || record.description || "", rows: 4, required: false, span: "full" },
+        { id: "why", kind: "textarea", label: t("prompt.editEntry.why"), value: readTextFromSection(sections.get("Why")), rows: 3, required: false, span: "half" },
+        { id: "howToApply", kind: "textarea", label: t("prompt.editEntry.howToApply"), value: readTextFromSection(sections.get("How to apply")), rows: 3, required: false, span: "half" },
+        { id: "notes", kind: "textarea", label: t("prompt.editEntry.notes"), value: joinMultilineItems(readListFromSection(sections.get("Notes"))), rows: 3, required: false, span: "full" },
+      ],
+    };
+  }
+  return {
+    title: t("prompt.editEntry.title.project"),
+    fields: [
+      { id: "name", kind: "text", label: t("prompt.editEntry.name"), value: record.name || "", span: "half" },
+      { id: "description", kind: "textarea", label: t("prompt.editEntry.description"), value: record.description || "", rows: 3, required: false, span: "full" },
+      { id: "stage", kind: "textarea", label: t("prompt.editEntry.stage"), value: readTextFromSection(sections.get("Current Stage")) || record.description || "", rows: 4, required: false, span: "full" },
+      { id: "decisions", kind: "textarea", label: t("prompt.editEntry.decisions"), value: joinMultilineItems(readListFromSection(sections.get("Decisions"))), rows: 3, required: false, span: "half" },
+      { id: "constraints", kind: "textarea", label: t("prompt.editEntry.constraints"), value: joinMultilineItems(readListFromSection(sections.get("Constraints"))), rows: 3, required: false, span: "half" },
+      { id: "nextSteps", kind: "textarea", label: t("prompt.editEntry.nextSteps"), value: joinMultilineItems(readListFromSection(sections.get("Next Steps"))), rows: 3, required: false, span: "half" },
+      { id: "blockers", kind: "textarea", label: t("prompt.editEntry.blockers"), value: joinMultilineItems(readListFromSection(sections.get("Blockers"))), rows: 3, required: false, span: "half" },
+      { id: "timeline", kind: "textarea", label: t("prompt.editEntry.timeline"), value: joinMultilineItems(readListFromSection(sections.get("Timeline"))), rows: 3, required: false, span: "half" },
+      { id: "notes", kind: "textarea", label: t("prompt.editEntry.notes"), value: joinMultilineItems(readListFromSection(sections.get("Notes"))), rows: 3, required: false, span: "half" },
+    ],
+  };
+}
+
+async function editMemoryRecord(record) {
+  const form = buildEditEntryPayload(record);
+  const payload = await requestActionForm({
+    title: form.title,
+    body: t("prompt.editEntry.body"),
+    confirmLabel: t("prompt.editEntry.ok"),
+    fields: form.fields,
+  });
+  if (!payload?.name) return;
+  const fields = record.type === "feedback"
+    ? {
+      rule: payload.rule || "",
+      why: payload.why || "",
+      howToApply: payload.howToApply || "",
+      notes: splitMultilineItems(payload.notes),
+    }
+    : {
+      stage: payload.stage || "",
+      decisions: splitMultilineItems(payload.decisions),
+      constraints: splitMultilineItems(payload.constraints),
+      nextSteps: splitMultilineItems(payload.nextSteps),
+      blockers: splitMultilineItems(payload.blockers),
+      timeline: splitMultilineItems(payload.timeline),
+      notes: splitMultilineItems(payload.notes),
+    };
+  await runMemoryMutation(
+    {
+      action: "edit_entry",
+      id: record.relativePath,
+      name: payload.name,
+      description: payload.description || "",
+      fields,
+    },
+    {
+      view: state.fileReturnView || (record.projectId === "_tmp" ? "project-list" : "project-detail"),
+      projectId: record.projectId,
+    },
+  );
+}
+
+async function deleteMemoryRecord(record) {
+  const ok = await confirmAction({
+    title: t("confirm.memory.delete.title"),
+    body: t("confirm.memory.delete.body"),
+    confirmLabel: t("confirm.memory.delete.ok"),
+  });
+  if (!ok) return;
+  await runMemoryMutation(
+    {
+      action: "delete_entries",
+      ids: [record.relativePath],
+    },
+    {
+      view: record.projectId === "_tmp" ? "project-list" : (state.fileReturnView || "project-list"),
+      projectId: record.projectId,
+    },
+  );
+}
+
+async function deprecateMemoryRecord(record) {
+  const ok = await confirmAction({
+    title: t("confirm.memory.deprecate.title"),
+    body: t("confirm.memory.deprecate.body"),
+    confirmLabel: t("confirm.memory.deprecate.ok"),
+  });
+  if (!ok) return;
+  await runMemoryMutation(
+    {
+      action: "deprecate_entries",
+      ids: [record.relativePath],
+    },
+    {
+      view: state.fileReturnView || "project-list",
+      projectId: record.projectId,
+    },
+  );
+}
+
+async function restoreMemoryRecord(record) {
+  const ok = await confirmAction({
+    title: t("confirm.memory.restore.title"),
+    body: t("confirm.memory.restore.body"),
+    confirmLabel: t("confirm.memory.restore.ok"),
+  });
+  if (!ok) return;
+  await runMemoryMutation(
+    {
+      action: "restore_entries",
+      ids: [record.relativePath],
+    },
+    {
+      view: record.projectId === "_tmp" ? "project-list" : (state.fileReturnView || "project-list"),
+      projectId: record.projectId,
+    },
+  );
+}
+
+async function archiveTmpRecordToExistingProject(record) {
+  const options = getFormalProjectChoices();
+  if (!options.length) {
+    setActivity("status.memoryActionFailed", t("action.unavailable"));
+    return;
+  }
+  const payload = await requestActionForm({
+    title: t("prompt.archiveExisting.title"),
+    body: t("prompt.archiveExisting.body"),
+    confirmLabel: t("prompt.archiveExisting.ok"),
+    fields: [{
+      id: "targetProjectId",
+      kind: "select",
+      label: t("prompt.archiveExisting.label"),
+      value: options[0]?.value || "",
+      options,
+    }],
+  });
+  if (!payload?.targetProjectId) return;
+  const result = await runMemoryMutation(
+    {
+      action: "archive_tmp",
+      ids: [record.relativePath],
+      targetProjectId: payload.targetProjectId,
+    },
+    {
+      view: "project-detail",
+      projectId: payload.targetProjectId,
+    },
+  );
+  if (result?.action === "archive_tmp" && payload.targetProjectId) {
+    state.selectedProjectId = payload.targetProjectId;
+  }
+}
+
+async function archiveTmpRecordAsNewProject(record) {
+  const payload = await requestActionForm({
+    title: t("prompt.archiveNew.title"),
+    body: t("prompt.archiveNew.body"),
+    confirmLabel: t("prompt.archiveNew.ok"),
+    fields: [{
+      id: "newProjectName",
+      kind: "text",
+      label: t("prompt.archiveNew.label"),
+      placeholder: t("prompt.archiveNew.placeholder"),
+      value: record.name || "",
+    }],
+  });
+  if (!payload?.newProjectName) return;
+  await runMemoryMutation(
+    {
+      action: "archive_tmp",
+      ids: [record.relativePath],
+      newProjectName: payload.newProjectName,
+    },
+    { view: "project-list" },
+  );
+}
+
+function getRecordActions(record) {
+  if (!record) return [];
+  if (record.deprecated) {
+    return [
+      {
+        label: t("action.restoreMemory"),
+        onClick: () => restoreMemoryRecord(record),
+      },
+      {
+        label: t("action.deleteMemory"),
+        danger: true,
+        onClick: () => deleteMemoryRecord(record),
+      },
+    ];
+  }
+  if (record.projectId === "_tmp") {
+    const actions = [];
+    actions.push({
+      label: t("action.editMemory"),
+      onClick: () => editMemoryRecord(record),
+    });
+    if (getFormalProjectChoices().length) {
+      actions.push({
+        label: t("action.archiveToProject"),
+        onClick: () => archiveTmpRecordToExistingProject(record),
+      });
+    }
+    if (record.type === "project") {
+      actions.push({
+        label: t("action.archiveAsProject"),
+        onClick: () => archiveTmpRecordAsNewProject(record),
+      });
+    }
+    actions.push({
+      label: t("action.deprecateMemory"),
+      onClick: () => deprecateMemoryRecord(record),
+    });
+    return actions;
+  }
+  if (record.type === "user") return [];
+  return [
+    {
+      label: t("action.editMemory"),
+      onClick: () => editMemoryRecord(record),
+    },
+    {
+      label: t("action.deprecateMemory"),
+      onClick: () => deprecateMemoryRecord(record),
+    },
+  ];
+}
+
 function renderProjectDetailView(group) {
-  if (!projectDetailTitle || !projectDetailMeta || !projectDetailBody || !projectDetailSubtitle) return;
+  if (!projectDetailTitle || !projectDetailMeta || !projectDetailBody || !projectDetailSubtitle || !projectDetailHeadActions) return;
   if (!group) {
     clearNode(projectDetailMeta);
+    clearNode(projectDetailHeadActions);
     projectDetailTitle.textContent = t("detail.title");
     projectDetailSubtitle.textContent = "";
     clearNode(projectDetailBody).append(createEmptyState(t("level.project.empty")));
@@ -1604,9 +2259,17 @@ function renderProjectDetailView(group) {
     createMetaChip(t("meta.counts"), `${formatNumber(group.projectCount || 0)} / ${formatNumber(group.feedbackCount || 0)}`),
   );
 
+  clearNode(projectDetailHeadActions).append(createInlineActionBar([
+    {
+      label: t("action.editProjectMeta"),
+      onClick: () => editProjectMeta(group),
+    },
+  ]));
   clearNode(projectDetailBody);
   const visibleProjectEntries = getVisibleProjectDetailEntries(group.projectEntries);
   const visibleFeedbackEntries = getVisibleProjectDetailEntries(group.feedbackEntries);
+  const visibleDeprecatedProjectEntries = getVisibleProjectDetailEntries(group.deprecatedProjectEntries);
+  const visibleDeprecatedFeedbackEntries = getVisibleProjectDetailEntries(group.deprecatedFeedbackEntries);
   appendMemoryFileListSection(
     projectDetailBody,
     t("detail.projectFiles"),
@@ -1619,7 +2282,19 @@ function renderProjectDetailView(group) {
     visibleFeedbackEntries,
     group.projectId,
   );
-  if (!visibleProjectEntries.length && !visibleFeedbackEntries.length) {
+  appendDeprecatedMemorySection(
+    projectDetailBody,
+    t("board.project.deprecatedProjectFiles"),
+    visibleDeprecatedProjectEntries,
+    { projectId: group.projectId, originView: "project-detail" },
+  );
+  appendDeprecatedMemorySection(
+    projectDetailBody,
+    t("board.project.deprecatedFeedbackFiles"),
+    visibleDeprecatedFeedbackEntries,
+    { projectId: group.projectId, originView: "project-detail" },
+  );
+  if (!visibleProjectEntries.length && !visibleFeedbackEntries.length && !visibleDeprecatedProjectEntries.length && !visibleDeprecatedFeedbackEntries.length) {
     projectDetailBody.append(createEmptyState(t("common.none")));
   }
 }
@@ -1628,7 +2303,11 @@ function renderTmpBoard() {
   if (!tmpBoard) return;
   clearNode(tmpBoard);
   const snapshot = state.tmpSnapshot;
-  if (!snapshot || !Number(snapshot.totalFiles || 0)) {
+  const visibleDeprecatedTmpEntries = [
+    ...getVisibleTmpRecords(snapshot?.deprecatedProjectEntries),
+    ...getVisibleTmpRecords(snapshot?.deprecatedFeedbackEntries),
+  ];
+  if (!snapshot || (!Number(snapshot.totalFiles || 0) && !visibleDeprecatedTmpEntries.length)) {
     tmpBoard.append(createEmptyState(t("level.tmp.empty")));
     return;
   }
@@ -1642,6 +2321,12 @@ function renderTmpBoard() {
 
   appendTmpFileListSection(page, t("board.tmp.projectFiles"), snapshot.projectEntries);
   appendTmpFileListSection(page, t("board.tmp.feedbackFiles"), snapshot.feedbackEntries);
+  appendDeprecatedMemorySection(
+    page,
+    t("board.project.deprecatedTmpFiles"),
+    visibleDeprecatedTmpEntries,
+    { projectId: "_tmp", originView: "tmp" },
+  );
   tmpBoard.append(page);
 }
 
@@ -1658,6 +2343,10 @@ function renderFileDetailView(record) {
   fileDetailTitle.textContent = record.name || record.file || t("detail.title");
   fileDetailSubtitle.textContent = record.description || "";
   fillRecordDetail(fileDetailMeta, fileDetailBody, record);
+  const actions = getRecordActions(record);
+  if (actions.length) {
+    fileDetailBody.prepend(createInlineActionBar(actions));
+  }
 }
 
 async function renderCurrentMainView({ force = false } = {}) {
@@ -1705,8 +2394,12 @@ function renderProjectListView() {
   const visibleTmpProjectEntries = getVisibleTmpRecords(tmpSnapshot?.projectEntries);
   const visibleTmpFeedbackEntries = getVisibleTmpRecords(tmpSnapshot?.feedbackEntries);
   const visibleTmpEntries = [...visibleTmpProjectEntries, ...visibleTmpFeedbackEntries];
+  const visibleDeprecatedTmpEntries = [
+    ...getVisibleTmpRecords(tmpSnapshot?.deprecatedProjectEntries),
+    ...getVisibleTmpRecords(tmpSnapshot?.deprecatedFeedbackEntries),
+  ];
   clearNode(projectListBoard);
-  if (!items.length && !visibleTmpEntries.length) {
+  if (!items.length && !visibleTmpEntries.length && !visibleDeprecatedTmpEntries.length) {
     projectListBoard.append(createEmptyState(t("level.project.empty")));
     return;
   }
@@ -1748,7 +2441,33 @@ function renderProjectListView() {
       ].join(" · "),
       onClick: () => void openMemoryDetail(record.relativePath, { originView: "project-list" }),
     }));
-    projectListBoard.append(createBoardGroup("未归档记忆", visibleTmpEntries.length, tmpCards));
+    projectListBoard.append(createBoardGroup(t("board.project.unarchived"), visibleTmpEntries.length, tmpCards));
+  }
+
+  if (visibleDeprecatedTmpEntries.length) {
+    const details = document.createElement("details");
+    details.className = "board-group";
+    details.append(el("summary", "board-group-header", `${t("board.project.deprecatedTmpFiles")} · ${formatNumber(visibleDeprecatedTmpEntries.length)}`));
+    const list = el("div", "entry-stream detail-file-list");
+    visibleDeprecatedTmpEntries.forEach((record) => {
+      const meta = [
+        formatDateTime(record.updatedAt),
+        record.relativePath || t("common.none"),
+      ];
+      const card = createEntryCard({
+        title: record.name || record.file || t("common.unknown"),
+        subtitle: record.description || record.preview || t("common.none"),
+        badge: t(`type.${record.type}`),
+        meta: meta.join(" · "),
+        active: state.selectedFileId === record.relativePath,
+        onClick: () => void openMemoryDetail(record.relativePath, { originView: "project-list" }),
+      });
+      const wrapper = el("div", "detail-action-card");
+      wrapper.append(card, createInlineActionBar(getDeprecatedSectionActions(record, { projectId: "_tmp", originView: "project-list" })));
+      list.append(wrapper);
+    });
+    details.append(list);
+    projectListBoard.append(details);
   }
 }
 
@@ -2543,9 +3262,12 @@ function renderBrowserHeader() {
   const level = getCurrentLevel();
   const searchKey = getCurrentSearchKey();
   const selectedProject = getSelectedProjectGroup();
+  const selectedRecord = state.selectedFileId ? state.recordCache.get(state.selectedFileId) || null : null;
   if (browserTitle) {
     if (state.mainView === "project-detail") browserTitle.textContent = selectedProject?.projectName || t("level.project.label");
-    else if (state.mainView === "file-detail") browserTitle.textContent = state.selectedFileType ? t(`type.${state.selectedFileType}`) : t("detail.title");
+    else if (state.mainView === "file-detail") {
+      browserTitle.textContent = selectedRecord?.name || selectedRecord?.file || t("detail.title");
+    }
     else browserTitle.textContent = t(`level.${level}.label`);
   }
   if (listQueryInput) listQueryInput.value = searchKey ? state.queries[searchKey] || "" : "";
@@ -2937,7 +3659,13 @@ function wireEvents() {
     void clearMemory();
   });
 
-  modalConfirm?.addEventListener("click", () => closeModal(true));
+  modalConfirm?.addEventListener("click", () => {
+    if (typeof state.modalSubmitHandler === "function") {
+      state.modalSubmitHandler();
+      return;
+    }
+    closeModal(true);
+  });
   modalCancel?.addEventListener("click", () => closeModal(false));
   modalOverlay?.addEventListener("click", (event) => {
     if (event.target === modalOverlay) closeModal(false);

@@ -635,7 +635,7 @@ export class ReasoningRetriever {
       candidates: [],
     };
     if (routeNeedsProjectMemory(route)) {
-      const projectMetas = store.listProjectMetas();
+      const projectMetas = store.listProjectMetas().filter((meta) => store.hasVisibleProjectMemory(meta.projectId));
       shortlistResult = buildProjectShortlist(projectMetas, normalizedQuery, recentUserMessages, options.workspaceHint);
       trace.steps.push({
         stepId: `${traceId}:step:${trace.steps.length + 1}`,

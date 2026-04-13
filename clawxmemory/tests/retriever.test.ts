@@ -73,6 +73,7 @@ function createStore(overrides: Record<string, unknown> = {}) {
   return {
     getUserSummary: vi.fn().mockReturnValue(createUserSummary()),
     listProjectMetas: vi.fn().mockReturnValue([createProjectMeta()]),
+    hasVisibleProjectMemory: vi.fn().mockReturnValue(true),
     scanRecallHeaderEntries: vi.fn().mockReturnValue([]),
     getFullMemoryRecordsByIds: vi.fn().mockReturnValue([]),
     ...overrides,

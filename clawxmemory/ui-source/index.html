@@ -194,12 +194,15 @@
             <div class="board-content board-active" id="projectListBoard"></div>
             <div class="board-content" id="projectDetailBoard">
               <section class="page-shell">
-                <div class="page-head">
-                  <button id="projectDetailBackBtn" class="tool-btn page-back-btn" type="button" data-i18n="detail.backToList">返回项目列表</button>
-                  <div class="page-head-copy">
-                    <h3 id="projectDetailTitle">项目详情</h3>
-                    <p id="projectDetailSubtitle" class="page-subtitle"></p>
+                <div class="page-head page-head--project">
+                  <div class="page-head-main">
+                    <button id="projectDetailBackBtn" class="tool-btn page-back-btn" type="button" data-i18n="detail.backToList">返回项目列表</button>
+                    <div class="page-head-copy">
+                      <h3 id="projectDetailTitle">项目详情</h3>
+                      <p id="projectDetailSubtitle" class="page-subtitle"></p>
+                    </div>
                   </div>
+                  <div id="projectDetailHeadActions" class="page-head-actions"></div>
                 </div>
                 <div id="projectDetailMeta" class="detail-meta"></div>
                 <div id="projectDetailBody" class="page-detail-body"></div>
@@ -245,13 +248,14 @@
       <div class="modal-card" id="modalCard">
         <div class="modal-icon" id="modalIcon"></div>
         <h3 class="modal-title" id="modalTitle"></h3>
-        <p class="modal-body" id="modalBody"></p>
+        <div class="modal-body" id="modalBody"></div>
+        <div class="modal-fields" id="modalFields"></div>
         <div class="modal-actions">
           <button class="modal-btn modal-cancel" id="modalCancel" type="button"></button>
           <button class="modal-btn modal-confirm" id="modalConfirm" type="button"></button>
         </div>
+      </div>
     </div>
-  </div>
 
   <input id="importMemoryInput" type="file" accept="application/json,.json" hidden />
 

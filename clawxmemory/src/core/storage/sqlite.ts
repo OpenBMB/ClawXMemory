@@ -11,6 +11,7 @@ import {
   type L0SessionRecord,
   MEMORY_EXPORT_FORMAT_VERSION,
   type MemoryExportBundle,
+  type MemoryEntryEditFields,
   type MemoryFileExportRecord,
   type MemoryFileRecord,
   type MemoryImportResult,
@@ -598,7 +599,9 @@ export class MemoryRepository {
     const recentRecallTraceCount = this.listRecentCaseTraces(12).length;
     const recentIndexTraceCount = this.listRecentIndexTraces(30).length;
     const recentDreamTraceCount = this.listRecentDreamTraces(30).length;
-    const formalProjectCount = this.fileMemory.listProjectMetas().length;
+    const formalProjectCount = this.fileMemory.listProjectMetas()
+      .filter((meta) => this.fileMemory.hasVisibleProjectMemory(meta.projectId))
+      .length;
     const userProfileCount = this.fileMemory.listMemoryEntries({
       kinds: ["user"],
       scope: "global",
@@ -647,6 +650,7 @@ export class MemoryRepository {
     scope?: "global" | "project";
     projectId?: string;
     includeTmp?: boolean;
+    includeDeprecated?: boolean;
   } = {}): MemoryManifestEntry[] {
     return this.fileMemory.listMemoryEntries(options);
   }
@@ -657,12 +661,61 @@ export class MemoryRepository {
     scope?: "global" | "project";
     projectId?: string;
     includeTmp?: boolean;
+    includeDeprecated?: boolean;
   } = {}): number {
     return this.fileMemory.countMemoryEntries(options);
   }
 
   getMemoryRecordsByIds(ids: string[], maxLines = 80): MemoryFileRecord[] {
     return this.fileMemory.getMemoryRecordsByIds(ids, maxLines);
+  }
+
+  editProjectMeta(input: {
+    projectId: string;
+    projectName: string;
+    description: string;
+    aliases?: string[];
+    status: string;
+  }) {
+    return this.fileMemory.editProjectMeta(input);
+  }
+
+  editMemoryEntry(input: {
+    id: string;
+    name: string;
+    description: string;
+    fields?: MemoryEntryEditFields;
+  }) {
+    return this.fileMemory.editEntry({
+      relativePath: input.id,
+      name: input.name,
+      description: input.description,
+      ...(input.fields ? { fields: input.fields } : {}),
+    });
+  }
+
+  deleteMemoryEntries(ids: string[]) {
+    return this.fileMemory.deleteEntries(ids);
+  }
+
+  deprecateMemoryEntries(ids: string[]) {
+    return this.fileMemory.markEntriesDeprecated(ids);
+  }
+
+  restoreMemoryEntries(ids: string[]) {
+    return this.fileMemory.restoreEntries(ids);
+  }
+
+  archiveTmpEntries(input: {
+    ids: string[];
+    targetProjectId?: string;
+    newProjectName?: string;
+  }) {
+    return this.fileMemory.archiveTmpEntries({
+      relativePaths: input.ids,
+      ...(input.targetProjectId ? { targetProjectId: input.targetProjectId } : {}),
+      ...(input.newProjectName ? { newProjectName: input.newProjectName } : {}),
+    });
   }
 
   getSnapshotVersion(): string {

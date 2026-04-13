@@ -44,6 +44,7 @@
     "dev": "tsc -b --watch",
     "typecheck": "tsc -b --pretty false",
     "debug:retrieve": "node ./scripts/debug-retrieve.mjs",
+    "blackbox:maintenance": "node ./scripts/manual-memory-maintenance-blackbox.mjs",
     "relink": "node ./scripts/relink.mjs",
     "reload": "node ./scripts/reload.mjs",
     "uninstall": "node ./scripts/uninstall.mjs",

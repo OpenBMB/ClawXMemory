@@ -125,6 +125,19 @@ async function startUiServer(
         conflictTopicCount: 0,
         summary: "noop",
       }),
+      runMemoryAction: async (input) => ({
+        ok: true,
+        action: input.action,
+        updatedOverview: {
+          pendingSessions: 0,
+          formalProjectCount: 1,
+          userProfileCount: 1,
+          tmpTotalFiles: 0,
+        },
+        mutatedIds: [],
+        deletedProjectIds: [],
+        messages: ["ok"],
+      }),
       clearMemoryNow: async () => ({
         cleared: {
           l0: 0,
@@ -301,6 +314,118 @@ describe("LocalUiServer static assets", () => {
     expect(overview.managedWorkspaceFiles).toBeUndefined();
     expect(overview.runtimeIssues).toBeUndefined();
     expect(overview.slotOwner).toBeUndefined();
+  });
+
+  it("routes POST /api/memory/actions to manual memory mutation controls", async () => {
+    const runMemoryAction = vi.fn().mockResolvedValue({
+      ok: true,
+      action: "edit_project_meta",
+      updatedOverview: {
+        pendingSessions: 0,
+        formalProjectCount: 1,
+        userProfileCount: 1,
+        tmpTotalFiles: 0,
+      },
+      mutatedIds: ["projects/proj-a/project.meta.md"],
+      deletedProjectIds: [],
+      messages: ["Updated project meta."],
+    });
+    const baseUrl = await startUiServer({
+      controls: {
+        runMemoryAction,
+      },
+    });
+
+    const response = await fetch(`${baseUrl}/api/memory/actions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        action: "edit_project_meta",
+        projectId: "proj-a",
+        projectName: "Project Renamed",
+        description: "Project A description",
+        aliases: ["Project A"],
+        status: "active",
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.ok).toBe(true);
+    expect(runMemoryAction).toHaveBeenCalledWith({
+      action: "edit_project_meta",
+      projectId: "proj-a",
+      projectName: "Project Renamed",
+      description: "Project A description",
+      aliases: ["Project A"],
+      status: "active",
+    });
+  });
+
+  it("routes edit_entry payloads with structured fields", async () => {
+    const runMemoryAction = vi.fn().mockResolvedValue({
+      ok: true,
+      action: "edit_entry",
+      updatedOverview: {
+        pendingSessions: 0,
+        formalProjectCount: 1,
+        userProfileCount: 1,
+        tmpTotalFiles: 0,
+      },
+      mutatedIds: ["projects/proj-a/Project/current-stage.md"],
+      deletedProjectIds: [],
+      messages: ["Updated memory entry."],
+    });
+    const baseUrl = await startUiServer({
+      controls: {
+        runMemoryAction,
+      },
+    });
+
+    const response = await fetch(`${baseUrl}/api/memory/actions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        action: "edit_entry",
+        id: "projects/proj-a/Project/current-stage.md",
+        name: "current-stage",
+        description: "项目进入模板验证阶段",
+        fields: {
+          stage: "项目进入模板验证阶段",
+          nextSteps: ["补充模板", "验证封面"],
+          notes: ["保留中文输出"],
+        },
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(runMemoryAction).toHaveBeenCalledWith({
+      action: "edit_entry",
+      id: "projects/proj-a/Project/current-stage.md",
+      name: "current-stage",
+      description: "项目进入模板验证阶段",
+      fields: {
+        stage: "项目进入模板验证阶段",
+        nextSteps: ["补充模板", "验证封面"],
+        notes: ["保留中文输出"],
+      },
+    });
+  });
+
+  it("rejects invalid POST /api/memory/actions payloads", async () => {
+    const baseUrl = await startUiServer();
+
+    const response = await fetch(`${baseUrl}/api/memory/actions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        action: "archive_tmp",
+        ids: ["projects/_tmp/Feedback/delivery-rule.md"],
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.text()).toContain("archive_tmp requires targetProjectId or newProjectName");
   });
 
   it("warns with uiPort config instructions when the dashboard port is already in use", async () => {

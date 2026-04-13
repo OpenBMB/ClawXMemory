@@ -23,6 +23,8 @@ import {
   TMP_PROJECT_ID,
   type MemoryImportableBundle,
   type MemoryExportBundle,
+  type MemoryActionRequest,
+  type MemoryActionResult,
   type MemoryImportResult,
   type MemoryUiSnapshot,
 } from "./core/index.js";
@@ -50,6 +52,7 @@ export interface UiServerControls {
   saveSettings: (partial: Partial<IndexingSettings>) => IndexingSettings;
   runIndexNow: () => Promise<HeartbeatStats>;
   runDreamNow: () => Promise<DreamRunResult>;
+  runMemoryAction: (input: MemoryActionRequest) => Promise<MemoryActionResult>;
   clearMemoryNow: () => Promise<ClearMemoryResult> | ClearMemoryResult;
   exportMemoryBundle: () => MemoryExportBundle;
   importMemoryBundle: (bundle: MemoryImportableBundle) => Promise<MemoryImportResult>;
@@ -72,6 +75,8 @@ interface UiProjectGroup {
   updatedAt: string;
   projectEntries: MemoryManifestEntry[];
   feedbackEntries: MemoryManifestEntry[];
+  deprecatedProjectEntries: MemoryManifestEntry[];
+  deprecatedFeedbackEntries: MemoryManifestEntry[];
   projectCount: number;
   feedbackCount: number;
 }
@@ -84,6 +89,8 @@ interface UiTmpSnapshot {
   totalFeedback: number;
   projectEntries: MemoryFileRecord[];
   feedbackEntries: MemoryFileRecord[];
+  deprecatedProjectEntries: MemoryFileRecord[];
+  deprecatedFeedbackEntries: MemoryFileRecord[];
 }
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -205,26 +212,34 @@ function buildProjectGroups(repository: MemoryRepository, options: {
       scope: "project",
       projectId: meta.projectId,
       limit: 500,
+      includeDeprecated: true,
     });
-    const projectEntries = entries.filter((entry) => entry.type === "project");
-    const feedbackEntries = entries.filter((entry) => entry.type === "feedback");
+    const activeEntries = entries.filter((entry) => !entry.deprecated);
+    const deprecatedEntries = entries.filter((entry) => entry.deprecated);
+    const projectEntries = activeEntries.filter((entry) => entry.type === "project");
+    const feedbackEntries = activeEntries.filter((entry) => entry.type === "feedback");
+    const deprecatedProjectEntries = deprecatedEntries.filter((entry) => entry.type === "project");
+    const deprecatedFeedbackEntries = deprecatedEntries.filter((entry) => entry.type === "feedback");
     return {
       projectId: meta.projectId,
       projectName: meta.projectName,
       description: meta.description,
       aliases: [...meta.aliases],
       status: meta.status,
-      updatedAt: latestUpdatedAt(meta, entries),
+      updatedAt: latestUpdatedAt(meta, activeEntries),
       projectEntries,
       feedbackEntries,
+      deprecatedProjectEntries,
+      deprecatedFeedbackEntries,
       projectCount: projectEntries.length,
       feedbackCount: feedbackEntries.length,
     } satisfies UiProjectGroup;
   });
 
+  const visibleGroups = groups.filter((group) => (group.projectCount + group.feedbackCount) > 0);
   const filtered = !query
-    ? groups
-    : groups.filter((group) => normalizeSearchText([
+    ? visibleGroups
+    : visibleGroups.filter((group) => normalizeSearchText([
       group.projectName,
       group.description,
       ...group.aliases,
@@ -249,6 +264,7 @@ function buildTmpSnapshot(repository: MemoryRepository, options: {
     scope: "project",
     projectId: TMP_PROJECT_ID,
     includeTmp: true,
+    includeDeprecated: true,
     limit: 1000,
   });
   const records = repository.getMemoryRecordsByIds(
@@ -270,6 +286,7 @@ function buildTmpSnapshot(repository: MemoryRepository, options: {
   const page = filtered
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
     .slice(offset, offset + limit);
+  const activeFiltered = filtered.filter((record) => !record.deprecated);
   const manifestPath = join(store.getRootDir(), "projects", TMP_PROJECT_ID, "MEMORY.md");
   return {
     manifestPath: `projects/${TMP_PROJECT_ID}/MEMORY.md`,
@@ -280,11 +297,13 @@ function buildTmpSnapshot(repository: MemoryRepository, options: {
         return "";
       }
     })(),
-    totalFiles: filtered.length,
-    totalProjects: filtered.filter((record) => record.type === "project").length,
-    totalFeedback: filtered.filter((record) => record.type === "feedback").length,
-    projectEntries: page.filter((record) => record.type === "project"),
-    feedbackEntries: page.filter((record) => record.type === "feedback"),
+    totalFiles: activeFiltered.length,
+    totalProjects: activeFiltered.filter((record) => record.type === "project").length,
+    totalFeedback: activeFiltered.filter((record) => record.type === "feedback").length,
+    projectEntries: page.filter((record) => record.type === "project" && !record.deprecated),
+    feedbackEntries: page.filter((record) => record.type === "feedback" && !record.deprecated),
+    deprecatedProjectEntries: page.filter((record) => record.type === "project" && record.deprecated),
+    deprecatedFeedbackEntries: page.filter((record) => record.type === "feedback" && record.deprecated),
   };
 }
 
@@ -525,6 +544,83 @@ export class LocalUiServer {
       const ids = (url.searchParams.get("ids") ?? "").split(",").map((value) => value.trim()).filter(Boolean);
       if (ids.length === 0) return sendBadRequest(res, "ids query parameter is required");
       return sendJson(res, this.repository.getMemoryRecordsByIds(ids, 5000));
+    }
+    if (relativePath === "/api/memory/actions") {
+      if (upperMethod !== "POST") return sendMethodNotAllowed(res, "POST");
+      const body = await readJsonBody(req);
+      const action = typeof body.action === "string" ? body.action.trim() : "";
+      if (
+        action !== "edit_project_meta"
+        && action !== "edit_entry"
+        && action !== "delete_entries"
+        && action !== "deprecate_entries"
+        && action !== "restore_entries"
+        && action !== "archive_tmp"
+      ) {
+        return sendBadRequest(res, "Unsupported memory action");
+      }
+      try {
+        if (action === "edit_project_meta") {
+          const projectId = typeof body.projectId === "string" ? body.projectId.trim() : "";
+          const projectName = typeof body.projectName === "string" ? body.projectName.trim() : "";
+          const description = typeof body.description === "string" ? body.description.trim() : "";
+          const status = typeof body.status === "string" ? body.status.trim() : "";
+          const aliases = Array.isArray(body.aliases)
+            ? body.aliases.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean)
+            : [];
+          if (!projectId || !projectName || !description || !status) {
+            return sendBadRequest(res, "projectId, projectName, description, and status are required");
+          }
+          return sendJson(res, await this.controls.runMemoryAction({ action, projectId, projectName, description, aliases, status }));
+        }
+        if (action === "edit_entry") {
+          const id = typeof body.id === "string" ? body.id.trim() : "";
+          const name = typeof body.name === "string" ? body.name.trim() : "";
+          const description = typeof body.description === "string" ? body.description.trim() : "";
+          if (!id || !name) return sendBadRequest(res, "id and name are required");
+          const rawFields = typeof body.fields === "object" && body.fields !== null ? body.fields as Record<string, unknown> : {};
+          const stringFields = ["stage", "rule", "why", "howToApply"] as const;
+          const listFields = ["decisions", "constraints", "nextSteps", "blockers", "timeline", "notes"] as const;
+          const fields: Record<string, unknown> = {};
+          for (const key of stringFields) {
+            const value = typeof rawFields[key] === "string" ? rawFields[key].trim() : "";
+            if (value) fields[key] = value;
+          }
+          for (const key of listFields) {
+            const value = Array.isArray(rawFields[key])
+              ? rawFields[key].filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean)
+              : [];
+            if (value.length) fields[key] = value;
+          }
+          return sendJson(res, await this.controls.runMemoryAction({
+            action,
+            id,
+            name,
+            description,
+            ...(Object.keys(fields).length ? { fields } : {}),
+          }));
+        }
+        if (action === "archive_tmp") {
+          const ids = Array.isArray(body.ids) ? body.ids.filter((item): item is string => typeof item === "string" && item.trim().length > 0).map((item) => item.trim()) : [];
+          const targetProjectId = typeof body.targetProjectId === "string" ? body.targetProjectId.trim() : "";
+          const newProjectName = typeof body.newProjectName === "string" ? body.newProjectName.trim() : "";
+          if (!ids.length) return sendBadRequest(res, "ids are required");
+          if (!targetProjectId && !newProjectName) {
+            return sendBadRequest(res, "archive_tmp requires targetProjectId or newProjectName");
+          }
+          return sendJson(res, await this.controls.runMemoryAction({
+            action,
+            ids,
+            ...(targetProjectId ? { targetProjectId } : {}),
+            ...(newProjectName ? { newProjectName } : {}),
+          }));
+        }
+        const ids = Array.isArray(body.ids) ? body.ids.filter((item): item is string => typeof item === "string" && item.trim().length > 0).map((item) => item.trim()) : [];
+        if (!ids.length) return sendBadRequest(res, "ids are required");
+        return sendJson(res, await this.controls.runMemoryAction({ action, ids }));
+      } catch (error) {
+        return sendBadRequest(res, error instanceof Error ? error.message : String(error));
+      }
     }
     if (relativePath === "/api/memory/user-summary") {
       if (upperMethod !== "GET") return sendMethodNotAllowed(res, "GET");

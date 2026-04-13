@@ -15,6 +15,7 @@ import {
 import { dirname, join, relative } from "node:path";
 import type {
   MemoryCandidate,
+  MemoryEntryEditFields,
   MemoryFileExportRecord,
   MemoryFileFrontmatter,
   MemoryFileRecord,
@@ -257,6 +258,40 @@ function renderTextSection(title: string, value: string | undefined): string {
 function renderFixedTextSection(title: string, value: string | undefined): string {
   const normalized = normalizeWhitespace(value ?? "");
   return [`## ${title}`, normalized, ""].join("\n");
+}
+
+function renderProjectMemoryBody(input: {
+  stage?: string;
+  decisions?: readonly string[];
+  constraints?: readonly string[];
+  nextSteps?: readonly string[];
+  blockers?: readonly string[];
+  timeline?: readonly string[];
+  notes?: readonly string[];
+}): string {
+  return [
+    renderTextSection("Current Stage", input.stage),
+    renderListSection("Decisions", input.decisions),
+    renderListSection("Constraints", input.constraints),
+    renderListSection("Next Steps", input.nextSteps),
+    renderListSection("Blockers", input.blockers),
+    renderListSection("Timeline", input.timeline),
+    renderListSection("Notes", input.notes),
+  ].filter(Boolean).join("\n").trim();
+}
+
+function renderFeedbackMemoryBody(input: {
+  rule?: string;
+  why?: string;
+  howToApply?: string;
+  notes?: readonly string[];
+}): string {
+  return [
+    renderTextSection("Rule", input.rule),
+    renderFixedTextSection("Why", input.why),
+    renderFixedTextSection("How to apply", input.howToApply),
+    renderListSection("Notes", input.notes),
+  ].filter(Boolean).join("\n").trim();
 }
 
 function renderFixedListSection(title: string, items: readonly string[] | undefined): string {
@@ -623,6 +658,7 @@ export class FileMemoryStore {
       scope: frontmatter.scope,
       ...(frontmatter.projectId ? { projectId: frontmatter.projectId } : {}),
       updatedAt: frontmatter.updatedAt,
+      ...(frontmatter.deprecated ? { deprecated: true } : {}),
       file: absolutePath.split("/").pop() ?? "unknown.md",
       relativePath: relative(this.rootDir, absolutePath),
       absolutePath,
@@ -650,6 +686,7 @@ export class FileMemoryStore {
           scope: record.scope,
           ...(record.projectId ? { projectId: record.projectId } : {}),
           updatedAt: record.updatedAt,
+          ...(record.deprecated ? { deprecated: true } : {}),
           file: record.file,
           relativePath: record.relativePath,
           absolutePath: record.absolutePath,
@@ -702,9 +739,11 @@ export class FileMemoryStore {
     scope?: MemoryScope;
     projectId?: string;
     includeTmp?: boolean;
+    includeDeprecated?: boolean;
   } = {}): MemoryManifestEntry[] {
     this.ensureLayout();
     const includeTmp = Boolean(options.includeTmp);
+    const includeDeprecated = Boolean(options.includeDeprecated);
     let entries: MemoryManifestEntry[] = [];
     const projectId = normalizeProjectId(options.projectId);
     if (options.scope === "global") {
@@ -720,6 +759,9 @@ export class FileMemoryStore {
     }
     if (!includeTmp) {
       entries = entries.filter((entry) => entry.projectId !== TMP_PROJECT_ID);
+    }
+    if (!includeDeprecated) {
+      entries = entries.filter((entry) => !entry.deprecated);
     }
     if (options.scope === "project") {
       entries = entries.filter((entry) => entry.scope === "project");
@@ -758,6 +800,7 @@ export class FileMemoryStore {
     scope?: MemoryScope;
     projectId?: string;
     includeTmp?: boolean;
+    includeDeprecated?: boolean;
   } = {}): MemoryManifestEntry[] {
     const entries = this.collectMemoryEntries(options);
     const offset = Math.max(0, options.offset ?? 0);
@@ -771,6 +814,7 @@ export class FileMemoryStore {
     scope?: MemoryScope;
     projectId?: string;
     includeTmp?: boolean;
+    includeDeprecated?: boolean;
   } = {}): number {
     return this.collectMemoryEntries(options).length;
   }
@@ -850,6 +894,7 @@ export class FileMemoryStore {
     const entries = dirs
       .flatMap((dir) => findMarkdownFiles(dir))
       .map((file) => this.readRecallHeaderEntryFromPath(file, options.maxLines))
+      .filter((entry) => !entry.deprecated)
       .sort((left, right) =>
         right.updatedAt.localeCompare(left.updatedAt)
         || left.relativePath.localeCompare(right.relativePath)
@@ -883,6 +928,312 @@ export class FileMemoryStore {
     return {
       ...meta,
       relativePath: relative(this.rootDir, meta.absolutePath),
+    };
+  }
+
+  hasVisibleProjectMemory(projectId: string): boolean {
+    return this.countMemoryEntries({
+      scope: "project",
+      projectId,
+    }) > 0;
+  }
+
+  private hasAnyProjectMemoryFiles(projectId: string): boolean {
+    const normalized = normalizeProjectId(projectId);
+    if (!normalized || normalized === TMP_PROJECT_ID) return false;
+    return this.listProjectMarkdownFiles(normalized).length > 0;
+  }
+
+  private cleanupFormalProjectAfterMutation(projectId: string): boolean {
+    const normalized = normalizeProjectId(projectId);
+    if (!normalized || normalized === TMP_PROJECT_ID) return false;
+    const hasAnyFiles = this.hasAnyProjectMemoryFiles(normalized);
+    if (!hasAnyFiles) {
+      rmSync(this.projectRoot(normalized), { recursive: true, force: true });
+      return true;
+    }
+    this.rebuildManifest("project", normalized);
+    return false;
+  }
+
+  editProjectMeta(input: {
+    projectId: string;
+    projectName: string;
+    description: string;
+    aliases?: string[];
+    status: string;
+  }): ProjectMetaRecord {
+    const normalized = normalizeProjectId(input.projectId);
+    const nextName = normalizeWhitespace(input.projectName);
+    const nextDescription = normalizeWhitespace(input.description);
+    const nextStatus = normalizeWhitespace(input.status);
+    const nextAliases = uniqueItems(input.aliases, 50);
+    if (!normalized || normalized === TMP_PROJECT_ID) {
+      throw new Error("projectId must be a stable project id");
+    }
+    if (!nextName) {
+      throw new Error("projectName is required");
+    }
+    if (!nextDescription) {
+      throw new Error("description is required");
+    }
+    if (!nextStatus) {
+      throw new Error("status is required");
+    }
+    const existing = this.getProjectMeta(normalized);
+    if (!existing) {
+      throw new Error(`Project not found: ${input.projectId}`);
+    }
+    return this.upsertProjectMeta({
+      projectId: normalized,
+      projectName: nextName,
+      description: nextDescription,
+      aliases: [existing.projectName, ...existing.aliases, ...nextAliases],
+      status: nextStatus,
+      ...(existing.dreamUpdatedAt ? { dreamUpdatedAt: existing.dreamUpdatedAt } : {}),
+    });
+  }
+
+  private rewriteRecord(
+    relativePath: string,
+    transform: (frontmatter: MemoryFileFrontmatter, body: string) => {
+      frontmatter: MemoryFileFrontmatter;
+      body: string;
+    },
+  ): MemoryFileRecord {
+    const absolutePath = join(this.rootDir, relativePath);
+    if (!existsSync(absolutePath)) {
+      throw new Error(`Memory file not found: ${relativePath}`);
+    }
+    const raw = readFileSync(absolutePath, "utf-8");
+    const { frontmatter, body } = parseFrontmatter(raw);
+    const next = transform(frontmatter, body);
+    const nextBody = next.body.trim();
+    writeFileSync(absolutePath, `${renderFrontmatter(next.frontmatter)}${nextBody}${nextBody ? "\n" : ""}`, "utf-8");
+    if (next.frontmatter.scope === "global") {
+      this.rebuildManifest("global");
+    } else if (next.frontmatter.projectId) {
+      this.rebuildManifest("project", next.frontmatter.projectId);
+    }
+    return this.getMemoryRecord(relativePath, 5000)!;
+  }
+
+  private rewriteRecordFrontmatter(
+    relativePath: string,
+    transform: (frontmatter: MemoryFileFrontmatter) => MemoryFileFrontmatter,
+  ): MemoryFileRecord {
+    return this.rewriteRecord(relativePath, (frontmatter, body) => ({
+      frontmatter: transform(frontmatter),
+      body,
+    }));
+  }
+
+  editEntry(input: {
+    relativePath: string;
+    name: string;
+    description: string;
+    fields?: MemoryEntryEditFields;
+  }): MemoryFileRecord {
+    const relativePath = normalizeWhitespace(input.relativePath);
+    const nextName = normalizeWhitespace(input.name);
+    const nextDescription = normalizeWhitespace(input.description);
+    if (!relativePath) {
+      throw new Error("id is required");
+    }
+    if (!nextName) {
+      throw new Error("name is required");
+    }
+    const record = this.getMemoryRecord(relativePath, 5000);
+    if (!record) {
+      throw new Error(`Memory file not found: ${relativePath}`);
+    }
+    if (record.type === "user") {
+      throw new Error("User profile cannot be edited from manual maintenance");
+    }
+    if (record.relativePath.endsWith(PROJECT_META_FILE)) {
+      throw new Error("project.meta.md cannot be edited with edit_entry");
+    }
+    if (record.deprecated) {
+      throw new Error("Deprecated memory must be restored before editing");
+    }
+
+    const fields = input.fields ?? {};
+    const candidate = this.toCandidate(record);
+    const nextFrontmatter: MemoryFileFrontmatter = {
+      name: nextName,
+      description: nextDescription,
+      type: record.type,
+      scope: record.scope,
+      ...(record.projectId ? { projectId: record.projectId } : {}),
+      updatedAt: nowIso(),
+      ...(record.capturedAt ? { capturedAt: record.capturedAt } : {}),
+      ...(record.sourceSessionKey ? { sourceSessionKey: record.sourceSessionKey } : {}),
+      ...(record.deprecated ? { deprecated: true } : {}),
+      ...(typeof record.dreamAttempts === "number" ? { dreamAttempts: record.dreamAttempts } : {}),
+    };
+
+    const nextBody = record.type === "feedback"
+      ? renderFeedbackMemoryBody({
+        rule: normalizeWhitespace(fields.rule ?? candidate.rule ?? record.description),
+        why: normalizeWhitespace(fields.why ?? candidate.why ?? ""),
+        howToApply: normalizeWhitespace(fields.howToApply ?? candidate.howToApply ?? ""),
+        notes: uniqueItems(fields.notes ?? candidate.notes ?? [], 50),
+      })
+      : renderProjectMemoryBody({
+        stage: normalizeWhitespace(fields.stage ?? candidate.stage ?? record.description),
+        decisions: uniqueItems(fields.decisions ?? candidate.decisions ?? [], 50),
+        constraints: uniqueItems(fields.constraints ?? candidate.constraints ?? [], 50),
+        nextSteps: uniqueItems(fields.nextSteps ?? candidate.nextSteps ?? [], 50),
+        blockers: uniqueItems(fields.blockers ?? candidate.blockers ?? [], 50),
+        timeline: uniqueItems(fields.timeline ?? candidate.timeline ?? [], 50),
+        notes: uniqueItems(fields.notes ?? candidate.notes ?? [], 50),
+      });
+
+    return this.rewriteRecord(relativePath, () => ({
+      frontmatter: nextFrontmatter,
+      body: nextBody,
+    }));
+  }
+
+  markEntriesDeprecated(relativePaths: string[]): { mutatedIds: string[]; deletedProjectIds: string[] } {
+    const mutatedIds: string[] = [];
+    const touchedProjectIds = new Set<string>();
+    for (const relativePath of Array.from(new Set(relativePaths))) {
+      const record = this.getMemoryRecord(relativePath, 5);
+      if (!record) continue;
+      if (record.type === "user") {
+        throw new Error("User profile cannot be deprecated");
+      }
+      if (record.relativePath.endsWith(PROJECT_META_FILE)) {
+        throw new Error("project.meta.md cannot be deprecated");
+      }
+      if (record.deprecated) continue;
+      this.rewriteRecordFrontmatter(relativePath, (frontmatter) => ({
+        ...frontmatter,
+        deprecated: true,
+        updatedAt: nowIso(),
+      }));
+      mutatedIds.push(relativePath);
+      if (record.projectId && record.projectId !== TMP_PROJECT_ID) {
+        touchedProjectIds.add(record.projectId);
+      }
+    }
+    const deletedProjectIds = Array.from(touchedProjectIds).filter((projectId) => this.cleanupFormalProjectAfterMutation(projectId));
+    return { mutatedIds, deletedProjectIds };
+  }
+
+  restoreEntries(relativePaths: string[]): { mutatedIds: string[]; deletedProjectIds: string[] } {
+    const mutatedIds: string[] = [];
+    for (const relativePath of Array.from(new Set(relativePaths))) {
+      const record = this.getMemoryRecord(relativePath, 5);
+      if (!record) continue;
+      if (record.type === "user") {
+        throw new Error("User profile cannot be restored from manual maintenance");
+      }
+      if (record.relativePath.endsWith(PROJECT_META_FILE)) {
+        throw new Error("project.meta.md cannot be restored");
+      }
+      if (!record.deprecated) {
+        throw new Error("Only deprecated memory can be restored");
+      }
+      this.rewriteRecordFrontmatter(relativePath, (frontmatter) => ({
+        ...frontmatter,
+        deprecated: false,
+        updatedAt: nowIso(),
+      }));
+      mutatedIds.push(relativePath);
+    }
+    return { mutatedIds, deletedProjectIds: [] };
+  }
+
+  deleteEntries(relativePaths: string[]): { mutatedIds: string[]; deletedProjectIds: string[] } {
+    const mutatedIds: string[] = [];
+    const touchedProjectIds = new Set<string>();
+    for (const relativePath of Array.from(new Set(relativePaths))) {
+      if (relativePath.endsWith(PROJECT_META_FILE)) {
+        throw new Error("project.meta.md cannot be deleted directly");
+      }
+      const record = this.getMemoryRecord(relativePath, 5);
+      if (!record) continue;
+      if (record.type === "user") {
+        throw new Error("User profile cannot be deleted from manual maintenance");
+      }
+      if (!record.deprecated) {
+        throw new Error("Only deprecated memory can be deleted");
+      }
+      this.deleteRecord(record);
+      mutatedIds.push(relativePath);
+      if (record.projectId && record.projectId !== TMP_PROJECT_ID) {
+        touchedProjectIds.add(record.projectId);
+      }
+    }
+    const deletedProjectIds = Array.from(touchedProjectIds).filter((projectId) => this.cleanupFormalProjectAfterMutation(projectId));
+    return { mutatedIds, deletedProjectIds };
+  }
+
+  archiveTmpEntries(input: {
+    relativePaths: string[];
+    targetProjectId?: string;
+    newProjectName?: string;
+  }): { mutatedIds: string[]; targetProjectId: string; createdProjectId?: string } {
+    const relativePaths = Array.from(new Set(input.relativePaths.map((item) => normalizeWhitespace(item)).filter(Boolean)));
+    if (!relativePaths.length) {
+      throw new Error("ids is required");
+    }
+    const targetProjectId = normalizeProjectId(input.targetProjectId);
+    const newProjectName = normalizeWhitespace(input.newProjectName || "");
+    if (targetProjectId && newProjectName) {
+      throw new Error("Provide either targetProjectId or newProjectName, not both");
+    }
+
+    const records = relativePaths.map((relativePath) => this.getMemoryRecord(relativePath, 5)).filter((item): item is MemoryFileRecord => Boolean(item));
+    if (records.length !== relativePaths.length) {
+      throw new Error("One or more tmp memory files were not found");
+    }
+    if (records.some((record) => record.projectId !== TMP_PROJECT_ID)) {
+      throw new Error("archive_tmp only accepts tmp memory files");
+    }
+    if (records.some((record) => record.deprecated)) {
+      throw new Error("Deprecated tmp memory must be restored before archiving");
+    }
+
+    let destinationProjectId = targetProjectId;
+    let createdProjectId: string | undefined;
+    if (!destinationProjectId) {
+      if (!newProjectName) {
+        throw new Error("archive_tmp requires targetProjectId or newProjectName");
+      }
+      if (records.some((record) => record.type !== "project")) {
+        throw new Error("tmp feedback can only be archived to an existing formal project");
+      }
+      destinationProjectId = this.createStableProjectId(`${newProjectName}|${nowIso()}`);
+      this.upsertProjectMeta({
+        projectId: destinationProjectId,
+        projectName: newProjectName,
+        description: records[0]?.description || newProjectName,
+        aliases: records.map((record) => record.name).filter(Boolean) as string[],
+      });
+      createdProjectId = destinationProjectId;
+    } else {
+      const meta = this.getProjectMeta(destinationProjectId);
+      if (!meta) {
+        throw new Error(`Target project not found: ${input.targetProjectId}`);
+      }
+    }
+
+    const mutatedIds: string[] = [];
+    for (const relativePath of relativePaths) {
+      const promoted = this.promoteTmpRecord(relativePath, destinationProjectId);
+      if (!promoted) {
+        throw new Error(`Failed to archive tmp memory: ${relativePath}`);
+      }
+      mutatedIds.push(relativePath);
+    }
+
+    return {
+      mutatedIds,
+      targetProjectId: destinationProjectId,
+      ...(createdProjectId ? { createdProjectId } : {}),
     };
   }
 
@@ -1246,9 +1597,11 @@ export class FileMemoryStore {
         if (candidate.type === "project") {
           this.upsertProjectMeta({
             projectId: location.projectId,
-            projectName: candidate.name || existingMeta?.projectName || location.projectId,
-            description: candidate.description || candidate.summary || candidate.stage || existingMeta?.description || location.projectId,
-            aliases: [candidate.name].filter(Boolean) as string[],
+            projectName: existingMeta?.projectName || candidate.name || location.projectId,
+            description: existingMeta?.description || candidate.description || candidate.summary || candidate.stage || location.projectId,
+            aliases: uniqueItems([...(existingMeta?.aliases ?? []), candidate.name].filter(Boolean) as string[], 20),
+            ...(existingMeta?.status ? { status: existingMeta.status } : {}),
+            ...(existingMeta?.dreamUpdatedAt ? { dreamUpdatedAt: existingMeta.dreamUpdatedAt } : {}),
           });
         } else if (!existingMeta) {
           this.upsertProjectMeta({
@@ -1497,10 +1850,30 @@ export class FileMemoryStore {
 
   getOverview(lastDreamAt?: string): FileMemoryOverview {
     const formalEntries = [
-      ...this.buildManifestEntriesForScope("global"),
-      ...this.listProjectIds().flatMap((projectId) => this.buildManifestEntriesForScope("project", projectId)),
+      ...this.collectMemoryEntries({ scope: "global", includeDeprecated: false }),
+      ...this.listProjectIds().flatMap((projectId) => this.collectMemoryEntries({
+        scope: "project",
+        projectId,
+        includeDeprecated: false,
+      })),
     ];
-    const tmpEntries = this.buildManifestEntriesForScope("project", TMP_PROJECT_ID);
+    const tmpEntries = this.collectMemoryEntries({
+      scope: "project",
+      projectId: TMP_PROJECT_ID,
+      includeTmp: true,
+      includeDeprecated: false,
+    });
+    const changedEntries = [
+      ...this.collectMemoryEntries({ scope: "global", includeDeprecated: true }),
+      ...this.scanProjectDirs()
+        .filter((projectId) => projectId === TMP_PROJECT_ID || Boolean(this.projectSeedFromDir(projectId)))
+        .flatMap((projectId) => this.collectMemoryEntries({
+          scope: "project",
+          projectId,
+          includeTmp: true,
+          includeDeprecated: true,
+        })),
+    ];
     const totalUserMemories = formalEntries.filter((entry) => entry.type === "user").length;
     const totalFeedbackMemories = formalEntries.filter((entry) => entry.type === "feedback").length;
     const totalProjectMemories = formalEntries.filter((entry) => entry.type === "project").length;
@@ -1515,8 +1888,8 @@ export class FileMemoryStore {
       tmpFeedbackMemories,
       tmpProjectMemories,
       changedFilesSinceLastDream: lastDreamAt
-        ? [...formalEntries, ...tmpEntries].filter((entry) => entry.updatedAt > lastDreamAt).length
-        : formalEntries.length + tmpEntries.length,
+        ? changedEntries.filter((entry) => entry.updatedAt > lastDreamAt).length
+        : changedEntries.length,
     };
   }
 

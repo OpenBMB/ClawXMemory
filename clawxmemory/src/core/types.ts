@@ -41,6 +41,7 @@ export interface RecallHeaderEntry {
   scope: MemoryScope;
   projectId?: string;
   updatedAt: string;
+  deprecated?: boolean;
   file: string;
   relativePath: string;
   absolutePath: string;
@@ -153,6 +154,74 @@ export interface IndexingSettings {
   autoIndexIntervalMinutes: number;
   autoDreamIntervalMinutes: number;
 }
+
+export type MemoryActionType =
+  | "edit_project_meta"
+  | "edit_entry"
+  | "delete_entries"
+  | "deprecate_entries"
+  | "restore_entries"
+  | "archive_tmp";
+
+export interface EditProjectMetaActionRequest {
+  action: "edit_project_meta";
+  projectId: string;
+  projectName: string;
+  description: string;
+  aliases: string[];
+  status: string;
+}
+
+export interface MemoryEntryEditFields {
+  stage?: string;
+  decisions?: string[];
+  constraints?: string[];
+  nextSteps?: string[];
+  blockers?: string[];
+  timeline?: string[];
+  notes?: string[];
+  rule?: string;
+  why?: string;
+  howToApply?: string;
+}
+
+export interface EditEntryActionRequest {
+  action: "edit_entry";
+  id: string;
+  name: string;
+  description: string;
+  fields?: MemoryEntryEditFields;
+}
+
+export interface DeleteEntriesActionRequest {
+  action: "delete_entries";
+  ids: string[];
+}
+
+export interface DeprecateEntriesActionRequest {
+  action: "deprecate_entries";
+  ids: string[];
+}
+
+export interface RestoreEntriesActionRequest {
+  action: "restore_entries";
+  ids: string[];
+}
+
+export interface ArchiveTmpActionRequest {
+  action: "archive_tmp";
+  ids: string[];
+  targetProjectId?: string;
+  newProjectName?: string;
+}
+
+export type MemoryActionRequest =
+  | EditProjectMetaActionRequest
+  | EditEntryActionRequest
+  | DeleteEntriesActionRequest
+  | DeprecateEntriesActionRequest
+  | RestoreEntriesActionRequest
+  | ArchiveTmpActionRequest;
 export const MEMORY_EXPORT_FORMAT_VERSION = "clawxmemory-file-memory-bundle.v2" as const;
 
 export interface MemoryFileExportRecord extends MemoryFileFrontmatter {
@@ -493,6 +562,15 @@ export interface DashboardOverview {
   dashboardStatus?: DashboardStatus;
   dashboardWarning?: string | null;
   dashboardDiagnostics?: DashboardDiagnostics | null;
+}
+
+export interface MemoryActionResult {
+  ok: true;
+  action: MemoryActionType;
+  updatedOverview: DashboardOverview;
+  mutatedIds: string[];
+  deletedProjectIds: string[];
+  messages: string[];
 }
 
 export interface MemoryUiSnapshot {
