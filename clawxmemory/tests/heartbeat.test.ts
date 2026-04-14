@@ -248,4 +248,98 @@ describe("HeartbeatIndexer batch indexing", () => {
     expect(stats.userProfilesUpdated).toBe(1);
     repository.close();
   });
+
+  it("only indexes newly introduced user turns when later l0 rows contain a full-session snapshot", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "clawxmemory-heartbeat-"));
+    cleanupPaths.push(dir);
+    const repository = new MemoryRepository(join(dir, "memory.sqlite"), {
+      memoryDir: join(dir, "memory"),
+    });
+
+    repository.insertL0Session({
+      l0IndexId: "l0-full-1",
+      sessionKey: "agent:main:main#full-session",
+      timestamp: "2026-04-10T08:00:00.000Z",
+      source: "openclaw",
+      indexed: false,
+      messages: createMessages(
+        "这个项目先叫 Boreal。它是一个本地知识库整理工具，目前还在设计阶段。",
+        "好的，我记下 Boreal 了。",
+      ),
+    });
+    repository.insertL0Session({
+      l0IndexId: "l0-full-2",
+      sessionKey: "agent:main:main#full-session",
+      timestamp: "2026-04-10T08:02:00.000Z",
+      source: "openclaw",
+      indexed: false,
+      messages: [
+        ...createMessages(
+          "这个项目先叫 Boreal。它是一个本地知识库整理工具，目前还在设计阶段。",
+          "好的，我记下 Boreal 了。",
+        ),
+        ...createMessages(
+          "在这个 Boreal 项目里，每次交付时先给我结论，再给风险。",
+          "好的，我记住这条规则。",
+        ),
+      ],
+    });
+
+    const seenTurns: string[] = [];
+    const extractFileMemoryCandidates = vi.fn(async (input: {
+      timestamp: string;
+      batchContextMessages?: MemoryMessage[];
+      messages: MemoryMessage[];
+    }): Promise<MemoryCandidate[]> => {
+      expect(input.batchContextMessages?.length).toBe(4);
+      const userText = input.messages.find((message) => message.role === "user")?.content ?? "";
+      seenTurns.push(userText);
+      if (userText.includes("先叫 Boreal")) {
+        return [{
+          type: "project",
+          scope: "project",
+          name: "Boreal",
+          description: "本地知识库整理工具",
+          capturedAt: input.timestamp,
+          sourceSessionKey: "agent:main:main#full-session",
+          stage: "目前还在设计阶段。",
+        }];
+      }
+      return [{
+        type: "feedback",
+        scope: "project",
+        name: "delivery-rule",
+        description: "每次交付时先给我结论，再给风险。",
+        capturedAt: input.timestamp,
+        sourceSessionKey: "agent:main:main#full-session",
+        rule: "每次交付时先给我结论，再给风险。",
+      }];
+    });
+
+    const indexer = new HeartbeatIndexer(
+      repository,
+      {
+        extractFileMemoryCandidates,
+        rewriteUserProfile: vi.fn().mockResolvedValue(null),
+      } as never,
+      { settings: DEFAULT_SETTINGS },
+    );
+
+    const stats = await indexer.runHeartbeat({ reason: "manual" });
+
+    expect(seenTurns).toEqual([
+      "这个项目先叫 Boreal。它是一个本地知识库整理工具，目前还在设计阶段。",
+      "在这个 Boreal 项目里，每次交付时先给我结论，再给风险。",
+    ]);
+    expect(extractFileMemoryCandidates).toHaveBeenCalledTimes(2);
+    expect(repository.getFileMemoryStore().listTmpEntries(10).map((entry) => entry.type).sort()).toEqual(["feedback", "project"]);
+    expect(stats).toMatchObject({
+      capturedSessions: 2,
+      writtenFiles: 2,
+      writtenProjectFiles: 1,
+      writtenFeedbackFiles: 1,
+      failedSessions: 0,
+    });
+    repository.close();
+  });
 });

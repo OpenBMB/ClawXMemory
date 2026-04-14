@@ -406,6 +406,17 @@ export class MemoryRepository {
     return rows.map((row) => normalizeL0Row(row));
   }
 
+  getLatestL0Before(sessionKey: string, timestamp: string, createdAt: string): L0SessionRecord | undefined {
+    const row = this.db.prepare(`
+      SELECT * FROM l0_sessions
+      WHERE session_key = ?
+        AND (timestamp < ? OR (timestamp = ? AND created_at < ?))
+      ORDER BY timestamp DESC, created_at DESC
+      LIMIT 1
+    `).get(sessionKey, timestamp, timestamp, createdAt) as DbRow | undefined;
+    return row ? normalizeL0Row(row) : undefined;
+  }
+
   markL0Indexed(ids: string[]): void {
     const uniqueIds = Array.from(new Set(ids.filter((item) => typeof item === "string" && item.trim().length > 0)));
     if (uniqueIds.length === 0) return;

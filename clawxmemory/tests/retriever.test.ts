@@ -130,6 +130,47 @@ describe("ReasoningRetriever", () => {
     expect(store.scanRecallHeaderEntries).not.toHaveBeenCalled();
   });
 
+  it("overrides a none route when the query explicitly names a formal project", async () => {
+    const header = createHeaderEntry();
+    const { repository, store } = createRepository({
+      store: {
+        scanRecallHeaderEntries: vi.fn().mockReturnValue([header]),
+        getFullMemoryRecordsByIds: vi.fn().mockReturnValue([createMemoryRecord()]),
+      },
+    });
+    const extractor = createExtractor({
+      decideFileMemoryRoute: vi.fn().mockResolvedValue("none"),
+      selectRecallProject: vi.fn(),
+    });
+    const retriever = new ReasoningRetriever(
+      repository as never,
+      extractor as never,
+      { getSettings: () => createSettings() },
+    );
+
+    const result = await retriever.retrieve("clawxmemory 这个项目现在的阶段是什么？", {
+      retrievalMode: "explicit",
+    });
+
+    expect(result.intent).toBe("project_memory");
+    expect(result.debug?.resolvedProjectId).toBe("project_clawxmemory");
+    expect(store.scanRecallHeaderEntries).toHaveBeenCalledWith({
+      projectId: "project_clawxmemory",
+      kinds: ["feedback", "project"],
+      limit: 200,
+    });
+    expect(extractor.selectRecallProject).not.toHaveBeenCalled();
+    const gateStep = result.trace?.steps.find((step) => step.kind === "memory_gate");
+    expect(gateStep?.details).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        label: "Route",
+        entries: expect.arrayContaining([
+          expect.objectContaining({ label: "override", value: "exact_formal_project_mention" }),
+        ]),
+      }),
+    ]));
+  });
+
   it("builds header-scan recall and renders the selected memory files", async () => {
     const header = createHeaderEntry();
     const { repository, store } = createRepository({
@@ -510,6 +551,8 @@ describe("ReasoningRetriever", () => {
     expect(result.debug?.resolvedProjectId).toBeUndefined();
     expect(result.context).toContain("global/User/user-profile.md");
     expect(result.context).not.toContain("project.meta.md");
+    expect(result.context).toContain("## Project Clarification Required");
+    expect(result.context).toContain("Do not invent or list project names");
   });
 
   it("prefers full text loading and shows truncation when a file exceeds recall budgets", async () => {

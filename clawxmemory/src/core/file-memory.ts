@@ -347,6 +347,18 @@ function buildTmpCandidateFileName(candidate: MemoryCandidate): string {
   return `${slugify(baseName)}-${fingerprint}.md`;
 }
 
+function sameTmpCandidateIdentity(
+  record: Pick<MemoryManifestEntry, "projectId" | "type" | "name" | "sourceSessionKey" | "capturedAt">,
+  candidate: MemoryCandidate,
+  normalizedName: string,
+): boolean {
+  return record.projectId === TMP_PROJECT_ID
+    && record.type === candidate.type
+    && record.name === normalizedName
+    && (record.sourceSessionKey ?? "") === (candidate.sourceSessionKey ?? "")
+    && (record.capturedAt ?? "") === (candidate.capturedAt ?? "");
+}
+
 function sortEntriesByUpdatedAt<T extends { updatedAt: string }>(entries: T[]): T[] {
   return [...entries].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 }
@@ -1506,6 +1518,7 @@ export class FileMemoryStore {
     const existingNextSteps = (sections.get("Next Steps") ?? []).map((line) => line.replace(/^- /, "").trim());
     const existingBlockers = (sections.get("Blockers") ?? []).map((line) => line.replace(/^- /, "").trim());
     const existingTimeline = (sections.get("Timeline") ?? []).map((line) => line.replace(/^- /, "").trim());
+    const existingAliases = (sections.get("Aliases") ?? []).map((line) => line.replace(/^- /, "").trim());
     const existingNotes = (sections.get("Notes") ?? []).map((line) => line.replace(/^- /, "").trim());
     return [
       renderTextSection("Current Stage", pickLongest(existingStage, candidate.stage ?? candidate.summary ?? "")),
@@ -1514,6 +1527,7 @@ export class FileMemoryStore {
       renderListSection("Next Steps", uniqueItems([...existingNextSteps, ...(candidate.nextSteps ?? [])], 20)),
       renderListSection("Blockers", uniqueItems([...existingBlockers, ...(candidate.blockers ?? [])], 20)),
       renderListSection("Timeline", uniqueItems([...existingTimeline, ...(candidate.timeline ?? [])], 20)),
+      renderListSection("Aliases", uniqueItems([...existingAliases, ...(candidate.aliases ?? [])], 20)),
       renderListSection("Notes", uniqueItems([...existingNotes, ...(candidate.notes ?? [])], 20)),
     ].filter(Boolean).join("\n").trim();
   }
@@ -1551,9 +1565,16 @@ export class FileMemoryStore {
     const normalizedName = candidate.type === "project"
       ? normalizeWhitespace(candidate.name || candidate.description || candidate.stage || "project-note")
       : normalizeWhitespace(candidate.name || "memory-item");
+    const existingTmpRecord = projectId === TMP_PROJECT_ID && candidate.capturedAt && candidate.sourceSessionKey
+      ? this.listTmpEntries(500)
+        .map((entry) => this.readRecordFromPath(entry.absolutePath))
+        .find((record) => sameTmpCandidateIdentity(record, candidate, normalizedName))
+      : undefined;
     const absolutePath = join(
       baseDir,
-      projectId === TMP_PROJECT_ID
+      existingTmpRecord
+        ? existingTmpRecord.file
+        : projectId === TMP_PROJECT_ID
         ? buildTmpCandidateFileName(candidate)
         : `${slugify(normalizedName)}.md`,
     );
@@ -1599,7 +1620,7 @@ export class FileMemoryStore {
             projectId: location.projectId,
             projectName: existingMeta?.projectName || candidate.name || location.projectId,
             description: existingMeta?.description || candidate.description || candidate.summary || candidate.stage || location.projectId,
-            aliases: uniqueItems([...(existingMeta?.aliases ?? []), candidate.name].filter(Boolean) as string[], 20),
+            aliases: uniqueItems([...(existingMeta?.aliases ?? []), candidate.name, ...(candidate.aliases ?? [])].filter(Boolean) as string[], 20),
             ...(existingMeta?.status ? { status: existingMeta.status } : {}),
             ...(existingMeta?.dreamUpdatedAt ? { dreamUpdatedAt: existingMeta.dreamUpdatedAt } : {}),
           });
@@ -1663,6 +1684,7 @@ export class FileMemoryStore {
       nextSteps: normalizeListSection(sections.get("Next Steps")),
       blockers: normalizeListSection(sections.get("Blockers")),
       timeline: normalizeListSection(sections.get("Timeline")),
+      aliases: normalizeListSection(sections.get("Aliases")),
       notes: normalizeListSection(sections.get("Notes")),
     };
   }

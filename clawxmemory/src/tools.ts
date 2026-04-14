@@ -110,11 +110,18 @@ export function buildPluginTools(
         const result = await retriever.retrieve(query, {
           retrievalMode: "explicit",
         });
+        const selectedProjectId = result.debug?.resolvedProjectId ?? null;
+        const disambiguationRequired = result.intent === "project_memory" && !selectedProjectId;
         return jsonResult({
           ok: true,
           query: result.query,
           route: result.intent,
           context: result.context,
+          selectedProjectId,
+          disambiguationRequired,
+          ...(disambiguationRequired
+            ? { warning: "No formal project was selected from memory. Ask the user to clarify which project they mean." }
+            : {}),
           refs: {
             files: result.debug?.selectedFileIds ?? [],
           },

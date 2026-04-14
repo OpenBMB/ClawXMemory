@@ -19,6 +19,7 @@ const retrievalResult: RetrievalResult = {
     cacheHit: false,
     route: "project_memory",
     manifestCount: 2,
+    resolvedProjectId: "project_clawxmemory",
     selectedFileIds: ["projects/clawxmemory/Project/current-stage.md"],
   },
 };
@@ -147,6 +148,8 @@ describe("buildPluginTools", () => {
     expect(searchResult.details).toMatchObject({
       ok: true,
       route: "project_memory",
+      selectedProjectId: "project_clawxmemory",
+      disambiguationRequired: false,
       refs: {
         files: ["projects/clawxmemory/Project/current-stage.md"],
       },
@@ -234,6 +237,32 @@ describe("buildPluginTools", () => {
 
     const invalidKind = await memoryList!.execute("call-6", { kind: "l2" });
     expect(invalidKind.details).toMatchObject({ ok: false });
+  });
+
+  it("signals clarification when memory_search did not select a formal project", async () => {
+    const repository = createRepository();
+    const retriever = {
+      retrieve: vi.fn().mockResolvedValue({
+        ...retrievalResult,
+        debug: {
+          ...retrievalResult.debug,
+          resolvedProjectId: undefined,
+          selectedFileIds: [],
+        },
+        context: "## ClawXMemory Recall\nroute=project_memory\n\n## Project Clarification Required",
+      }),
+    } as unknown as ReasoningRetriever;
+    const tools = buildPluginTools(repository, retriever, { getOverview: () => baseOverview });
+    const result = await tools[0]!.execute("call-disambiguate", { query: "这个项目现在怎么样了？", limit: 5 });
+
+    expect(result.details).toMatchObject({
+      ok: true,
+      route: "project_memory",
+      selectedProjectId: null,
+      disambiguationRequired: true,
+      warning: expect.stringContaining("No formal project was selected"),
+      refs: { files: [] },
+    });
   });
 
   it("gets file memories and validates missing ids", async () => {

@@ -5,11 +5,93 @@ function createExtractor() {
   return new LlmMemoryExtractor({}, undefined, undefined);
 }
 
+function createConfiguredExtractor() {
+  return new LlmMemoryExtractor({
+    agents: {
+      defaults: {
+        model: {
+          primary: "test/test-model",
+        },
+      },
+    },
+    models: {
+      providers: {
+        test: {
+          apiKey: "test-key",
+          baseUrl: "https://example.test/v1",
+          api: "openai-completions",
+          models: [
+            {
+              id: "test-model",
+              api: "openai-completions",
+            },
+          ],
+        },
+      },
+    },
+  }, undefined, undefined);
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe("LlmMemoryExtractor hop debug trace", () => {
+  it("retries transient 429 responses for structured json calls", async () => {
+    const extractor = createConfiguredExtractor();
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "rate limited" } }), { status: 429 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        choices: [{ message: { content: "{\"ok\":true}" } }],
+      }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await (extractor as never as {
+      callStructuredJsonWithDebug: (input: {
+        systemPrompt: string;
+        userPrompt: string;
+        requestLabel: string;
+        parse: (raw: string) => unknown;
+      }) => Promise<unknown>;
+    }).callStructuredJsonWithDebug({
+      systemPrompt: "system",
+      userPrompt: "user",
+      requestLabel: "Structured retry test",
+      parse: (raw) => JSON.parse(raw),
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries transient timeout-like fetch failures for structured json calls", async () => {
+    const extractor = createConfiguredExtractor();
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new Error("fetch failed"))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        choices: [{ message: { content: "{\"ok\":true}" } }],
+      }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await (extractor as never as {
+      callStructuredJsonWithDebug: (input: {
+        systemPrompt: string;
+        userPrompt: string;
+        requestLabel: string;
+        parse: (raw: string) => unknown;
+      }) => Promise<unknown>;
+    }).callStructuredJsonWithDebug({
+      systemPrompt: "system",
+      userPrompt: "user",
+      requestLabel: "Structured retry test",
+      parse: (raw) => JSON.parse(raw),
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("accepts explicit collaboration-rule feedback from the model without forcing a formal project id", async () => {
     const extractor = createExtractor();
     vi.spyOn(extractor as never as { callStructuredJson: (input: unknown) => Promise<string> }, "callStructuredJson")
@@ -617,6 +699,228 @@ describe("LlmMemoryExtractor hop debug trace", () => {
     expect(result[0]?.projectId).toBeUndefined();
   });
 
+  it("normalizes project candidates when the model only returns a human-readable project_id plus stage", async () => {
+    const extractor = createExtractor();
+    vi.spyOn(extractor as never as { callStructuredJson: (input: unknown) => Promise<string> }, "callStructuredJson")
+      .mockResolvedValue(JSON.stringify({
+        items: [{
+          type: "project",
+          project_id: "租房桌面改造爆文",
+          stage: "风格模板验证阶段",
+        }],
+      }));
+
+    const result = await extractor.extractFileMemoryCandidates({
+      timestamp: "2026-04-14T08:00:00.000Z",
+      sessionKey: "session-desk-project-id-only",
+      explicitRemember: false,
+      messages: [
+        {
+          role: "user",
+          content: "我最近在做一个项目，先叫 租房桌面改造爆文。目标是给租房博主批量生成桌面改造类小红书图文，目前在风格模板验证阶段。",
+        },
+      ],
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      type: "project",
+      name: "租房桌面改造爆文",
+      description: expect.stringContaining("给租房博主批量生成桌面改造类小红书图文"),
+      stage: "风格模板验证阶段",
+    });
+    expect(result[0]?.projectId).toBeUndefined();
+  });
+
+  it("normalizes project candidates when the model uses project_name instead of name", async () => {
+    const extractor = createExtractor();
+    vi.spyOn(extractor as never as { callStructuredJson: (input: unknown) => Promise<string> }, "callStructuredJson")
+      .mockResolvedValue(JSON.stringify({
+        items: [{
+          type: "project",
+          project_name: "周末低预算约会爆文",
+          content: "目标：给本地生活博主批量生成低预算约会路线的小红书图文。",
+          stage: "选题方向验证阶段",
+        }],
+      }));
+
+    const result = await extractor.extractFileMemoryCandidates({
+      timestamp: "2026-04-14T08:01:00.000Z",
+      sessionKey: "session-date-project-name",
+      explicitRemember: false,
+      messages: [
+        {
+          role: "user",
+          content: "我最近在做一个项目，先叫 周末低预算约会爆文。目标是给本地生活博主批量生成低预算约会路线的小红书图文，目前在选题方向验证阶段。",
+        },
+      ],
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      type: "project",
+      name: "周末低预算约会爆文",
+      description: expect.stringContaining("低预算约会路线"),
+      stage: "选题方向验证阶段",
+    });
+  });
+
+  it("extracts a project name from project content when the model omits name fields", async () => {
+    const extractor = createExtractor();
+    vi.spyOn(extractor as never as { callStructuredJson: (input: unknown) => Promise<string> }, "callStructuredJson")
+      .mockResolvedValue(JSON.stringify({
+        items: [{
+          type: "project",
+          content: "项目名称：打工人午餐便当爆文（便当出片实验室）。目标：给职场博主批量生成午餐便当主题的小红书图文。",
+          stage: "选题试水阶段",
+        }],
+      }));
+
+    const result = await extractor.extractFileMemoryCandidates({
+      timestamp: "2026-04-14T08:02:00.000Z",
+      sessionKey: "session-lunch-content-only",
+      explicitRemember: false,
+      messages: [
+        {
+          role: "user",
+          content: "我最近在做一个项目，先叫 打工人午餐便当爆文，也可以把它记成 便当出片实验室。目标是给职场博主批量生成午餐便当主题的小红书图文，目前还在选题试水阶段。",
+        },
+      ],
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      type: "project",
+      name: "打工人午餐便当爆文",
+      description: expect.stringContaining("午餐便当主题"),
+      stage: "选题试水阶段",
+    });
+  });
+
+  it("prefers the explicit project name over an alias-like model name and preserves aliases", async () => {
+    const extractor = createExtractor();
+    vi.spyOn(extractor as never as { callStructuredJson: (input: unknown) => Promise<string> }, "callStructuredJson")
+      .mockResolvedValue(JSON.stringify({
+        items: [{
+          type: "project",
+          name: "便当出片实验室",
+          aliases: ["便当出片实验室"],
+          description: "给职场博主批量生成午餐便当主题的小红书图文（原暂定名：打工人午餐便当爆文）",
+          stage: "选题试水阶段",
+        }],
+      }));
+
+    const result = await extractor.extractFileMemoryCandidates({
+      timestamp: "2026-04-14T08:03:00.000Z",
+      sessionKey: "session-lunch-alias-preferred",
+      explicitRemember: false,
+      messages: [
+        {
+          role: "user",
+          content: "我最近在做一个项目，先叫 打工人午餐便当爆文，也可以把它记成 便当出片实验室。目标是给职场博主批量生成午餐便当主题的小红书图文，目前还在选题试水阶段。",
+        },
+      ],
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      type: "project",
+      name: "打工人午餐便当爆文",
+      aliases: ["便当出片实验室"],
+      stage: "选题试水阶段",
+    });
+  });
+
+  it("promotes project constraints into a usable description when the model omits description", async () => {
+    const extractor = createExtractor();
+    vi.spyOn(extractor as never as { callStructuredJson: (input: unknown) => Promise<string> }, "callStructuredJson")
+      .mockResolvedValue(JSON.stringify({
+        items: [{
+          type: "project",
+          name: "小个子通勤西装爆文",
+          description: "",
+          constraints: ["避免大牌价格表达", "尽量落到可复制的搭配步骤"],
+        }],
+      }));
+
+    const result = await extractor.extractFileMemoryCandidates({
+      timestamp: "2026-04-14T08:04:00.000Z",
+      sessionKey: "session-suit-constraints-only",
+      explicitRemember: true,
+      messages: [
+        {
+          role: "user",
+          content: "继续记住小个子通勤西装爆文：项目约束是避免大牌价格表达，尽量落到可复制的搭配步骤。",
+        },
+      ],
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      type: "project",
+      name: "小个子通勤西装爆文",
+      description: "避免大牌价格表达",
+      constraints: ["避免大牌价格表达", "尽量落到可复制的搭配步骤"],
+    });
+  });
+
+  it("prefers structured project fields over a repeated generic project description", async () => {
+    const extractor = createExtractor();
+    vi.spyOn(extractor as never as { callStructuredJson: (input: unknown) => Promise<string> }, "callStructuredJson")
+      .mockResolvedValue(JSON.stringify({
+        items: [{
+          type: "project",
+          name: "小个子通勤西装爆文",
+          description: "给小个子职场女生批量生成通勤西装主题小红书图文的项目",
+          stage: "模板验证阶段",
+          constraints: "核心受众是身高150到158、想穿得显高利落的上班族",
+        }],
+      }));
+
+    const result = await extractor.extractFileMemoryCandidates({
+      timestamp: "2026-04-14T08:05:00.000Z",
+      sessionKey: "session-suit-audience",
+      explicitRemember: true,
+      messages: [
+        {
+          role: "user",
+          content: "我最近在做一个项目，先叫 小个子通勤西装爆文。它是给小个子职场女生批量生成通勤西装主题小红书图文的项目，目前在模板验证阶段。",
+        },
+        {
+          role: "assistant",
+          content: "好的，我记下这个项目了。",
+        },
+        {
+          role: "user",
+          content: "继续记住小个子通勤西装爆文：核心受众是身高150到158、想穿得显高利落的上班族。",
+        },
+      ],
+      batchContextMessages: [
+        {
+          role: "user",
+          content: "我最近在做一个项目，先叫 小个子通勤西装爆文。它是给小个子职场女生批量生成通勤西装主题小红书图文的项目，目前在模板验证阶段。",
+        },
+        {
+          role: "assistant",
+          content: "好的，我记下这个项目了。",
+        },
+        {
+          role: "user",
+          content: "继续记住小个子通勤西装爆文：核心受众是身高150到158、想穿得显高利落的上班族。",
+        },
+      ],
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      type: "project",
+      name: "小个子通勤西装爆文",
+      description: "核心受众是身高150到158、想穿得显高利落的上班族",
+      constraints: ["核心受众是身高150到158、想穿得显高利落的上班族"],
+      stage: "模板验证阶段",
+    });
+  });
+
   it("does not create a fake project overview for a project-local collaboration rule without concrete project facts", async () => {
     const extractor = createExtractor();
     vi.spyOn(extractor as never as { callStructuredJson: (input: unknown) => Promise<string> }, "callStructuredJson")
@@ -654,7 +958,7 @@ describe("LlmMemoryExtractor hop debug trace", () => {
     expect(result[0]?.howToApply || "").toBe("");
   });
 
-  it("does not fabricate a project candidate when the model misses an implicit project definition", async () => {
+  it("synthesizes a project candidate when the model misses an explicit project definition turn", async () => {
     const extractor = createExtractor();
     vi.spyOn(extractor as never as { callStructuredJson: (input: unknown) => Promise<string> }, "callStructuredJson")
       .mockResolvedValue(JSON.stringify({ items: [] }));
@@ -671,7 +975,12 @@ describe("LlmMemoryExtractor hop debug trace", () => {
       ],
     });
 
-    expect(result).toHaveLength(0);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      type: "project",
+      name: "Boreal",
+      stage: "目前还在设计阶段",
+    });
   });
 
   it("does not backfill a project candidate for a vague project mention without definition signals", async () => {
@@ -757,6 +1066,36 @@ describe("LlmMemoryExtractor hop debug trace", () => {
       name: "Boreal",
       description: "第一版先别碰知识库。",
     });
+  });
+
+  it("synthesizes a project candidate for a natural follow-up turn when the batch context has a unique project", async () => {
+    const extractor = createExtractor();
+    vi.spyOn(extractor as never as { callStructuredJson: (input: unknown) => Promise<string> }, "callStructuredJson")
+      .mockResolvedValue(JSON.stringify({ items: [] }));
+
+    const result = await extractor.extractFileMemoryCandidates({
+      timestamp: "2026-04-14T09:00:00.000Z",
+      sessionKey: "session-boreal-follow-up",
+      explicitRemember: false,
+      batchContextMessages: [
+        { role: "user", content: "这个项目先叫 Boreal。它是一个本地知识库整理工具，目前还在设计阶段。" },
+        { role: "assistant", content: "明白。" },
+        { role: "user", content: "接下来我最该补的是把首批目录结构先模板化，然后统一检索入口命名。" },
+      ],
+      messages: [
+        { role: "user", content: "接下来我最该补的是把首批目录结构先模板化，然后统一检索入口命名。" },
+      ],
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      type: "project",
+      scope: "project",
+      name: "Boreal",
+    });
+    expect(result[0]?.nextSteps).toEqual(expect.arrayContaining([
+      expect.stringContaining("接下来我最该补的是把首批目录结构先模板化"),
+    ]));
   });
 
   it("does not create a project candidate for a generic anchor when batch context contains multiple project names", async () => {

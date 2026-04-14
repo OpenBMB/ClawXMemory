@@ -159,8 +159,9 @@ function renderContext(
   userSummary: MemoryUserSummary,
   projectMeta: ProjectMetaRecord | undefined,
   records: Array<{ relativePath: string; type: string; updatedAt: string; content: string }>,
+  disambiguationRequired = false,
 ): string {
-  if (!hasUserSummary(userSummary) && !projectMeta && records.length === 0) return "";
+  if (!hasUserSummary(userSummary) && !projectMeta && records.length === 0 && !disambiguationRequired) return "";
   const lines = [
     "## ClawXMemory Recall",
     `route=${route}`,
@@ -168,6 +169,15 @@ function renderContext(
     ...renderUserSummaryBlock(userSummary),
     ...renderProjectMetaBlock(projectMeta),
   ];
+  if (disambiguationRequired) {
+    lines.push(
+      "## Project Clarification Required",
+      "- No formal project was selected from long-term memory for this query.",
+      "- Do not invent or list project names that are not in memory.",
+      "- Ask the user to clarify which project they mean before answering project-specific details.",
+      "",
+    );
+  }
   for (const record of records) {
     lines.push(`### [${record.type}] ${record.relativePath} (${record.updatedAt})`);
     lines.push(record.content.trim());
@@ -551,13 +561,22 @@ export class ReasoningRetriever {
     }
 
     let routePromptDebug: RetrievalPromptDebug | undefined;
-    const route = await this.extractor.decideFileMemoryRoute({
+    let route = await this.extractor.decideFileMemoryRoute({
       query: normalizedQuery,
       ...(recentUserMessages.length ? { recentMessages: recentUserMessages } : {}),
       debugTrace: (debug) => {
         routePromptDebug = debug;
       },
     });
+    const store = this.repository.getFileMemoryStore();
+    const projectMetas = store.listProjectMetas().filter((meta) => store.hasVisibleProjectMemory(meta.projectId));
+    const exactProjectMentions = projectMetas.filter((project) => hasExactProjectMention(project, normalizedQuery.toLowerCase().trim()));
+    const gateOverrideReason = route === "none" && exactProjectMentions.length === 1
+      ? "exact_formal_project_mention"
+      : "";
+    if (gateOverrideReason) {
+      route = "project_memory";
+    }
     trace.steps.push({
       stepId: `${traceId}:step:${trace.steps.length + 1}`,
       kind: "memory_gate",
@@ -568,6 +587,7 @@ export class ReasoningRetriever {
       details: [
         kvDetail("gate-route", "Route", [
           { label: "route", value: route },
+          { label: "override", value: gateOverrideReason || "none" },
           { label: "recentUserMessages", value: recentUserMessages.length },
           { label: "workspaceHint", value: options.workspaceHint ?? "none" },
         ]),
@@ -599,7 +619,6 @@ export class ReasoningRetriever {
       return result;
     }
 
-    const store = this.repository.getFileMemoryStore();
     const userSummary = store.getUserSummary();
     trace.steps.push({
       stepId: `${traceId}:step:${trace.steps.length + 1}`,
@@ -635,7 +654,6 @@ export class ReasoningRetriever {
       candidates: [],
     };
     if (routeNeedsProjectMemory(route)) {
-      const projectMetas = store.listProjectMetas().filter((meta) => store.hasVisibleProjectMemory(meta.projectId));
       shortlistResult = buildProjectShortlist(projectMetas, normalizedQuery, recentUserMessages, options.workspaceHint);
       trace.steps.push({
         stepId: `${traceId}:step:${trace.steps.length + 1}`,
@@ -659,16 +677,22 @@ export class ReasoningRetriever {
       });
 
       if (shortlistResult.candidates.length > 0) {
-        const selection = await this.extractor.selectRecallProject({
-          query: normalizedQuery,
-          recentUserMessages,
-          shortlist: shortlistResult.candidates,
-          debugTrace: (debug) => {
-            projectSelectionPromptDebug = debug;
-          },
-        });
-        resolvedProjectId = selection.projectId ?? "";
-        projectSelectionReason = selection.reason ?? "";
+        const exactShortlistMatches = shortlistResult.candidates.filter((candidate) => candidate.exact > 0);
+        if (exactShortlistMatches.length === 1) {
+          resolvedProjectId = exactShortlistMatches[0]!.projectId;
+          projectSelectionReason = "exact_project_mention";
+        } else {
+          const selection = await this.extractor.selectRecallProject({
+            query: normalizedQuery,
+            recentUserMessages,
+            shortlist: shortlistResult.candidates,
+            debugTrace: (debug) => {
+              projectSelectionPromptDebug = debug;
+            },
+          });
+          resolvedProjectId = selection.projectId ?? "";
+          projectSelectionReason = selection.reason ?? "";
+        }
         resolvedProjectMeta = resolvedProjectId
           ? projectMetas.find((project) => project.projectId === resolvedProjectId)
           : undefined;
@@ -821,7 +845,8 @@ export class ReasoningRetriever {
       ],
     });
 
-    const context = renderContext(route, userSummary, resolvedProjectMeta, loadedRecords);
+    const disambiguationRequired = route === "project_memory" && !resolvedProjectMeta;
+    const context = renderContext(route, userSummary, resolvedProjectMeta, loadedRecords, disambiguationRequired);
     trace.steps.push({
       stepId: `${traceId}:step:${trace.steps.length + 1}`,
       kind: "context_rendered",
@@ -834,6 +859,7 @@ export class ReasoningRetriever {
           { label: "route", value: route },
           { label: "userBaseInjected", value: hasUserSummary(userSummary) ? "yes" : "no" },
           { label: "projectMetaInjected", value: resolvedProjectMeta ? "yes" : "no" },
+          { label: "disambiguationRequired", value: disambiguationRequired ? "yes" : "no" },
           { label: "fileCount", value: loadedRecords.length },
           { label: "characters", value: context.length },
           { label: "lines", value: context ? context.split("\n").length : 0 },

@@ -98,6 +98,7 @@ export interface MemoryCandidate {
   projectId?: string;
   name: string;
   description: string;
+  aliases?: string[];
   capturedAt?: string;
   sourceSessionKey?: string;
   profile?: string;

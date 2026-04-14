@@ -131,4 +131,38 @@ describe("memory bundle import/export", () => {
     });
     expect(tmpEntries).toHaveLength(1);
   });
+
+  it("deduplicates tmp entries from the same source turn even when model phrasing drifts", async () => {
+    const repository = await createRepository();
+    const store = repository.getFileMemoryStore();
+
+    store.upsertCandidate({
+      type: "feedback",
+      scope: "project",
+      projectId: "_tmp",
+      name: "delivery-rule",
+      description: "每次交付时先给3个标题，再给正文，再给结尾互动引导。",
+      rule: "每次交付时先给3个标题，再给正文，再给结尾互动引导。",
+      howToApply: "在打工人午餐便当爆文项目的交付时。",
+      sourceSessionKey: "agent:main:main",
+      capturedAt: "2026-04-14T05:17:41.733Z",
+    });
+    store.upsertCandidate({
+      type: "feedback",
+      scope: "project",
+      projectId: "_tmp",
+      name: "delivery-rule",
+      description: "每次交付时先给3个标题，再给正文，再给结尾互动引导。",
+      rule: "每次交付时先给3个标题，再给正文，再给结尾互动引导。",
+      howToApply: "在打工人午餐便当爆文项目的交付中",
+      sourceSessionKey: "agent:main:main",
+      capturedAt: "2026-04-14T05:17:41.733Z",
+    });
+
+    const tmpEntries = store.listTmpEntries(20);
+    expect(tmpEntries).toHaveLength(1);
+    expect(tmpEntries[0]?.type).toBe("feedback");
+    const record = tmpEntries[0] ? store.getMemoryRecord(tmpEntries[0].relativePath, 5000) : undefined;
+    expect(record?.content).toContain("在打工人午餐便当爆文项目的交付中");
+  });
 });

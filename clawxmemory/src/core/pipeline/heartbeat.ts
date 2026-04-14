@@ -71,7 +71,63 @@ function emptyStats(): HeartbeatStats {
 }
 
 function flattenBatchMessages(sessions: L0SessionRecord[]): MemoryMessage[] {
-  return sessions.flatMap((session) => session.messages);
+  let previousMessages: MemoryMessage[] = [];
+  for (const session of sessions) {
+    previousMessages = mergeSessionMessages(previousMessages, session.messages).mergedMessages;
+  }
+  return previousMessages;
+}
+
+function commonPrefixLength(previous: MemoryMessage[], incoming: MemoryMessage[]): number {
+  const limit = Math.min(previous.length, incoming.length);
+  let index = 0;
+  while (index < limit && sameMessage(previous[index], incoming[index])) {
+    index += 1;
+  }
+  return index;
+}
+
+function mergeSessionMessages(
+  previousMessages: MemoryMessage[],
+  incomingMessages: MemoryMessage[],
+): {
+  mergedMessages: MemoryMessage[];
+  newMessages: MemoryMessage[];
+} {
+  if (previousMessages.length === 0) {
+    return {
+      mergedMessages: incomingMessages,
+      newMessages: incomingMessages,
+    };
+  }
+  const prefixLength = commonPrefixLength(previousMessages, incomingMessages);
+  if (prefixLength > 0) {
+    return {
+      mergedMessages: incomingMessages,
+      newMessages: incomingMessages.slice(prefixLength),
+    };
+  }
+  return {
+    mergedMessages: [...previousMessages, ...incomingMessages],
+    newMessages: incomingMessages,
+  };
+}
+
+function deriveFocusTurns(
+  previousMessages: MemoryMessage[],
+  sessions: L0SessionRecord[],
+): Map<string, MemoryMessage[]> {
+  const focusTurns = new Map<string, MemoryMessage[]>();
+  let cursorMessages = previousMessages;
+  for (const session of sessions) {
+    const merged = mergeSessionMessages(cursorMessages, session.messages);
+    focusTurns.set(
+      session.l0IndexId,
+      merged.newMessages.filter((message) => message.role === "user"),
+    );
+    cursorMessages = merged.mergedMessages;
+  }
+  return focusTurns;
 }
 
 function buildIndexTraceId(sessionKey: string, startedAt: string, l0Ids: string[]): string {
@@ -156,13 +212,14 @@ function createStep(
   });
 }
 
-function createBatchTrace(sessionKey: string, sessions: L0SessionRecord[], trigger: IndexTraceRecord["trigger"]): IndexTraceRecord {
+function createBatchTrace(
+  sessionKey: string,
+  sessions: L0SessionRecord[],
+  trigger: IndexTraceRecord["trigger"],
+  focusUserTurnCount: number,
+): IndexTraceRecord {
   const startedAt = nowIso();
   const timestamps = sessions.map((session) => session.timestamp).filter(Boolean).sort();
-  const focusUserTurnCount = sessions.reduce(
-    (count, session) => count + session.messages.filter((message) => message.role === "user").length,
-    0,
-  );
   return {
     indexTraceId: buildIndexTraceId(sessionKey, startedAt, sessions.map((session) => session.l0IndexId)),
     sessionKey,
@@ -246,8 +303,16 @@ export class HeartbeatIndexer {
       const sessions = this.repository.listUnindexedL0BySession(sessionKey);
       if (sessions.length === 0) continue;
 
+      const previousIndexedSession = this.repository.getLatestL0Before(
+        sessionKey,
+        sessions[0]?.timestamp ?? "",
+        sessions[0]?.createdAt ?? "",
+      );
+      const previousMessages = previousIndexedSession?.messages ?? [];
+      const focusTurnsBySession = deriveFocusTurns(previousMessages, sessions);
       const batchContextMessages = flattenBatchMessages(sessions);
-      const trace = createBatchTrace(sessionKey, sessions, normalizeTrigger(options.reason));
+      const focusUserTurnCount = Array.from(focusTurnsBySession.values()).reduce((count, turns) => count + turns.length, 0);
+      const trace = createBatchTrace(sessionKey, sessions, normalizeTrigger(options.reason), focusUserTurnCount);
       createStep(
         trace,
         "index_start",
@@ -314,8 +379,8 @@ export class HeartbeatIndexer {
                 { label: "assistantUsedAsContextOnly", value: "yes" },
               ],
             },
-            ...sessions.flatMap((session) => session.messages)
-              .filter((message) => message.role === "user")
+            ...sessions
+              .flatMap((session) => focusTurnsBySession.get(session.l0IndexId) ?? [])
               .map((message, index) => ({
                 key: `focus-turn-${index + 1}`,
                 label: `Focus Turn ${index + 1}`,
@@ -334,7 +399,7 @@ export class HeartbeatIndexer {
 
       for (const session of sessions) {
         try {
-          const focusUserTurns = session.messages.filter((message) => message.role === "user");
+          const focusUserTurns = focusTurnsBySession.get(session.l0IndexId) ?? [];
           if (focusUserTurns.length === 0) {
             processedIds.push(session.l0IndexId);
             stats.capturedSessions += 1;
