@@ -2,7 +2,7 @@
   "id": "openbmb-clawxmemory",
   "name": "ClawXMemory",
   "description": "File-based long-term memory plugin for OpenClaw.",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "kind": "memory",
   "skills": [
     "agent-skills"

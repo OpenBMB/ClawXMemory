@@ -1,6 +1,6 @@
 {
   "name": "openbmb-clawxmemory",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "File-based long-term memory plugin for OpenClaw.",
   "keywords": [
     "openclaw",
