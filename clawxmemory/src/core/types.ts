@@ -223,7 +223,7 @@ export type MemoryActionRequest =
   | DeprecateEntriesActionRequest
   | RestoreEntriesActionRequest
   | ArchiveTmpActionRequest;
-export const MEMORY_EXPORT_FORMAT_VERSION = "clawxmemory-file-memory-bundle.v2" as const;
+export const MEMORY_EXPORT_FORMAT_VERSION = "clawxmemory-memory-snapshot.v3" as const;
 
 export interface MemoryFileExportRecord extends MemoryFileFrontmatter {
   file: string;
@@ -243,20 +243,31 @@ export interface ProjectMetaExportRecord {
   relativePath: string;
 }
 
-export interface MemoryExportBundle {
-  formatVersion: typeof MEMORY_EXPORT_FORMAT_VERSION;
+export interface MemoryBundleMetadata {
   exportedAt: string;
   lastIndexedAt?: string;
   lastDreamAt?: string;
   lastDreamStatus?: DreamPipelineStatus;
   lastDreamSummary?: string;
-  projectMetas: ProjectMetaExportRecord[];
-  memoryFiles: MemoryFileExportRecord[];
+  recentCaseTraces?: CaseTraceRecord[];
+  recentIndexTraces?: IndexTraceRecord[];
+  recentDreamTraces?: DreamTraceRecord[];
+}
+
+export interface MemorySnapshotFileRecord {
+  relativePath: string;
+  content: string;
+}
+
+export interface MemoryExportBundle extends MemoryBundleMetadata {
+  formatVersion: typeof MEMORY_EXPORT_FORMAT_VERSION;
+  files: MemorySnapshotFileRecord[];
 }
 
 export type MemoryImportableBundle = MemoryExportBundle;
 
 export interface MemoryTransferCounts {
+  managedFiles: number;
   memoryFiles: number;
   project: number;
   feedback: number;
@@ -273,6 +284,9 @@ export interface MemoryImportResult {
   lastDreamAt?: string;
   lastDreamStatus?: DreamPipelineStatus;
   lastDreamSummary?: string;
+  recentCaseTraces?: CaseTraceRecord[];
+  recentIndexTraces?: IndexTraceRecord[];
+  recentDreamTraces?: DreamTraceRecord[];
 }
 
 export interface RetrievalTraceKvEntry {

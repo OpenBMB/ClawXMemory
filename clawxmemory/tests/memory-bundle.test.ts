@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -60,6 +60,60 @@ async function seedFileMemory(repository: MemoryRepository): Promise<void> {
   repository.setPipelineState("lastDreamAt", "2026-04-09T08:30:00.000Z");
   repository.setPipelineState("lastDreamStatus", "success");
   repository.setPipelineState("lastDreamSummary", "Organized current file memories.");
+  repository.setPipelineState("recentCaseTraces", [
+    {
+      caseId: "case_exported",
+      sessionKey: "session_exported",
+      query: "what is the current status",
+      startedAt: "2026-04-09T08:31:00.000Z",
+      status: "completed",
+      toolEvents: [],
+      assistantReply: "Here is the status.",
+    },
+  ]);
+  repository.setPipelineState("recentIndexTraces", [
+    {
+      indexTraceId: "index_exported",
+      sessionKey: "session_exported",
+      trigger: "manual_sync",
+      startedAt: "2026-04-09T08:32:00.000Z",
+      status: "completed",
+      batchSummary: {
+        l0Ids: [],
+        segmentCount: 0,
+        focusUserTurnCount: 0,
+        fromTimestamp: "2026-04-09T08:00:00.000Z",
+        toTimestamp: "2026-04-09T08:32:00.000Z",
+      },
+      steps: [],
+      storedResults: [],
+    },
+  ]);
+  repository.setPipelineState("recentDreamTraces", [
+    {
+      dreamTraceId: "dream_exported",
+      trigger: "manual",
+      startedAt: "2026-04-09T08:33:00.000Z",
+      status: "completed",
+      snapshotSummary: {
+        formalProjectCount: 1,
+        tmpProjectCount: 1,
+        tmpFeedbackCount: 0,
+        formalProjectFileCount: 1,
+        formalFeedbackFileCount: 1,
+        hasUserProfile: true,
+      },
+      steps: [],
+      mutations: [],
+      outcome: {
+        rewrittenProjects: 1,
+        deletedProjects: 0,
+        deletedFiles: 0,
+        profileUpdated: false,
+        summary: "Dream complete",
+      },
+    },
+  ]);
 }
 
 describe("memory bundle import/export", () => {
@@ -80,31 +134,70 @@ describe("memory bundle import/export", () => {
     return repository;
   }
 
-  it("exports the file-memory bundle instead of legacy sqlite collections", async () => {
+  it("exports a v3 snapshot from the real memory directory", async () => {
     const repository = await createRepository();
     await seedFileMemory(repository);
+    const rootDir = repository.getFileMemoryStore().getRootDir();
+    await mkdir(join(rootDir, "projects", "project_alpha", "Project", "Archive"), { recursive: true });
+    await writeFile(
+      join(rootDir, "projects", "project_alpha", "Project", "Archive", "archived-note.md"),
+      "# Archived note\n\nKeep for migration coverage.\n",
+      "utf-8",
+    );
 
     const bundle = repository.exportMemoryBundle();
+    const bundlePaths = bundle.files.map((record) => record.relativePath);
 
     expect(bundle.formatVersion).toBe(MEMORY_EXPORT_FORMAT_VERSION);
     expect("l0Sessions" in (bundle as Record<string, unknown>)).toBe(false);
-    expect(bundle.projectMetas).toHaveLength(1);
-    expect(bundle.memoryFiles).toHaveLength(4);
-    expect(bundle.memoryFiles.some((record) => record.type === "user")).toBe(true);
-    expect(bundle.memoryFiles.some((record) => record.type === "feedback")).toBe(true);
-    expect(bundle.memoryFiles.some((record) => record.projectId === "_tmp")).toBe(true);
+    expect("projectMetas" in (bundle as Record<string, unknown>)).toBe(false);
+    expect(bundlePaths).toEqual(expect.arrayContaining([
+      "global/MEMORY.md",
+      "global/User/user-profile.md",
+      "projects/_tmp/MEMORY.md",
+      "projects/project_alpha/MEMORY.md",
+      "projects/project_alpha/project.meta.md",
+      "projects/project_alpha/Feedback/review-style.md",
+      "projects/project_alpha/Project/Archive/archived-note.md",
+    ]));
+    expect(bundlePaths.some((path) => path.startsWith("projects/_tmp/Project/unresolved-idea"))).toBe(true);
+    expect(bundlePaths.some((path) => path.startsWith("projects/project_alpha/Project/alpha-retrieval"))).toBe(true);
+    expect(bundle.files.find((record) => record.relativePath === "projects/project_alpha/Project/Archive/archived-note.md")?.content)
+      .toContain("Archived note");
     expect(bundle.lastDreamStatus).toBe("success");
+    expect(bundle.recentCaseTraces?.[0]?.caseId).toBe("case_exported");
+    expect(bundle.recentIndexTraces?.[0]?.indexTraceId).toBe("index_exported");
+    expect(bundle.recentDreamTraces?.[0]?.dreamTraceId).toBe("dream_exported");
   });
 
-  it("round-trips file-memory bundles into markdown truth", async () => {
+  it("round-trips v3 snapshots, restores recent traces, and clears old runtime queue", async () => {
     const source = await createRepository();
     await seedFileMemory(source);
     const bundle = source.exportMemoryBundle();
 
     const target = await createRepository();
+    target.insertL0Session({
+      l0IndexId: "l0_1",
+      sessionKey: "session_alpha",
+      timestamp: "2026-04-09T08:45:00.000Z",
+      messages: [{ role: "user", content: "remember this" }],
+      source: "openclaw",
+      indexed: false,
+      createdAt: "2026-04-09T08:45:00.000Z",
+    });
+    target.setPipelineState("recentCaseTraces", [{ caseId: "case_1", startedAt: "2026-04-09T08:45:00.000Z" }]);
+    target.setPipelineState("recentIndexTraces", [{ indexTraceId: "index_1", startedAt: "2026-04-09T08:46:00.000Z" }]);
+    target.setPipelineState("recentDreamTraces", [{ dreamTraceId: "dream_1", startedAt: "2026-04-09T08:47:00.000Z" }]);
+    target.setPipelineState("indexingSettings", {
+      reasoningMode: "accuracy_first",
+      autoIndexIntervalMinutes: 120,
+      autoDreamIntervalMinutes: 240,
+    });
+
     const result = target.importMemoryBundle(bundle);
 
     expect(result.formatVersion).toBe(MEMORY_EXPORT_FORMAT_VERSION);
+    expect(result.imported.managedFiles).toBe(bundle.files.length);
     expect(result.imported.memoryFiles).toBe(4);
     expect(result.imported.projectMetas).toBe(1);
     expect(result.imported.project).toBe(1);
@@ -113,6 +206,17 @@ describe("memory bundle import/export", () => {
     expect(result.imported.tmp).toBe(1);
     expect(target.getPipelineState("lastIndexedAt")).toBe("2026-04-09T08:00:00.000Z");
     expect(target.getPipelineState("lastDreamStatus")).toBe("success");
+    expect(result.recentCaseTraces?.[0]?.caseId).toBe("case_exported");
+    expect(result.recentIndexTraces?.[0]?.indexTraceId).toBe("index_exported");
+    expect(result.recentDreamTraces?.[0]?.dreamTraceId).toBe("dream_exported");
+    expect((target.getPipelineState("recentCaseTraces") as Array<Record<string, unknown>> | undefined)?.[0]?.caseId).toBe("case_exported");
+    expect((target.getPipelineState("recentIndexTraces") as Array<Record<string, unknown>> | undefined)?.[0]?.indexTraceId).toBe("index_exported");
+    expect((target.getPipelineState("recentDreamTraces") as Array<Record<string, unknown>> | undefined)?.[0]?.dreamTraceId).toBe("dream_exported");
+    expect(target.getPipelineState("indexingSettings")).toEqual({
+      reasoningMode: "accuracy_first",
+      autoIndexIntervalMinutes: 120,
+      autoDreamIntervalMinutes: 240,
+    });
     expect(target.listAllL0()).toHaveLength(0);
 
     const userSummary = target.getFileMemoryStore().getUserSummary();
@@ -130,6 +234,38 @@ describe("memory bundle import/export", () => {
       limit: 20,
     });
     expect(tmpEntries).toHaveLength(1);
+  });
+
+  it("rejects legacy v2 bundles as unsupported", async () => {
+    const source = await createRepository();
+    await seedFileMemory(source);
+    const legacyBundle = {
+      formatVersion: "clawxmemory-file-memory-bundle.v2",
+      exportedAt: "2026-04-09T09:00:00.000Z",
+      projectMetas: [],
+      memoryFiles: [],
+    };
+
+    expect(() => source.importMemoryBundle(legacyBundle as never)).toThrow("Unsupported memory bundle formatVersion");
+  });
+
+  it("rejects invalid v3 snapshot paths without mutating the current live memory", async () => {
+    const repository = await createRepository();
+    await seedFileMemory(repository);
+    const before = repository.exportMemoryBundle();
+
+    expect(() => repository.importMemoryBundle({
+      formatVersion: MEMORY_EXPORT_FORMAT_VERSION,
+      exportedAt: "2026-04-09T09:00:00.000Z",
+      files: [{ relativePath: "../escape.md", content: "bad" }],
+    })).toThrow("Invalid files[0].relativePath");
+
+    const after = repository.exportMemoryBundle();
+    expect(after.files).toEqual(before.files);
+    expect(after.lastIndexedAt).toBe(before.lastIndexedAt);
+    expect(after.lastDreamAt).toBe(before.lastDreamAt);
+    expect(after.lastDreamStatus).toBe(before.lastDreamStatus);
+    expect(after.lastDreamSummary).toBe(before.lastDreamSummary);
   });
 
   it("deduplicates tmp entries from the same source turn even when model phrasing drifts", async () => {

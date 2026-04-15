@@ -1,5 +1,5 @@
-import { mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import {
   type CaseTraceRecord,
@@ -12,15 +12,14 @@ import {
   MEMORY_EXPORT_FORMAT_VERSION,
   type MemoryExportBundle,
   type MemoryEntryEditFields,
-  type MemoryFileExportRecord,
   type MemoryFileRecord,
   type MemoryImportResult,
   type MemoryImportableBundle,
   type MemoryManifestEntry,
   type MemoryMessage,
+  type MemorySnapshotFileRecord,
   type MemoryTransferCounts,
   type MemoryUiSnapshot,
-  type ProjectMetaExportRecord,
 } from "../types.js";
 import { FileMemoryStore } from "../file-memory.js";
 import { nowIso } from "../utils/id.js";
@@ -152,94 +151,87 @@ function sanitizeIndexingSettings(input: unknown, defaults: IndexingSettings): I
   };
 }
 
-function normalizeMemoryFileExportRecord(value: unknown, index: number): MemoryFileExportRecord {
-  if (!isRecord(value)) throw new MemoryBundleValidationError(`Invalid memoryFiles[${index}]`);
-  const type = value.type;
-  const scope = value.scope;
-  if (type !== "user" && type !== "feedback" && type !== "project") {
-    throw new MemoryBundleValidationError(`Invalid memoryFiles[${index}].type`);
+function normalizeSnapshotRelativePath(value: unknown, index: number): string {
+  const raw = normalizeString(value).trim().replace(/\\/g, "/");
+  if (!raw) {
+    throw new MemoryBundleValidationError(`Invalid files[${index}].relativePath`);
   }
-  if (scope !== "global" && scope !== "project") {
-    throw new MemoryBundleValidationError(`Invalid memoryFiles[${index}].scope`);
+  if (isAbsolute(raw)) {
+    throw new MemoryBundleValidationError(`Invalid files[${index}].relativePath`);
   }
-  if (type === "user" && scope !== "global") {
-    throw new MemoryBundleValidationError(`Invalid memoryFiles[${index}] user scope`);
+  const segments = raw.split("/").filter(Boolean);
+  if (
+    segments.length === 0
+    || segments.some((segment) => segment === "." || segment === "..")
+  ) {
+    throw new MemoryBundleValidationError(`Invalid files[${index}].relativePath`);
   }
-  if ((type === "feedback" || type === "project") && scope !== "project") {
-    throw new MemoryBundleValidationError(`Invalid memoryFiles[${index}] project scope`);
-  }
-  const file = normalizeString(value.file).trim();
-  const relativePath = normalizeString(value.relativePath).trim();
-  if (!file || !relativePath) {
-    throw new MemoryBundleValidationError(`Invalid memoryFiles[${index}] path`);
-  }
-  return {
-    name: normalizeString(value.name).trim() || file,
-    description: normalizeString(value.description).trim(),
-    type,
-    scope,
-    ...(typeof value.projectId === "string" && value.projectId.trim() ? { projectId: value.projectId.trim() } : {}),
-    updatedAt: normalizeString(value.updatedAt).trim() || nowIso(),
-    ...(typeof value.capturedAt === "string" && value.capturedAt.trim() ? { capturedAt: value.capturedAt.trim() } : {}),
-    ...(typeof value.sourceSessionKey === "string" && value.sourceSessionKey.trim()
-      ? { sourceSessionKey: value.sourceSessionKey.trim() }
-      : {}),
-    ...(value.deprecated === true ? { deprecated: true } : {}),
-    ...(typeof value.dreamAttempts === "number" && Number.isFinite(value.dreamAttempts)
-      ? { dreamAttempts: Math.max(0, Math.floor(value.dreamAttempts)) }
-      : {}),
-    file,
-    relativePath,
-    content: normalizeString(value.content),
-  };
+  return segments.join("/");
 }
 
-function normalizeProjectMetaExportRecord(value: unknown, index: number): ProjectMetaExportRecord {
-  if (!isRecord(value)) throw new MemoryBundleValidationError(`Invalid projectMetas[${index}]`);
-  const projectId = normalizeString(value.projectId).trim();
-  const projectName = normalizeString(value.projectName).trim();
-  const relativePath = normalizeString(value.relativePath).trim();
-  if (!projectId || !projectName || !relativePath) {
-    throw new MemoryBundleValidationError(`Invalid projectMetas[${index}]`);
+function normalizeSnapshotFileRecord(value: unknown, index: number): MemorySnapshotFileRecord {
+  if (!isRecord(value)) throw new MemoryBundleValidationError(`Invalid files[${index}]`);
+  if (typeof value.content !== "string") {
+    throw new MemoryBundleValidationError(`Invalid files[${index}].content`);
   }
   return {
-    projectId,
-    projectName,
-    description: normalizeString(value.description).trim() || projectName,
-    aliases: Array.isArray(value.aliases)
-      ? Array.from(new Set(value.aliases.filter((item): item is string => typeof item === "string" && item.trim().length > 0).map((item) => item.trim()))).slice(0, 50)
-      : [],
-    status: normalizeString(value.status).trim() || "active",
-    createdAt: normalizeString(value.createdAt).trim() || nowIso(),
-    updatedAt: normalizeString(value.updatedAt).trim() || nowIso(),
-    ...(typeof value.dreamUpdatedAt === "string" && value.dreamUpdatedAt.trim()
-      ? { dreamUpdatedAt: value.dreamUpdatedAt.trim() }
-      : {}),
-    relativePath,
+    relativePath: normalizeSnapshotRelativePath(value.relativePath, index),
+    content: value.content,
   };
 }
 
 function normalizeMemoryBundle(value: unknown): MemoryImportableBundle {
   if (!isRecord(value)) throw new MemoryBundleValidationError("Invalid memory bundle");
-  if (value.formatVersion !== MEMORY_EXPORT_FORMAT_VERSION) {
-    throw new MemoryBundleValidationError("Unsupported memory bundle formatVersion");
-  }
-  if (!Array.isArray(value.projectMetas) || !Array.isArray(value.memoryFiles)) {
-    throw new MemoryBundleValidationError("Invalid file memory bundle collections");
-  }
-  const bundle: MemoryImportableBundle = {
-    formatVersion: MEMORY_EXPORT_FORMAT_VERSION,
+  const metadata = {
     exportedAt: normalizeString(value.exportedAt).trim() || nowIso(),
-    projectMetas: value.projectMetas.map((item, index) => normalizeProjectMetaExportRecord(item, index)),
-    memoryFiles: value.memoryFiles.map((item, index) => normalizeMemoryFileExportRecord(item, index)),
     ...(typeof value.lastIndexedAt === "string" && value.lastIndexedAt.trim() ? { lastIndexedAt: value.lastIndexedAt.trim() } : {}),
     ...(typeof value.lastDreamAt === "string" && value.lastDreamAt.trim() ? { lastDreamAt: value.lastDreamAt.trim() } : {}),
     ...(sanitizeDreamStatus(value.lastDreamStatus) ? { lastDreamStatus: sanitizeDreamStatus(value.lastDreamStatus)! } : {}),
     ...(typeof value.lastDreamSummary === "string" && value.lastDreamSummary.trim()
       ? { lastDreamSummary: value.lastDreamSummary.trim() }
       : {}),
+    ...(sanitizeTraceArray<CaseTraceRecord>(value.recentCaseTraces, "caseId", "startedAt").length > 0
+      ? { recentCaseTraces: sanitizeTraceArray<CaseTraceRecord>(value.recentCaseTraces, "caseId", "startedAt") }
+      : {}),
+    ...(sanitizeTraceArray<IndexTraceRecord>(value.recentIndexTraces, "indexTraceId", "startedAt").length > 0
+      ? { recentIndexTraces: sanitizeTraceArray<IndexTraceRecord>(value.recentIndexTraces, "indexTraceId", "startedAt") }
+      : {}),
+    ...(sanitizeTraceArray<DreamTraceRecord>(value.recentDreamTraces, "dreamTraceId", "startedAt").length > 0
+      ? { recentDreamTraces: sanitizeTraceArray<DreamTraceRecord>(value.recentDreamTraces, "dreamTraceId", "startedAt") }
+      : {}),
   };
-  return bundle;
+  if (value.formatVersion === MEMORY_EXPORT_FORMAT_VERSION) {
+    if (!Array.isArray(value.files)) {
+      throw new MemoryBundleValidationError("Invalid memory snapshot bundle files");
+    }
+    const files = value.files.map((item, index) => normalizeSnapshotFileRecord(item, index));
+    const seenPaths = new Set<string>();
+    for (const record of files) {
+      if (seenPaths.has(record.relativePath)) {
+        throw new MemoryBundleValidationError(`Duplicate imported snapshot file path: ${record.relativePath}`);
+      }
+      seenPaths.add(record.relativePath);
+    }
+    return {
+      formatVersion: MEMORY_EXPORT_FORMAT_VERSION,
+      ...metadata,
+      files,
+    };
+  }
+  throw new MemoryBundleValidationError("Unsupported memory bundle formatVersion");
+}
+
+function isPathWithinRoot(rootDir: string, targetPath: string): boolean {
+  const rel = relative(resolve(rootDir), resolve(targetPath));
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
+function createSiblingTempPath(targetDir: string, label: string): string {
+  const parentDir = dirname(targetDir);
+  return join(
+    parentDir,
+    `.${basename(targetDir)}.${label}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+  );
 }
 
 export class MemoryRepository {
@@ -548,6 +540,100 @@ export class MemoryRepository {
     return next;
   }
 
+  private buildTransferCounts(store: FileMemoryStore): MemoryTransferCounts {
+    const imported = store.exportBundleRecords({ includeTmp: true });
+    return {
+      managedFiles: store.exportSnapshotFiles().length,
+      memoryFiles: imported.memoryFiles.length,
+      project: imported.memoryFiles.filter((item) => item.type === "project" && item.projectId && item.projectId !== "_tmp").length,
+      feedback: imported.memoryFiles.filter((item) => item.type === "feedback" && item.projectId && item.projectId !== "_tmp").length,
+      user: imported.memoryFiles.filter((item) => item.type === "user").length,
+      tmp: imported.memoryFiles.filter((item) => item.projectId === "_tmp").length,
+      projectMetas: imported.projectMetas.length,
+    };
+  }
+
+  private materializeSnapshotBundle(rootDir: string, bundle: MemoryExportBundle): FileMemoryStore {
+    mkdirSync(rootDir, { recursive: true });
+    for (const record of bundle.files) {
+      const absolutePath = resolve(rootDir, record.relativePath);
+      if (!isPathWithinRoot(rootDir, absolutePath) || absolutePath === resolve(rootDir)) {
+        throw new MemoryBundleValidationError(`Invalid imported snapshot file path: ${record.relativePath}`);
+      }
+      mkdirSync(dirname(absolutePath), { recursive: true });
+      writeFileSync(absolutePath, record.content, "utf-8");
+    }
+    const store = new FileMemoryStore(rootDir);
+    store.repairManifests();
+    return store;
+  }
+
+  private stageImportBundle(bundle: MemoryImportableBundle): { stagedRoot: string; counts: MemoryTransferCounts } {
+    const liveRoot = this.fileMemory.getRootDir();
+    const stagedRoot = createSiblingTempPath(liveRoot, "import");
+    mkdirSync(stagedRoot, { recursive: true });
+    try {
+      const stagedStore = this.materializeSnapshotBundle(stagedRoot, bundle);
+      return {
+        stagedRoot,
+        counts: this.buildTransferCounts(stagedStore),
+      };
+    } catch (error) {
+      rmSync(stagedRoot, { recursive: true, force: true });
+      throw error;
+    }
+  }
+
+  private swapInStagedMemoryRoot(stagedRoot: string): void {
+    const liveRoot = this.fileMemory.getRootDir();
+    const backupRoot = createSiblingTempPath(liveRoot, "backup");
+    let movedLiveRoot = false;
+    try {
+      if (existsSync(liveRoot)) {
+        renameSync(liveRoot, backupRoot);
+        movedLiveRoot = true;
+      }
+      renameSync(stagedRoot, liveRoot);
+    } catch (error) {
+      if (existsSync(stagedRoot)) {
+        rmSync(stagedRoot, { recursive: true, force: true });
+      }
+      if (movedLiveRoot && !existsSync(liveRoot) && existsSync(backupRoot)) {
+        renameSync(backupRoot, liveRoot);
+      }
+      throw error;
+    }
+    if (movedLiveRoot && existsSync(backupRoot)) {
+      try {
+        rmSync(backupRoot, { recursive: true, force: true });
+      } catch {
+        // Best-effort cleanup; the live memory root has already been swapped in.
+      }
+    }
+  }
+
+  private resetImportedRuntimeState(bundle: MemoryImportableBundle): void {
+    this.db.exec("DELETE FROM l0_sessions;");
+    for (const key of [
+      RECENT_CASE_TRACES_STATE_KEY,
+      RECENT_INDEX_TRACES_STATE_KEY,
+      RECENT_DREAM_TRACES_STATE_KEY,
+      LAST_INDEXED_AT_STATE_KEY,
+      LAST_DREAM_AT_STATE_KEY,
+      LAST_DREAM_STATUS_STATE_KEY,
+      LAST_DREAM_SUMMARY_STATE_KEY,
+    ]) {
+      this.deletePipelineState(key);
+    }
+    if (bundle.lastIndexedAt) this.setPipelineState(LAST_INDEXED_AT_STATE_KEY, bundle.lastIndexedAt);
+    if (bundle.lastDreamAt) this.setPipelineState(LAST_DREAM_AT_STATE_KEY, bundle.lastDreamAt);
+    if (bundle.lastDreamStatus) this.setPipelineState(LAST_DREAM_STATUS_STATE_KEY, bundle.lastDreamStatus);
+    if (bundle.lastDreamSummary) this.setPipelineState(LAST_DREAM_SUMMARY_STATE_KEY, bundle.lastDreamSummary);
+    if (bundle.recentCaseTraces) this.setPipelineState(RECENT_CASE_TRACES_STATE_KEY, bundle.recentCaseTraces);
+    if (bundle.recentIndexTraces) this.setPipelineState(RECENT_INDEX_TRACES_STATE_KEY, bundle.recentIndexTraces);
+    if (bundle.recentDreamTraces) this.setPipelineState(RECENT_DREAM_TRACES_STATE_KEY, bundle.recentDreamTraces);
+  }
+
   exportMemoryBundle(): MemoryExportBundle {
     return {
       formatVersion: MEMORY_EXPORT_FORMAT_VERSION,
@@ -564,40 +650,29 @@ export class MemoryRepository {
       ...(typeof this.getPipelineState<string>(LAST_DREAM_SUMMARY_STATE_KEY) === "string"
         ? { lastDreamSummary: this.getPipelineState<string>(LAST_DREAM_SUMMARY_STATE_KEY)! }
         : {}),
-      ...this.fileMemory.exportBundleRecords({ includeTmp: true }),
+      ...(this.listRecentCaseTraces(200).length > 0 ? { recentCaseTraces: this.listRecentCaseTraces(200) } : {}),
+      ...(this.listRecentIndexTraces(200).length > 0 ? { recentIndexTraces: this.listRecentIndexTraces(200) } : {}),
+      ...(this.listRecentDreamTraces(200).length > 0 ? { recentDreamTraces: this.listRecentDreamTraces(200) } : {}),
+      files: this.fileMemory.exportSnapshotFiles(),
     };
   }
 
   importMemoryBundle(bundle: MemoryImportableBundle): MemoryImportResult {
     const normalized = normalizeMemoryBundle(bundle);
-    const imported = this.fileMemory.replaceFromBundle({
-      projectMetas: normalized.projectMetas,
-      memoryFiles: normalized.memoryFiles,
-    });
-    if (normalized.lastIndexedAt) this.setPipelineState(LAST_INDEXED_AT_STATE_KEY, normalized.lastIndexedAt);
-    else this.deletePipelineState(LAST_INDEXED_AT_STATE_KEY);
-    if (normalized.lastDreamAt) this.setPipelineState(LAST_DREAM_AT_STATE_KEY, normalized.lastDreamAt);
-    else this.deletePipelineState(LAST_DREAM_AT_STATE_KEY);
-    if (normalized.lastDreamStatus) this.setPipelineState(LAST_DREAM_STATUS_STATE_KEY, normalized.lastDreamStatus);
-    else this.deletePipelineState(LAST_DREAM_STATUS_STATE_KEY);
-    if (normalized.lastDreamSummary) this.setPipelineState(LAST_DREAM_SUMMARY_STATE_KEY, normalized.lastDreamSummary);
-    else this.deletePipelineState(LAST_DREAM_SUMMARY_STATE_KEY);
-    const counts: MemoryTransferCounts = {
-      memoryFiles: imported.memoryFiles.length,
-      project: imported.memoryFiles.filter((item) => item.type === "project" && item.projectId && item.projectId !== "_tmp").length,
-      feedback: imported.memoryFiles.filter((item) => item.type === "feedback" && item.projectId && item.projectId !== "_tmp").length,
-      user: imported.memoryFiles.filter((item) => item.type === "user").length,
-      tmp: imported.memoryFiles.filter((item) => item.projectId === "_tmp").length,
-      projectMetas: imported.projectMetas.length,
-    };
+    const staged = this.stageImportBundle(normalized);
+    this.swapInStagedMemoryRoot(staged.stagedRoot);
+    this.resetImportedRuntimeState(normalized);
     return {
       formatVersion: MEMORY_EXPORT_FORMAT_VERSION,
-      imported: counts,
+      imported: staged.counts,
       importedAt: nowIso(),
       ...(normalized.lastIndexedAt ? { lastIndexedAt: normalized.lastIndexedAt } : {}),
       ...(normalized.lastDreamAt ? { lastDreamAt: normalized.lastDreamAt } : {}),
       ...(normalized.lastDreamStatus ? { lastDreamStatus: normalized.lastDreamStatus } : {}),
       ...(normalized.lastDreamSummary ? { lastDreamSummary: normalized.lastDreamSummary } : {}),
+      ...(normalized.recentCaseTraces ? { recentCaseTraces: normalized.recentCaseTraces } : {}),
+      ...(normalized.recentIndexTraces ? { recentIndexTraces: normalized.recentIndexTraces } : {}),
+      ...(normalized.recentDreamTraces ? { recentDreamTraces: normalized.recentDreamTraces } : {}),
     };
   }
 

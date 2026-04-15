@@ -185,7 +185,7 @@ describe("manual file-memory actions", () => {
     expect(repository.listMemoryEntries({ scope: "project", projectId: FORMAL_PROJECT_ID })).toHaveLength(1);
     expect(store.scanRecallHeaderEntries({ projectId: FORMAL_PROJECT_ID, limit: 200 })).toHaveLength(1);
     const exported = repository.exportMemoryBundle();
-    expect(exported.memoryFiles.find((item) => item.relativePath === projectRecord.relativePath)?.deprecated).not.toBe(true);
+    expect(exported.files.find((item) => item.relativePath === projectRecord.relativePath)?.content).not.toContain("deprecated: true");
   });
 
   it("requires deprecating a memory file before deleting it", async () => {

@@ -1028,6 +1028,13 @@ export class MemoryPluginRuntime {
         this.logger.warn?.(`[clawxmemory] pending index queue failed before import: ${String(error)}`);
       }
     }
+    if (this.dreamRunPromise) {
+      try {
+        await this.dreamRunPromise;
+      } catch (error) {
+        this.logger.warn?.(`[clawxmemory] dream run failed before import: ${String(error)}`);
+      }
+    }
     this.clearEphemeralMemoryState();
     return this.repository.importMemoryBundle(bundle);
   }

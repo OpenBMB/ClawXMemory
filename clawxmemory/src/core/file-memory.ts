@@ -22,6 +22,7 @@ import type {
   MemoryManifestEntry,
   MemoryRecordType,
   MemoryScope,
+  MemorySnapshotFileRecord,
   MemoryUserSummary,
   ProjectMetaExportRecord,
   ProjectMetaRecord,
@@ -378,6 +379,22 @@ function findMarkdownFiles(dir: string): string[] {
     files.push(join(dir, entry.name));
   }
   return files.sort();
+}
+
+function findAllFiles(dir: string): string[] {
+  if (!existsSync(dir)) return [];
+  const entries = readdirSync(dir, { withFileTypes: true });
+  const files: string[] = [];
+  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+    const fullPath = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...findAllFiles(fullPath));
+      continue;
+    }
+    if (!entry.isFile()) continue;
+    files.push(fullPath);
+  }
+  return files;
 }
 
 function sanitizeFileName(value: string | undefined, fallback: string): string {
@@ -1283,6 +1300,13 @@ export class FileMemoryStore {
         content: record.content,
       }));
     return { projectMetas, memoryFiles };
+  }
+
+  exportSnapshotFiles(): MemorySnapshotFileRecord[] {
+    return findAllFiles(this.rootDir).map((absolutePath) => ({
+      relativePath: relative(this.rootDir, absolutePath).replace(/\\/g, "/"),
+      content: readFileSync(absolutePath, "utf-8"),
+    }));
   }
 
   clearAllData(): void {
