@@ -127,6 +127,11 @@ describe("ReasoningRetriever", () => {
       "recall_skipped",
       "context_rendered",
     ]);
+    const skippedStep = result.trace?.steps.find((step) => step.kind === "recall_skipped");
+    expect(skippedStep?.titleI18n).toMatchObject({ key: "trace.step.recall_skipped" });
+    expect(skippedStep?.outputSummaryI18n).toMatchObject({
+      key: "trace.text.recall_skipped.query_does_not_need_memory",
+    });
     expect(store.scanRecallHeaderEntries).not.toHaveBeenCalled();
   });
 
@@ -226,13 +231,26 @@ describe("ReasoningRetriever", () => {
     ]);
     const manifestScanned = result.trace?.steps.find((step) => step.kind === "manifest_scanned");
     expect(manifestScanned?.details).toEqual(expect.arrayContaining([
-      expect.objectContaining({ label: "Manifest Scan" }),
-      expect.objectContaining({ label: "Sorted Candidates" }),
+      expect.objectContaining({
+        label: "Manifest Scan",
+        labelI18n: expect.objectContaining({ key: "trace.detail.manifest_scan" }),
+      }),
+      expect.objectContaining({
+        label: "Sorted Candidates",
+        labelI18n: expect.objectContaining({ key: "trace.detail.sorted_candidates" }),
+      }),
     ]));
+    expect(manifestScanned?.titleI18n).toMatchObject({ key: "trace.step.manifest_scanned" });
     const projectSelected = result.trace?.steps.find((step) => step.kind === "project_selected");
     expect(projectSelected?.details).toEqual(expect.arrayContaining([
-      expect.objectContaining({ label: "Project Selection" }),
-      expect.objectContaining({ label: "Shortlist Candidates" }),
+      expect.objectContaining({
+        label: "Project Selection",
+        labelI18n: expect.objectContaining({ key: "trace.detail.project_selection" }),
+      }),
+      expect.objectContaining({
+        label: "Shortlist Candidates",
+        labelI18n: expect.objectContaining({ key: "trace.detail.shortlist_candidates" }),
+      }),
     ]));
   });
 

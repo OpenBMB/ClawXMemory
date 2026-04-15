@@ -7,6 +7,7 @@ import type {
   ProjectShortlistCandidate,
   RecallHeaderEntry,
   RetrievalPromptDebug,
+  TraceI18nText,
   RetrievalTrace,
   RetrievalTraceDetail,
   RetrievalResult,
@@ -14,6 +15,7 @@ import type {
 } from "../types.js";
 import { LlmMemoryExtractor } from "../skills/llm-extraction.js";
 import { MemoryRepository } from "../storage/sqlite.js";
+import { traceI18n } from "../trace-i18n.js";
 import { hashText, nowIso } from "../utils/id.js";
 import { decodeEscapedUnicodeText, decodeEscapedUnicodeValue, truncate } from "../utils/text.js";
 
@@ -83,18 +85,31 @@ function previewText(value: string, max = 220): string {
   return truncate(decodeEscapedUnicodeText(value).trim(), max);
 }
 
-function listDetail(key: string, label: string, items: string[]): RetrievalTraceDetail {
-  return { key, label, kind: "list", items: items.map((item) => decodeEscapedUnicodeText(item, true)) };
+function listDetail(
+  key: string,
+  label: string,
+  items: string[],
+  labelI18n?: TraceI18nText,
+): RetrievalTraceDetail {
+  return {
+    key,
+    label,
+    ...(labelI18n ? { labelI18n } : {}),
+    kind: "list",
+    items: items.map((item) => decodeEscapedUnicodeText(item, true)),
+  };
 }
 
 function kvDetail(
   key: string,
   label: string,
   entries: Array<{ label: string; value: unknown }>,
+  labelI18n?: TraceI18nText,
 ): RetrievalTraceDetail {
   return {
     key,
     label,
+    ...(labelI18n ? { labelI18n } : {}),
     kind: "kv",
     entries: entries.map((entry) => ({
       label: entry.label,
@@ -103,8 +118,19 @@ function kvDetail(
   };
 }
 
-function jsonDetail(key: string, label: string, json: unknown): RetrievalTraceDetail {
-  return { key, label, kind: "json", json: decodeEscapedUnicodeValue(json, true) };
+function jsonDetail(
+  key: string,
+  label: string,
+  json: unknown,
+  labelI18n?: TraceI18nText,
+): RetrievalTraceDetail {
+  return {
+    key,
+    label,
+    ...(labelI18n ? { labelI18n } : {}),
+    kind: "json",
+    json: decodeEscapedUnicodeValue(json, true),
+  };
 }
 
 function hasUserSummary(userSummary: MemoryUserSummary): boolean {
@@ -513,6 +539,7 @@ export class ReasoningRetriever {
         stepId: `${traceId}:step:1`,
         kind: "recall_start",
         title: "Recall Started",
+        titleI18n: traceI18n("trace.step.recall_start", "Recall Started"),
         status: "info",
         inputSummary: normalizedQuery,
         outputSummary: `mode=${retrievalMode}`,
@@ -522,12 +549,13 @@ export class ReasoningRetriever {
             { label: "mode", value: retrievalMode },
             { label: "recentUserMessages", value: recentUserMessages.length },
             { label: "workspaceHint", value: options.workspaceHint ?? "none" },
-          ]),
+          ], traceI18n("trace.detail.recall_inputs", "Recall Inputs")),
           ...(recentUserMessages.length
             ? [listDetail(
                 "recent-user-messages",
                 "Recent User Messages",
                 recentUserMessages.map((message) => previewText(message.content, 180)),
+                traceI18n("trace.detail.recent_user_messages", "Recent User Messages"),
               )]
             : []),
         ],
@@ -581,6 +609,7 @@ export class ReasoningRetriever {
       stepId: `${traceId}:step:${trace.steps.length + 1}`,
       kind: "memory_gate",
       title: "Memory Gate",
+      titleI18n: traceI18n("trace.step.memory_gate", "Memory Gate"),
       status: route === "none" ? "skipped" : "success",
       inputSummary: normalizedQuery,
       outputSummary: `route=${route}`,
@@ -590,7 +619,7 @@ export class ReasoningRetriever {
           { label: "override", value: gateOverrideReason || "none" },
           { label: "recentUserMessages", value: recentUserMessages.length },
           { label: "workspaceHint", value: options.workspaceHint ?? "none" },
-        ]),
+        ], traceI18n("trace.detail.route", "Route")),
       ],
       ...(routePromptDebug ? { promptDebug: routePromptDebug } : {}),
     });
@@ -600,17 +629,21 @@ export class ReasoningRetriever {
         stepId: `${traceId}:step:${trace.steps.length + 1}`,
         kind: "recall_skipped",
         title: "Recall Skipped",
+        titleI18n: traceI18n("trace.step.recall_skipped", "Recall Skipped"),
         status: "skipped",
         inputSummary: "route=none",
         outputSummary: "This query does not need long-term memory.",
+        outputSummaryI18n: traceI18n("trace.text.recall_skipped.query_does_not_need_memory", "This query does not need long-term memory."),
       });
       trace.steps.push({
         stepId: `${traceId}:step:${trace.steps.length + 1}`,
         kind: "context_rendered",
         title: "Context Rendered",
+        titleI18n: traceI18n("trace.step.context_rendered", "Context Rendered"),
         status: "skipped",
         inputSummary: "0 records",
         outputSummary: "No memory context injected.",
+        outputSummaryI18n: traceI18n("trace.text.context_rendered.no_memory_context", "No memory context injected."),
       });
       trace.finishedAt = nowIso();
       const result = buildEmptyResult(normalizedQuery, trace, Date.now() - startedAt);
@@ -624,21 +657,27 @@ export class ReasoningRetriever {
       stepId: `${traceId}:step:${trace.steps.length + 1}`,
       kind: "user_base_loaded",
       title: "User Base Loaded",
+      titleI18n: traceI18n("trace.step.user_base_loaded", "User Base Loaded"),
       status: hasUserSummary(userSummary) ? "success" : "warning",
       inputSummary: "global user profile",
+      inputSummaryI18n: traceI18n("trace.text.user_base_loaded.input.global_user_profile", "global user profile"),
       outputSummary: hasUserSummary(userSummary) ? "Attached compact global user profile." : "No compact global user profile is available yet.",
+      outputSummaryI18n: hasUserSummary(userSummary)
+        ? traceI18n("trace.text.user_base_loaded.output.attached", "Attached compact global user profile.")
+        : traceI18n("trace.text.user_base_loaded.output.missing", "No compact global user profile is available yet."),
       details: [
         kvDetail("user-summary", "User Profile", [
           { label: "profile", value: userSummary.profile ? "present" : "missing" },
           { label: "preferences", value: userSummary.preferences.length },
           { label: "constraints", value: userSummary.constraints.length },
           { label: "relationships", value: userSummary.relationships.length },
-        ]),
+        ], traceI18n("trace.detail.user_profile", "User Profile")),
         ...(userSummary.files.length > 0
           ? [listDetail(
               "user-summary-files",
               "Source Files",
               userSummary.files.map((file) => `${file.relativePath} | ${file.updatedAt}`),
+              traceI18n("trace.detail.source_files", "Source Files"),
             )]
           : []),
       ],
@@ -659,20 +698,33 @@ export class ReasoningRetriever {
         stepId: `${traceId}:step:${trace.steps.length + 1}`,
         kind: "project_shortlist_built",
         title: "Project Shortlist Built",
+        titleI18n: traceI18n("trace.step.project_shortlist_built", "Project Shortlist Built"),
         status: shortlistResult.candidates.length > 0 ? "success" : "warning",
         inputSummary: `${projectMetas.length} formal projects`,
+        inputSummaryI18n: traceI18n("trace.text.project_shortlist_built.input", "{0} formal projects", projectMetas.length),
         outputSummary: `${shortlistResult.candidates.length} shortlist candidates ready.`,
+        outputSummaryI18n: traceI18n("trace.text.project_shortlist_built.output", "{0} shortlist candidates ready.", shortlistResult.candidates.length),
         details: [
           kvDetail("project-shortlist-summary", "Project Shortlist", [
             { label: "formalProjects", value: projectMetas.length },
             { label: "shortlistCount", value: shortlistResult.candidates.length },
             { label: "workspaceToken", value: shortlistResult.workspaceToken || "none" },
             { label: "recentUserTexts", value: shortlistResult.recentUserTexts.length },
-          ]),
+          ], traceI18n("trace.detail.project_shortlist", "Project Shortlist")),
           ...(shortlistResult.recentUserTexts.length > 0
-            ? [listDetail("project-shortlist-recent", "Recent User Texts", shortlistResult.recentUserTexts)]
+            ? [listDetail(
+                "project-shortlist-recent",
+                "Recent User Texts",
+                shortlistResult.recentUserTexts,
+                traceI18n("trace.detail.recent_user_texts", "Recent User Texts"),
+              )]
             : []),
-          jsonDetail("project-shortlist-candidates", "Shortlist Candidates", shortlistResult.candidates),
+          jsonDetail(
+            "project-shortlist-candidates",
+            "Shortlist Candidates",
+            shortlistResult.candidates,
+            traceI18n("trace.detail.shortlist_candidates", "Shortlist Candidates"),
+          ),
         ],
       });
 
@@ -703,6 +755,7 @@ export class ReasoningRetriever {
       stepId: `${traceId}:step:${trace.steps.length + 1}`,
       kind: "project_selected",
       title: "Project Selected",
+      titleI18n: traceI18n("trace.step.project_selected", "Project Selected"),
       status: !routeNeedsProjectMemory(route)
         ? "skipped"
         : resolvedProjectId
@@ -713,19 +766,33 @@ export class ReasoningRetriever {
       inputSummary: routeNeedsProjectMemory(route)
         ? `${shortlistResult.candidates.length} shortlist candidates`
         : `route=${route}`,
+      ...(routeNeedsProjectMemory(route)
+        ? { inputSummaryI18n: traceI18n("trace.text.project_selected.input", "{0} shortlist candidates", shortlistResult.candidates.length) }
+        : {}),
       outputSummary: resolvedProjectId
         ? `project_id=${resolvedProjectId}`
         : routeNeedsProjectMemory(route)
           ? "No formal project was selected for this query."
           : "This recall route does not require project selection.",
+      ...(!resolvedProjectId && routeNeedsProjectMemory(route)
+        ? { outputSummaryI18n: traceI18n("trace.text.project_selected.output.none_selected", "No formal project was selected for this query.") }
+        : {}),
+      ...(!resolvedProjectId && !routeNeedsProjectMemory(route)
+        ? { outputSummaryI18n: traceI18n("trace.text.project_selected.output.not_required", "This recall route does not require project selection.") }
+        : {}),
       details: [
         kvDetail("project-selection-summary", "Project Selection", [
           { label: "project_id", value: resolvedProjectId || "none" },
           { label: "selectionReason", value: projectSelectionReason || "none" },
           { label: "shortlistCount", value: shortlistResult.candidates.length },
-        ]),
+        ], traceI18n("trace.detail.project_selection", "Project Selection")),
         ...(shortlistResult.candidates.length > 0
-          ? [jsonDetail("project-selection-shortlist", "Shortlist Candidates", shortlistResult.candidates)]
+          ? [jsonDetail(
+              "project-selection-shortlist",
+              "Shortlist Candidates",
+              shortlistResult.candidates,
+              traceI18n("trace.detail.shortlist_candidates", "Shortlist Candidates"),
+            )]
           : []),
       ],
       ...(projectSelectionPromptDebug ? { promptDebug: projectSelectionPromptDebug } : {}),
@@ -744,6 +811,7 @@ export class ReasoningRetriever {
       stepId: `${traceId}:step:${trace.steps.length + 1}`,
       kind: "manifest_scanned",
       title: "Manifest Scanned",
+      titleI18n: traceI18n("trace.step.manifest_scanned", "Manifest Scanned"),
       status: manifest.length > 0 ? "success" : routeNeedsProjectMemory(route) ? "warning" : "skipped",
       inputSummary: resolvedProjectId ? `project_id=${resolvedProjectId}` : `route=${route}`,
       outputSummary: resolvedProjectId
@@ -751,6 +819,29 @@ export class ReasoningRetriever {
         : routeNeedsProjectMemory(route)
           ? "Project recall skipped because no formal project was selected."
           : "This recall route does not require a project manifest.",
+      ...(resolvedProjectId
+        ? {
+            outputSummaryI18n: manifestSelection.allCount > manifest.length
+              ? traceI18n(
+                  "trace.text.manifest_scanned.output.with_limit",
+                  "{0} recall header entries ready (top {1} of {2}).",
+                  manifest.length,
+                  manifest.length,
+                  manifestSelection.allCount,
+                )
+              : traceI18n(
+                  "trace.text.manifest_scanned.output.ready",
+                  "{0} recall header entries ready.",
+                  manifest.length,
+                ),
+          }
+        : {}),
+      ...(!resolvedProjectId && routeNeedsProjectMemory(route)
+        ? { outputSummaryI18n: traceI18n("trace.text.manifest_scanned.output.no_project_selected", "Project recall skipped because no formal project was selected.") }
+        : {}),
+      ...(!resolvedProjectId && !routeNeedsProjectMemory(route)
+        ? { outputSummaryI18n: traceI18n("trace.text.manifest_scanned.output.not_required", "This recall route does not require a project manifest.") }
+        : {}),
       details: [
         kvDetail("manifest-scan-summary", "Manifest Scan", [
           { label: "count", value: manifest.length },
@@ -760,11 +851,12 @@ export class ReasoningRetriever {
           { label: "kinds", value: manifestSelection.kinds.join(", ") || "none" },
           { label: "limit", value: manifestSelection.limit },
           { label: "sort", value: "updatedAt desc" },
-        ]),
+        ], traceI18n("trace.detail.manifest_scan", "Manifest Scan")),
         listDetail(
           "manifest-scan-preview",
           "Sorted Candidates",
           manifest.map((entry) => `${entry.updatedAt} | ${entry.type} | ${entry.relativePath} | ${entry.description}`),
+          traceI18n("trace.detail.sorted_candidates", "Sorted Candidates"),
         ),
       ],
     });
@@ -789,16 +881,29 @@ export class ReasoningRetriever {
       stepId: `${traceId}:step:${trace.steps.length + 1}`,
       kind: "manifest_selected",
       title: "Manifest Selected",
+      titleI18n: traceI18n("trace.step.manifest_selected", "Manifest Selected"),
       status: selectedIds.length > 0 ? "success" : manifest.length > 0 ? "warning" : "skipped",
       inputSummary: `${manifest.length} entries`,
+      inputSummaryI18n: traceI18n("trace.text.manifest_selected.input", "{0} entries", manifest.length),
       outputSummary: `${selectedIds.length} file ids selected.`,
+      outputSummaryI18n: traceI18n("trace.text.manifest_selected.output", "{0} file ids selected.", selectedIds.length),
       details: [
-        listDetail("manifest-selection-input", "Manifest Candidate IDs", manifest.map((entry) => entry.relativePath)),
-        listDetail("selected-files", "Selected File IDs", selectedIds),
+        listDetail(
+          "manifest-selection-input",
+          "Manifest Candidate IDs",
+          manifest.map((entry) => entry.relativePath),
+          traceI18n("trace.detail.manifest_candidate_ids", "Manifest Candidate IDs"),
+        ),
+        listDetail(
+          "selected-files",
+          "Selected File IDs",
+          selectedIds,
+          traceI18n("trace.detail.selected_file_ids", "Selected File IDs"),
+        ),
         kvDetail("manifest-selection-summary", "Selection Summary", [
           { label: "inputCount", value: manifest.length },
           { label: "selectedCount", value: selectedIds.length },
-        ]),
+        ], traceI18n("trace.detail.selection_summary", "Selection Summary")),
       ],
       ...(manifestSelectionPromptDebug ? { promptDebug: manifestSelectionPromptDebug } : {}),
     });
@@ -815,16 +920,20 @@ export class ReasoningRetriever {
       stepId: `${traceId}:step:${trace.steps.length + 1}`,
       kind: "files_loaded",
       title: "Files Loaded",
+      titleI18n: traceI18n("trace.step.files_loaded", "Files Loaded"),
       status: loadedRecords.length > 0 ? "success" : selectedIds.length > 0 ? "warning" : "skipped",
       inputSummary: `${selectedIds.length} requested`,
+      inputSummaryI18n: traceI18n("trace.text.files_loaded.input", "{0} requested", selectedIds.length),
       outputSummary: `${loadedRecords.length} files loaded.`,
+      outputSummaryI18n: traceI18n("trace.text.files_loaded.output", "{0} files loaded.", loadedRecords.length),
       details: [
-        listDetail("requested-files", "Requested IDs", selectedIds),
+        listDetail("requested-files", "Requested IDs", selectedIds, traceI18n("trace.detail.requested_ids", "Requested IDs")),
         listDetail(
           "loaded-files",
           "Loaded Files",
           loadedRecords.map((record) =>
             `${record.relativePath} | ${record.truncated ? "truncated" : "full"} | ${previewText(record.content, 180)}`),
+          traceI18n("trace.detail.loaded_files", "Loaded Files"),
         ),
         ...(loadedRecords.some((record) => record.truncated)
           ? [jsonDetail(
@@ -837,10 +946,11 @@ export class ReasoningRetriever {
                   originalChars: record.originalChars,
                   loadedChars: record.loadedChars,
                 })),
+              traceI18n("trace.detail.truncated_files", "Truncated Files"),
             )]
           : []),
         ...(missingIds.length > 0
-          ? [listDetail("missing-files", "Missing IDs", missingIds)]
+          ? [listDetail("missing-files", "Missing IDs", missingIds, traceI18n("trace.detail.missing_ids", "Missing IDs"))]
           : []),
       ],
     });
@@ -851,9 +961,16 @@ export class ReasoningRetriever {
       stepId: `${traceId}:step:${trace.steps.length + 1}`,
       kind: "context_rendered",
       title: "Context Rendered",
+      titleI18n: traceI18n("trace.step.context_rendered", "Context Rendered"),
       status: context.trim() ? "success" : "warning",
       inputSummary: `${loadedRecords.length} files + ${hasUserSummary(userSummary) ? "user base" : "no user base"}`,
+      inputSummaryI18n: hasUserSummary(userSummary)
+        ? traceI18n("trace.text.context_rendered.input.with_user_base", "{0} files + user base", loadedRecords.length)
+        : traceI18n("trace.text.context_rendered.input.no_user_base", "{0} files + no user base", loadedRecords.length),
       outputSummary: context.trim() ? "Memory context prepared." : "No memory context injected.",
+      outputSummaryI18n: context.trim()
+        ? traceI18n("trace.text.context_rendered.output.prepared", "Memory context prepared.")
+        : traceI18n("trace.text.context_rendered.no_memory_context", "No memory context injected."),
       details: [
         kvDetail("context-rendered-summary", "Context Summary", [
           { label: "route", value: route },
@@ -863,7 +980,7 @@ export class ReasoningRetriever {
           { label: "fileCount", value: loadedRecords.length },
           { label: "characters", value: context.length },
           { label: "lines", value: context ? context.split("\n").length : 0 },
-        ]),
+        ], traceI18n("trace.detail.context_summary", "Context Summary")),
         listDetail(
           "context-rendered-blocks",
           "Injected Blocks",
@@ -872,6 +989,7 @@ export class ReasoningRetriever {
             ...(resolvedProjectMeta ? [resolvedProjectMeta.relativePath] : []),
             ...loadedRecords.map((record) => record.relativePath),
           ],
+          traceI18n("trace.detail.injected_blocks", "Injected Blocks"),
         ),
       ],
     });

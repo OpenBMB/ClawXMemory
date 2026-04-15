@@ -10,6 +10,7 @@ import type {
   ProjectMetaRecord,
   RetrievalPromptDebug,
   RetrievalTraceDetail,
+  TraceI18nText,
 } from "../types.js";
 import type { HeartbeatStats } from "../pipeline/heartbeat.js";
 import {
@@ -22,6 +23,7 @@ import {
   LlmMemoryExtractor,
 } from "../skills/llm-extraction.js";
 import { MemoryRepository } from "../storage/sqlite.js";
+import { traceI18n } from "../trace-i18n.js";
 import { hashText, nowIso } from "../utils/id.js";
 
 type LoggerLike = {
@@ -413,7 +415,6 @@ function validateProjectRewrite(
   if (rewrite.files.length === 0) {
     throw new Error(`Dream project rewrite returned no rewritten files for ${input.project.projectName}.`);
   }
-  const usedSourceIds = new Set<string>();
   for (const file of rewrite.files) {
     if (!file.name || !file.description) {
       throw new Error(`Dream project rewrite returned a file without name/description for ${input.project.projectName}.`);
@@ -428,10 +429,6 @@ function validateProjectRewrite(
       if (!sourceIds.has(sourceEntryId)) {
         throw new Error(`Dream project rewrite referenced an unknown source file: ${sourceEntryId}`);
       }
-      if (usedSourceIds.has(sourceEntryId)) {
-        throw new Error(`Dream project rewrite reused one source file in multiple rewritten files: ${sourceEntryId}`);
-      }
-      usedSourceIds.add(sourceEntryId);
     }
   }
   for (const deletedEntryId of rewrite.deletedEntryIds) {
@@ -508,18 +505,20 @@ function buildDreamStepId(traceId: string, kind: DreamTraceStep["kind"], suffix?
   return `${traceId}_${kind}${suffix ? `_${hashText(suffix)}` : ""}`;
 }
 
-function listDetail(key: string, label: string, items: string[]): RetrievalTraceDetail {
-  return { key, label, kind: "list", items };
+function listDetail(key: string, label: string, items: string[], labelI18n?: TraceI18nText): RetrievalTraceDetail {
+  return { key, label, ...(labelI18n ? { labelI18n } : {}), kind: "list", items };
 }
 
 function kvDetail(
   key: string,
   label: string,
   entries: Array<{ label: string; value: unknown }>,
+  labelI18n?: TraceI18nText,
 ): RetrievalTraceDetail {
   return {
     key,
     label,
+    ...(labelI18n ? { labelI18n } : {}),
     kind: "kv",
     entries: entries.map((entry) => ({
       label: entry.label,
@@ -528,8 +527,8 @@ function kvDetail(
   };
 }
 
-function jsonDetail(key: string, label: string, json: unknown): RetrievalTraceDetail {
-  return { key, label, kind: "json", json };
+function jsonDetail(key: string, label: string, json: unknown, labelI18n?: TraceI18nText): RetrievalTraceDetail {
+  return { key, label, ...(labelI18n ? { labelI18n } : {}), kind: "json", json };
 }
 
 function mutationPreview(record: MemoryFileRecord): string {
@@ -589,6 +588,9 @@ function pushDreamStep(
     status: step.status,
     inputSummary: step.inputSummary,
     outputSummary: step.outputSummary,
+    ...(step.titleI18n ? { titleI18n: step.titleI18n } : {}),
+    ...(step.inputSummaryI18n ? { inputSummaryI18n: step.inputSummaryI18n } : {}),
+    ...(step.outputSummaryI18n ? { outputSummaryI18n: step.outputSummaryI18n } : {}),
     ...(step.refs ? { refs: step.refs } : {}),
     ...(step.metrics ? { metrics: step.metrics } : {}),
     ...(step.details ? { details: step.details } : {}),
@@ -632,27 +634,35 @@ export class DreamRewriteRunner {
     pushDreamStep(trace, {
       kind: "dream_start",
       title: "Dream Start",
+      titleI18n: traceI18n("trace.step.dream_start", "Dream Start"),
       status: "info",
       inputSummary: `${trigger} Dream run started.`,
+      inputSummaryI18n: traceI18n("trace.text.dream_start.input", "{0} Dream run started.", trigger),
       outputSummary: "Preparing current indexed file-memory snapshot.",
+      outputSummaryI18n: traceI18n("trace.text.dream_start.output.preparing_snapshot", "Preparing current indexed file-memory snapshot."),
       details: [
         kvDetail("trigger", "Run Trigger", [
           { label: "trigger", value: trigger },
           { label: "startedAt", value: startedAt },
-        ]),
+        ], traceI18n("trace.detail.run_trigger", "Run Trigger")),
       ],
     });
     persistTrace();
 
     try {
+      store.mergeDuplicateEntries(store.listTmpEntries(2000));
+      trace.snapshotSummary = buildSnapshotSummary(store);
       const before = store.listMemoryEntries({ limit: 1000, includeTmp: true });
       if (before.length === 0) {
         pushDreamStep(trace, {
           kind: "snapshot_loaded",
           title: "Snapshot Loaded",
+          titleI18n: traceI18n("trace.step.snapshot_loaded", "Snapshot Loaded"),
           status: "success",
           inputSummary: "Loaded an empty file-memory snapshot.",
+          inputSummaryI18n: traceI18n("trace.text.snapshot_loaded.input.empty", "Loaded an empty file-memory snapshot."),
           outputSummary: "No indexed file-memory exists yet.",
+          outputSummaryI18n: traceI18n("trace.text.snapshot_loaded.output.no_memory", "No indexed file-memory exists yet."),
           details: [
             kvDetail("snapshot", "Dream Snapshot", [
               { label: "formalProjects", value: trace.snapshotSummary.formalProjectCount },
@@ -661,16 +671,19 @@ export class DreamRewriteRunner {
               { label: "formalProjectFiles", value: trace.snapshotSummary.formalProjectFileCount },
               { label: "formalFeedbackFiles", value: trace.snapshotSummary.formalFeedbackFileCount },
               { label: "hasUserProfile", value: trace.snapshotSummary.hasUserProfile ? "yes" : "no" },
-            ]),
+            ], traceI18n("trace.detail.dream_snapshot", "Dream Snapshot")),
           ],
         });
         const summary = "No file-based memory exists yet, so Dream had nothing to organize.";
         pushDreamStep(trace, {
           kind: "dream_finished",
           title: "Dream Finished",
+          titleI18n: traceI18n("trace.step.dream_finished", "Dream Finished"),
           status: "success",
           inputSummary: "Finished Dream without any indexed file-memory.",
+          inputSummaryI18n: traceI18n("trace.text.dream_finished.input.no_memory", "Finished Dream without any indexed file-memory."),
           outputSummary: summary,
+          outputSummaryI18n: traceI18n("trace.text.dream_finished.output.no_memory", summary),
         });
         finalizeDreamTrace(trace, "completed", {
           rewrittenProjects: 0,
@@ -678,6 +691,7 @@ export class DreamRewriteRunner {
           deletedFiles: 0,
           profileUpdated: false,
           summary,
+          summaryI18n: traceI18n("trace.text.dream_finished.output.no_memory", summary),
         });
         persistTrace();
         return {
@@ -705,9 +719,17 @@ export class DreamRewriteRunner {
       pushDreamStep(trace, {
         kind: "snapshot_loaded",
         title: "Snapshot Loaded",
+        titleI18n: traceI18n("trace.step.snapshot_loaded", "Snapshot Loaded"),
         status: "success",
         inputSummary: `Loaded ${before.length} current memory files for Dream.`,
+        inputSummaryI18n: traceI18n("trace.text.snapshot_loaded.input.loaded_files", "Loaded {0} current memory files for Dream.", before.length),
         outputSummary: `${snapshots.length} project memory files and ${formalMetas.length} formal projects are ready for Dream planning.`,
+        outputSummaryI18n: traceI18n(
+          "trace.text.snapshot_loaded.output.ready_for_planning",
+          "{0} project memory files and {1} formal projects are ready for Dream planning.",
+          snapshots.length,
+          formalMetas.length,
+        ),
         metrics: {
           totalFiles: before.length,
           projectFiles: snapshots.length,
@@ -721,7 +743,7 @@ export class DreamRewriteRunner {
             { label: "formalProjectFiles", value: trace.snapshotSummary.formalProjectFileCount },
             { label: "formalFeedbackFiles", value: trace.snapshotSummary.formalFeedbackFileCount },
             { label: "hasUserProfile", value: trace.snapshotSummary.hasUserProfile ? "yes" : "no" },
-          ]),
+          ], traceI18n("trace.detail.dream_snapshot", "Dream Snapshot")),
           jsonDetail(
             "records",
             "Project Memory Snapshot",
@@ -734,6 +756,7 @@ export class DreamRewriteRunner {
               description: snapshot.record.description,
               preview: mutationPreview(snapshot.record),
             })),
+            traceI18n("trace.detail.project_memory_snapshot", "Project Memory Snapshot"),
           ),
         ],
       });
@@ -761,9 +784,19 @@ export class DreamRewriteRunner {
       pushDreamStep(trace, {
         kind: "global_plan_generated",
         title: "Global Plan Generated",
+        titleI18n: traceI18n("trace.step.global_plan_generated", "Global Plan Generated"),
         status: "success",
         inputSummary: `Asked the model to audit ${snapshots.length} project memory files across ${formalMetas.length} formal projects.`,
+        inputSummaryI18n: traceI18n(
+          "trace.text.global_plan_generated.input",
+          "Asked the model to audit {0} project memory files across {1} formal projects.",
+          snapshots.length,
+          formalMetas.length,
+        ),
         outputSummary: plan.summary || "Dream generated a global reorganization plan.",
+        ...(!plan.summary
+          ? { outputSummaryI18n: traceI18n("trace.text.global_plan_generated.output.fallback", "Dream generated a global reorganization plan.") }
+          : {}),
         metrics: {
           duplicateTopicCount: plan.duplicateTopicCount,
           conflictTopicCount: plan.conflictTopicCount,
@@ -785,9 +818,10 @@ export class DreamRewriteRunner {
               evidenceEntryIds: project.evidenceEntryIds,
               retainedEntryIds: project.retainedEntryIds,
             })),
+            traceI18n("trace.detail.final_project_plan", "Final Project Plan"),
           ),
-          listDetail("deleted-projects", "Deleted Formal Projects", plan.deletedProjectIds),
-          listDetail("deleted-entries", "Deleted Memory Files", plan.deletedEntryIds),
+          listDetail("deleted-projects", "Deleted Formal Projects", plan.deletedProjectIds, traceI18n("trace.detail.deleted_formal_projects", "Deleted Formal Projects")),
+          listDetail("deleted-entries", "Deleted Memory Files", plan.deletedEntryIds, traceI18n("trace.detail.deleted_memory_files", "Deleted Memory Files")),
         ],
         ...(globalPlanDebug ? { promptDebug: globalPlanDebug } : {}),
       });
@@ -797,9 +831,18 @@ export class DreamRewriteRunner {
       pushDreamStep(trace, {
         kind: "global_plan_validated",
         title: "Global Plan Validated",
+        titleI18n: traceI18n("trace.step.global_plan_validated", "Global Plan Validated"),
         status: "success",
         inputSummary: "Validated the global Dream plan against current file-memory.",
+        inputSummaryI18n: traceI18n("trace.text.global_plan_validated.input", "Validated the global Dream plan against current file-memory."),
         outputSummary: `Validated ${plan.projects.length} final projects, ${plan.deletedProjectIds.length} deleted projects, and ${plan.deletedEntryIds.length} deleted files.`,
+        outputSummaryI18n: traceI18n(
+          "trace.text.global_plan_validated.output",
+          "Validated {0} final projects, {1} deleted projects, and {2} deleted files.",
+          plan.projects.length,
+          plan.deletedProjectIds.length,
+          plan.deletedEntryIds.length,
+        ),
       });
       persistTrace();
 
@@ -837,9 +880,25 @@ export class DreamRewriteRunner {
         pushDreamStep(trace, {
           kind: "project_rewrite_generated",
           title: `Project Rewrite · ${projectPlan.projectName}`,
+          titleI18n: traceI18n("trace.text.project_rewrite_generated.title", "Project Rewrite · {0}", projectPlan.projectName),
           status: "success",
           inputSummary: `Rewriting ${sourceSnapshots.length} retained files for ${projectPlan.projectName}.`,
+          inputSummaryI18n: traceI18n(
+            "trace.text.project_rewrite_generated.input",
+            "Rewriting {0} retained files for {1}.",
+            sourceSnapshots.length,
+            projectPlan.projectName,
+          ),
           outputSummary: rewrite.summary || `Prepared rewritten files for ${projectPlan.projectName}.`,
+          ...(!rewrite.summary
+            ? {
+                outputSummaryI18n: traceI18n(
+                  "trace.text.project_rewrite_generated.output.fallback",
+                  "Prepared rewritten files for {0}.",
+                  projectPlan.projectName,
+                ),
+              }
+            : {}),
           details: [
             kvDetail("meta", "Project Meta Before/After", [
               { label: "fromProjectId", value: currentMeta?.projectId || "new formal project" },
@@ -847,11 +906,12 @@ export class DreamRewriteRunner {
               { label: "toProjectId", value: projectId },
               { label: "toName", value: rewrite.projectMeta.projectName || projectPlan.projectName },
               { label: "toStatus", value: rewrite.projectMeta.status || projectPlan.status },
-            ]),
+            ], traceI18n("trace.detail.project_meta_before_after", "Project Meta Before/After")),
             listDetail(
               "retained",
               "Retained Source Files",
               sourceSnapshots.map((snapshot) => `${snapshot.record.relativePath} · ${snapshot.record.type}:${snapshot.record.name}`),
+              traceI18n("trace.detail.retained_source_files", "Retained Source Files"),
             ),
             jsonDetail(
               "rewritten-files",
@@ -862,8 +922,9 @@ export class DreamRewriteRunner {
                 description: file.description,
                 sourceEntryIds: file.sourceEntryIds,
               })),
+              traceI18n("trace.detail.rewritten_files", "Rewritten Files"),
             ),
-            listDetail("deleted", "Deleted Source Files", rewrite.deletedEntryIds),
+            listDetail("deleted", "Deleted Source Files", rewrite.deletedEntryIds, traceI18n("trace.detail.deleted_source_files", "Deleted Source Files")),
           ],
           ...(rewriteDebug ? { promptDebug: rewriteDebug } : {}),
         });
@@ -897,6 +958,9 @@ export class DreamRewriteRunner {
             execution.sourceSnapshots,
             deletedProjectIds,
           );
+          if (keptPaths.has(targetRelativePath)) {
+            throw new Error(`Dream project rewrite produced multiple rewritten files targeting the same path: ${targetRelativePath}`);
+          }
           keptPaths.add(targetRelativePath);
           execution.writtenRelativePaths.push(targetRelativePath);
           const nextRecord = store.writeCandidateToRelativePath(targetRelativePath, buildCandidateFromRewriteFile(execution.projectId, file));
@@ -930,11 +994,23 @@ export class DreamRewriteRunner {
         pushDreamStep(trace, {
           kind: "project_mutations_applied",
           title: `Project Mutations Applied · ${mergedMeta.projectName}`,
+          titleI18n: traceI18n("trace.text.project_mutations_applied.title", "Project Mutations Applied · {0}", mergedMeta.projectName),
           status: "success",
           inputSummary: `Applied Dream writes and deletions for ${mergedMeta.projectName}.`,
+          inputSummaryI18n: traceI18n(
+            "trace.text.project_mutations_applied.input",
+            "Applied Dream writes and deletions for {0}.",
+            mergedMeta.projectName,
+          ),
           outputSummary: `Wrote ${execution.writtenRelativePaths.length} files and marked ${execution.deletedRelativePaths.length} files for deletion.`,
+          outputSummaryI18n: traceI18n(
+            "trace.text.project_mutations_applied.output",
+            "Wrote {0} files and marked {1} files for deletion.",
+            execution.writtenRelativePaths.length,
+            execution.deletedRelativePaths.length,
+          ),
           details: [
-            listDetail("writes", "Written Files", execution.writtenRelativePaths),
+            listDetail("writes", "Written Files", execution.writtenRelativePaths, traceI18n("trace.detail.written_files", "Written Files")),
             jsonDetail(
               "deletes",
               "Deleted File Previews",
@@ -951,6 +1027,7 @@ export class DreamRewriteRunner {
                   };
                 })
                 .filter(Boolean),
+              traceI18n("trace.detail.deleted_file_previews", "Deleted File Previews"),
             ),
           ],
         });
@@ -1026,21 +1103,44 @@ export class DreamRewriteRunner {
       pushDreamStep(trace, {
         kind: "user_profile_rewritten",
         title: "User Profile Rewritten",
+        titleI18n: traceI18n("trace.step.user_profile_rewritten", "User Profile Rewritten"),
         status: userCandidate ? (userProfileRewritten ? "success" : "info") : "skipped",
         inputSummary: userCandidate
           ? "Reviewed the global user profile against current file-based user memory."
           : "No global user profile was available for Dream rewrite.",
+        ...(userCandidate
+          ? {
+              inputSummaryI18n: traceI18n(
+                "trace.text.dream_user_profile_rewritten.input.reviewed",
+                "Reviewed the global user profile against current file-based user memory.",
+              ),
+            }
+          : {
+              inputSummaryI18n: traceI18n(
+                "trace.text.dream_user_profile_rewritten.input.none",
+                "No global user profile was available for Dream rewrite.",
+              ),
+            }),
         outputSummary: userCandidate
           ? (userProfileRewritten ? "Rewrote the global user profile." : "Global user profile did not need a Dream rewrite.")
           : "Skipped user profile rewrite.",
+        ...(userCandidate
+          ? {
+              outputSummaryI18n: userProfileRewritten
+                ? traceI18n("trace.text.dream_user_profile_rewritten.output.rewritten", "Rewrote the global user profile.")
+                : traceI18n("trace.text.dream_user_profile_rewritten.output.unchanged", "Global user profile did not need a Dream rewrite."),
+            }
+          : {
+              outputSummaryI18n: traceI18n("trace.text.dream_user_profile_rewritten.output.skipped", "Skipped user profile rewrite."),
+            }),
         details: [
           jsonDetail("before", "User Profile Before", {
             profile: userSummary.profile,
             preferences: userSummary.preferences,
             constraints: userSummary.constraints,
             relationships: userSummary.relationships,
-          }),
-          jsonDetail("after", "User Profile After", store.getUserSummary()),
+          }, traceI18n("trace.detail.user_profile_before", "User Profile Before")),
+          jsonDetail("after", "User Profile After", store.getUserSummary(), traceI18n("trace.detail.user_profile_after", "User Profile After")),
         ],
         ...(userRewriteDebug ? { promptDebug: userRewriteDebug } : {}),
       });
@@ -1050,9 +1150,16 @@ export class DreamRewriteRunner {
       pushDreamStep(trace, {
         kind: "manifests_repaired",
         title: "Manifests Repaired",
+        titleI18n: traceI18n("trace.step.manifests_repaired", "Manifests Repaired"),
         status: "success",
         inputSummary: "Repaired manifests after Dream writes and deletions.",
+        inputSummaryI18n: traceI18n("trace.text.manifests_repaired.input", "Repaired manifests after Dream writes and deletions."),
         outputSummary: finalRepair.summary || repaired.summary,
+        outputSummaryI18n: traceI18n(
+          "trace.text.manifests_repaired.output",
+          "Rebuilt manifests for {0} memory files.",
+          finalRepair.memoryFileCount,
+        ),
       });
       persistTrace();
 
@@ -1071,9 +1178,20 @@ export class DreamRewriteRunner {
       pushDreamStep(trace, {
         kind: "dream_finished",
         title: "Dream Finished",
+        titleI18n: traceI18n("trace.step.dream_finished", "Dream Finished"),
         status: "success",
         inputSummary: "Completed Dream organization, rewriting, and cleanup.",
+        inputSummaryI18n: traceI18n("trace.text.dream_finished.input.completed", "Completed Dream organization, rewriting, and cleanup."),
         outputSummary: summary,
+        outputSummaryI18n: traceI18n(
+          "trace.text.dream_finished.output.completed_summary",
+          "Dream reviewed {0} memory files, rewrote {1} projects, deleted {2} projects, deleted {3} files, unresolved tmp={4}.",
+          before.length,
+          executionPlans.length,
+          deletedProjects,
+          deletedFiles.length,
+          unresolvedTmpCount,
+        ),
       });
 
       const outcome = {
@@ -1092,6 +1210,15 @@ export class DreamRewriteRunner {
         deletedFiles: deletedFiles.length,
         profileUpdated: outcome.profileUpdated,
         summary: outcome.summary,
+        summaryI18n: traceI18n(
+          "trace.text.dream_finished.output.completed_summary",
+          "Dream reviewed {0} memory files, rewrote {1} projects, deleted {2} projects, deleted {3} files, unresolved tmp={4}.",
+          before.length,
+          executionPlans.length,
+          deletedProjects,
+          deletedFiles.length,
+          unresolvedTmpCount,
+        ),
       });
       persistTrace();
       this.options.logger?.info?.(`[clawxmemory] ${summary}`);
@@ -1101,8 +1228,10 @@ export class DreamRewriteRunner {
       pushDreamStep(trace, {
         kind: "dream_finished",
         title: "Dream Finished",
+        titleI18n: traceI18n("trace.step.dream_finished", "Dream Finished"),
         status: "error",
         inputSummary: "Dream failed before it could finish all stages.",
+        inputSummaryI18n: traceI18n("trace.text.dream_finished.input.failed", "Dream failed before it could finish all stages."),
         outputSummary: message,
       });
       finalizeDreamTrace(trace, "error", {

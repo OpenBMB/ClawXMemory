@@ -1,3 +1,5 @@
+import { renderTraceI18nText } from "./trace-i18n.js";
+
 /* ── i18n ────────────────────────────────────────────────── */
 
 const LOCALES = {
@@ -198,11 +200,12 @@ const LOCALES = {
     "board.memoryTrace.filterManualSync": "手动同步",
     "board.memoryTrace.filterScheduled": "自动定时",
     "board.memoryTrace.query": "问题",
-    "board.memoryTrace.session": "Session",
+    "board.memoryTrace.session": "会话",
     "board.memoryTrace.mode": "模式",
     "board.memoryTrace.route": "召回路由",
     "board.memoryTrace.trigger": "触发来源",
     "board.memoryTrace.status": "状态",
+    "board.memoryTrace.kind": "步骤类型",
     "board.memoryTrace.injected": "注入",
     "board.memoryTrace.started": "开始",
     "board.memoryTrace.finished": "结束",
@@ -223,7 +226,9 @@ const LOCALES = {
     "board.memoryTrace.snapshotFormalFeedbackFiles": "正式反馈文件",
     "board.memoryTrace.snapshotHasUserProfile": "存在用户画像",
     "board.memoryTrace.storedResults": "最终写入",
-    "board.memoryTrace.focusTurns": "Focus User Turns",
+    "board.memoryTrace.focusTurns": "焦点用户轮次",
+    "board.memoryTrace.indexSelectorMeta": "{0} · {1} 段 · 已写入 {2} 项",
+    "board.memoryTrace.dreamSelectorMeta": "正式项目 {0} 个 · 重写 {1} 个 · 删除文件 {2} 个",
     "board.memoryTrace.noTrace": "该案例没有可展示的 recall trace。",
     "board.memoryTrace.noStep": "该步骤没有可展示的结构化细节。",
     "board.memoryTrace.noPromptDebug": "该步骤没有模型 Prompt 调试数据，通常表示它是本地代码判断步骤。",
@@ -231,8 +236,8 @@ const LOCALES = {
     "board.project.feedbackCount": "{0} 条反馈",
     "board.project.memoryCount": "{0} 条项目记忆",
     "board.memoryTrace.promptDebug": "完整 Prompt 调试",
-    "board.memoryTrace.systemPrompt": "System Prompt",
-    "board.memoryTrace.userPrompt": "User Prompt",
+    "board.memoryTrace.systemPrompt": "系统 Prompt",
+    "board.memoryTrace.userPrompt": "用户 Prompt",
     "board.memoryTrace.rawOutput": "模型原始输出",
     "board.memoryTrace.parsedResult": "解析结果",
     "meta.type": "Type",
@@ -281,27 +286,164 @@ const LOCALES = {
     "project.planned": "计划中",
     "project.in_progress": "进行中",
     "project.done": "已完成",
-    "trace.step.recall_start": "Recall Start",
-    "trace.step.memory_gate": "Memory Gate",
-    "trace.step.user_base_loaded": "User Base Loaded",
-    "trace.step.project_shortlist_built": "Project Shortlist Built",
-    "trace.step.project_selected": "Project Selected",
-    "trace.step.manifest_scanned": "Manifest Scanned",
-    "trace.step.manifest_selected": "Manifest Selected",
-    "trace.step.files_loaded": "Files Loaded",
-    "trace.step.context_rendered": "Context Rendered",
-    "trace.step.recall_skipped": "Recall Skipped",
-    "trace.step.cache_hit": "Cache Hit",
-    "trace.step.index_start": "Index Start",
-    "trace.step.batch_loaded": "Batch Loaded",
-    "trace.step.focus_turns_selected": "Focus Turns Selected",
-    "trace.step.turn_classified": "Turn Classified",
-    "trace.step.candidate_validated": "Candidate Validated",
-    "trace.step.candidate_grouped": "Candidate Grouped",
-    "trace.step.candidate_persisted": "Candidate Persisted",
-    "trace.step.user_profile_rewritten": "User Profile Rewritten",
-    "trace.step.index_finished": "Index Finished",
-    "trace.step.unknown": "Trace Step",
+    "trace.step.recall_start": "Recall 开始",
+    "trace.step.memory_gate": "记忆门控",
+    "trace.step.user_base_loaded": "用户基线已加载",
+    "trace.step.project_shortlist_built": "项目候选集已生成",
+    "trace.step.project_selected": "项目已选定",
+    "trace.step.manifest_scanned": "Manifest 已扫描",
+    "trace.step.manifest_selected": "Manifest 已选定",
+    "trace.step.files_loaded": "文件已加载",
+    "trace.step.context_rendered": "上下文已生成",
+    "trace.step.recall_skipped": "Recall 已跳过",
+    "trace.step.cache_hit": "命中缓存",
+    "trace.step.index_start": "Index 开始",
+    "trace.step.batch_loaded": "批次已加载",
+    "trace.step.focus_turns_selected": "焦点轮次已选定",
+    "trace.step.turn_classified": "轮次已分类",
+    "trace.step.candidate_validated": "候选已校验",
+    "trace.step.candidate_grouped": "候选已分组",
+    "trace.step.candidate_persisted": "候选已写入",
+    "trace.step.user_profile_rewritten": "用户画像已重写",
+    "trace.step.index_finished": "Index 已完成",
+    "trace.step.dream_start": "Dream 开始",
+    "trace.step.snapshot_loaded": "快照已加载",
+    "trace.step.global_plan_generated": "全局计划已生成",
+    "trace.step.global_plan_validated": "全局计划已校验",
+    "trace.step.project_rewrite_generated": "项目重写已生成",
+    "trace.step.project_mutations_applied": "项目变更已应用",
+    "trace.step.manifests_repaired": "Manifest 已修复",
+    "trace.step.dream_finished": "Dream 已结束",
+    "trace.step.unknown": "Trace 步骤",
+    "trace.detail.recall_inputs": "Recall 输入",
+    "trace.detail.recent_user_messages": "最近用户消息",
+    "trace.detail.route": "路由",
+    "trace.detail.user_profile": "用户画像",
+    "trace.detail.source_files": "来源文件",
+    "trace.detail.project_shortlist": "项目候选集",
+    "trace.detail.recent_user_texts": "最近用户文本",
+    "trace.detail.shortlist_candidates": "候选项目",
+    "trace.detail.project_selection": "项目选择",
+    "trace.detail.manifest_scan": "Manifest 扫描",
+    "trace.detail.sorted_candidates": "排序候选",
+    "trace.detail.manifest_candidate_ids": "Manifest 候选 ID",
+    "trace.detail.selected_file_ids": "已选文件 ID",
+    "trace.detail.selection_summary": "选择摘要",
+    "trace.detail.requested_ids": "请求的 ID",
+    "trace.detail.loaded_files": "已加载文件",
+    "trace.detail.truncated_files": "截断文件",
+    "trace.detail.missing_ids": "缺失的 ID",
+    "trace.detail.context_summary": "上下文摘要",
+    "trace.detail.injected_blocks": "注入区块",
+    "trace.detail.recall_query": "Recall 查询",
+    "trace.detail.skip_reason": "跳过原因",
+    "trace.detail.batch_summary": "批次摘要",
+    "trace.detail.batch_context": "批次上下文",
+    "trace.detail.focus_selection_summary": "焦点选择摘要",
+    "trace.detail.focus_turn": "焦点轮次 {0}",
+    "trace.detail.focus_user_turn": "焦点用户轮次",
+    "trace.detail.classification_result": "分类结果",
+    "trace.detail.classifier_candidates": "分类候选",
+    "trace.detail.discarded_reasons": "丢弃原因",
+    "trace.detail.raw_candidates": "原始候选",
+    "trace.detail.normalized_candidates": "归一化候选",
+    "trace.detail.discarded_candidates": "已丢弃候选",
+    "trace.detail.grouping_result": "分组结果",
+    "trace.detail.persisted_files": "已写入文件",
+    "trace.detail.index_error": "Index 错误",
+    "trace.detail.user_profile_result": "用户画像结果",
+    "trace.detail.user_rewrite_error": "用户重写错误",
+    "trace.detail.run_trigger": "运行触发",
+    "trace.detail.dream_snapshot": "Dream 快照",
+    "trace.detail.project_memory_snapshot": "项目记忆快照",
+    "trace.detail.final_project_plan": "最终项目计划",
+    "trace.detail.deleted_formal_projects": "删除的正式项目",
+    "trace.detail.deleted_memory_files": "删除的记忆文件",
+    "trace.detail.project_meta_before_after": "项目 Meta 前后对比",
+    "trace.detail.retained_source_files": "保留的源文件",
+    "trace.detail.rewritten_files": "重写后的文件",
+    "trace.detail.deleted_source_files": "删除的源文件",
+    "trace.detail.written_files": "写入的文件",
+    "trace.detail.deleted_file_previews": "删除文件预览",
+    "trace.detail.user_profile_before": "用户画像（之前）",
+    "trace.detail.user_profile_after": "用户画像（之后）",
+    "trace.detail.stored_results": "最终写入结果",
+    "trace.text.recall_start.output.runtime_inspected": "运行时在尝试检索前先检查了当前轮次。",
+    "trace.text.recall_skipped.output.memory_write_turn": "自动 Recall 未运行，因为这一轮是记忆写入请求。",
+    "trace.text.recall_skipped.output.reason": "自动 Recall 未运行，因为 {0}。",
+    "trace.text.recall_skipped.output.interrupted_by_new_turn": "出现了更新的用户轮次，这个 case 在完成前被中断。",
+    "trace.text.recall_skipped.title.interrupted": "Recall 已中断",
+    "trace.text.user_base_loaded.input.global_user_profile": "全局用户画像",
+    "trace.text.user_base_loaded.output.attached": "已附加精简版全局用户画像。",
+    "trace.text.user_base_loaded.output.missing": "当前还没有可用的精简版全局用户画像。",
+    "trace.text.project_shortlist_built.input": "共有 {0} 个正式项目",
+    "trace.text.project_shortlist_built.output": "已准备好 {0} 个候选项目。",
+    "trace.text.project_selected.input": "候选项目 {0} 个",
+    "trace.text.project_selected.output.none_selected": "这次查询没有选出正式项目。",
+    "trace.text.project_selected.output.not_required": "当前 recall 路由不需要项目选择。",
+    "trace.text.manifest_scanned.output.ready": "已准备好 {0} 条 recall header。",
+    "trace.text.manifest_scanned.output.with_limit": "已准备好 {0} 条 recall header（前 {1} / 共 {2}）。",
+    "trace.text.manifest_scanned.output.no_project_selected": "因为没有选出正式项目，项目 recall 被跳过了。",
+    "trace.text.manifest_scanned.output.not_required": "当前 recall 路由不需要项目 manifest。",
+    "trace.text.manifest_selected.input": "{0} 条条目",
+    "trace.text.manifest_selected.output": "已选出 {0} 个文件 ID。",
+    "trace.text.files_loaded.input": "请求了 {0} 个文件",
+    "trace.text.files_loaded.output": "已加载 {0} 个文件。",
+    "trace.text.context_rendered.input.with_user_base": "{0} 个文件 + 用户基线",
+    "trace.text.context_rendered.input.no_user_base": "{0} 个文件 + 无用户基线",
+    "trace.text.context_rendered.output.prepared": "记忆上下文已准备完成。",
+    "trace.text.context_rendered.no_memory_context": "没有注入任何记忆上下文。",
+    "trace.text.recall_skipped.query_does_not_need_memory": "这个查询不需要长期记忆。",
+    "trace.text.index_start.output.preparing_batch": "正在为 {0} 准备批次索引。",
+    "trace.text.batch_loaded.input": "{0} 段，从 {1} 到 {2}",
+    "trace.text.batch_loaded.output": "已把 {0} 条消息载入批次上下文。",
+    "trace.text.focus_turns_selected.input": "这一批共有 {0} 个用户轮次。",
+    "trace.text.focus_turns_selected.output.classifying": "这些用户轮次会逐条进入分类。",
+    "trace.text.focus_turns_selected.output.no_user_turns": "没有发现用户轮次；这一批会直接标记为已索引，不写入记忆。",
+    "trace.text.candidate_validated.input": "{0} 个归一化候选，丢弃了 {1} 个。",
+    "trace.text.candidate_validated.output.survived": "有 {0} 个候选通过了校验。",
+    "trace.text.candidate_validated.output.none_survived": "没有候选通过校验。",
+    "trace.text.candidate_grouped.input": "{0} 个已校验候选准备分组。",
+    "trace.text.candidate_grouped.output.grouped": "已为通过校验的候选确定存储分组。",
+    "trace.text.candidate_grouped.output.none": "没有可分组的已校验候选。",
+    "trace.text.candidate_persisted.input": "{0} 个文件候选准备写入。",
+    "trace.text.candidate_persisted.output.written": "已写入 {0} 个记忆文件。",
+    "trace.text.candidate_persisted.output.none_written": "这一轮没有写入任何项目或反馈文件。",
+    "trace.text.user_profile_rewritten.input": "合并了 {0} 个用户候选。",
+    "trace.text.user_profile_rewritten.output.stored": "用户画像已写入 {0}。",
+    "trace.text.index_error.title": "Index 错误",
+    "trace.text.dream_start.input": "{0} Dream 已开始。",
+    "trace.text.dream_start.output.preparing_snapshot": "正在准备当前已索引的文件记忆快照。",
+    "trace.text.snapshot_loaded.input.empty": "加载到的是空的文件记忆快照。",
+    "trace.text.snapshot_loaded.output.no_memory": "当前还没有已索引的文件记忆。",
+    "trace.text.dream_finished.input.no_memory": "Dream 在没有任何已索引文件记忆的情况下结束。",
+    "trace.text.dream_finished.output.no_memory": "当前还没有文件记忆，因此 Dream 没有可整理的内容。",
+    "trace.text.snapshot_loaded.input.loaded_files": "已为 Dream 加载 {0} 个当前记忆文件。",
+    "trace.text.snapshot_loaded.output.ready_for_planning": "{0} 个项目记忆文件和 {1} 个正式项目已准备好进入 Dream 规划。",
+    "trace.text.global_plan_generated.input": "已请求模型审查 {0} 个项目记忆文件，覆盖 {1} 个正式项目。",
+    "trace.text.global_plan_generated.output.fallback": "Dream 已生成全局重组计划。",
+    "trace.text.global_plan_validated.input": "已根据当前文件记忆校验 Dream 全局计划。",
+    "trace.text.global_plan_validated.output": "已校验 {0} 个最终项目、{1} 个待删项目和 {2} 个待删文件。",
+    "trace.text.project_rewrite_generated.title": "项目重写 · {0}",
+    "trace.text.project_rewrite_generated.input": "正在为 {1} 重写 {0} 个保留文件。",
+    "trace.text.project_rewrite_generated.output.fallback": "已为 {0} 准备好重写后的文件。",
+    "trace.text.project_mutations_applied.title": "项目变更已应用 · {0}",
+    "trace.text.project_mutations_applied.input": "已为 {0} 应用 Dream 的写入和删除。",
+    "trace.text.project_mutations_applied.output": "已写入 {0} 个文件，并标记 {1} 个文件待删除。",
+    "trace.text.dream_user_profile_rewritten.input.reviewed": "已根据当前文件式用户记忆检查全局用户画像。",
+    "trace.text.dream_user_profile_rewritten.input.none": "当前没有可供 Dream 重写的全局用户画像。",
+    "trace.text.dream_user_profile_rewritten.output.rewritten": "已重写全局用户画像。",
+    "trace.text.dream_user_profile_rewritten.output.unchanged": "全局用户画像不需要 Dream 重写。",
+    "trace.text.dream_user_profile_rewritten.output.skipped": "已跳过用户画像重写。",
+    "trace.text.manifests_repaired.input": "Dream 写入和删除后，已修复 manifests。",
+    "trace.text.manifests_repaired.output": "已为 {0} 个记忆文件重建 manifests。",
+    "trace.text.dream_finished.input.completed": "Dream 的整理、重写和清理流程已完成。",
+    "trace.text.dream_finished.output.completed_summary": "Dream 检查了 {0} 个记忆文件，重写了 {1} 个项目，删除了 {2} 个项目，删除了 {3} 个文件，未解决 tmp 还剩 {4} 个。",
+    "trace.text.dream_finished.input.failed": "Dream 在完成全部阶段前失败了。",
+    "trace.text.dream_finished.input.skipped_before_work": "Dream 在真正开始重写工作前就被跳过了。",
+    "trace.text.dream_finished.output.scheduled_already_running": "自动 Dream 已跳过，因为另一个 Dream 重建任务正在运行。",
+    "trace.text.dream_finished.output.manual_already_running": "手动 Dream 已跳过，因为另一个 Dream 重建任务正在运行。",
+    "trace.text.dream_finished.output.no_memory_updates_since_last_dream": "自动 Dream 已跳过：自上次 Dream 以来没有新的记忆文件更新。",
     "trigger.manual": "手动触发",
     "trigger.explicit_remember": "显式记住",
     "trigger.manual_sync": "手动同步",
@@ -510,6 +652,7 @@ const LOCALES = {
     "board.memoryTrace.route": "Route",
     "board.memoryTrace.trigger": "Trigger",
     "board.memoryTrace.status": "Status",
+    "board.memoryTrace.kind": "Kind",
     "board.memoryTrace.injected": "Injected",
     "board.memoryTrace.started": "Started",
     "board.memoryTrace.finished": "Finished",
@@ -531,6 +674,8 @@ const LOCALES = {
     "board.memoryTrace.snapshotHasUserProfile": "Has User Profile",
     "board.memoryTrace.storedResults": "Stored Results",
     "board.memoryTrace.focusTurns": "Focus User Turns",
+    "board.memoryTrace.indexSelectorMeta": "{0} · {1} seg · {2} stored",
+    "board.memoryTrace.dreamSelectorMeta": "{0} formal · {1} rewritten · {2} files deleted",
     "board.memoryTrace.noTrace": "This case does not contain a retrieval trace.",
     "board.memoryTrace.noStep": "This step does not contain structured details.",
     "board.memoryTrace.noPromptDebug": "This step has no model prompt debug data, usually because it is a local code decision.",
@@ -608,6 +753,15 @@ const LOCALES = {
     "trace.step.candidate_persisted": "Candidate Persisted",
     "trace.step.user_profile_rewritten": "User Profile Rewritten",
     "trace.step.index_finished": "Index Finished",
+    "trace.step.dream_start": "Dream Start",
+    "trace.step.snapshot_loaded": "Snapshot Loaded",
+    "trace.step.global_plan_generated": "Global Plan Generated",
+    "trace.step.global_plan_validated": "Global Plan Validated",
+    "trace.step.project_rewrite_generated": "Project Rewrite Generated",
+    "trace.step.project_mutations_applied": "Project Mutations Applied",
+    "trace.step.manifests_repaired": "Manifests Repaired",
+    "trace.step.dream_finished": "Dream Finished",
+    "trace.text.manifests_repaired.output": "Rebuilt manifests for {0} memory files.",
     "trace.step.unknown": "Trace Step",
     "trigger.manual": "Manual",
     "trigger.explicit_remember": "Explicit Remember",
@@ -779,6 +933,24 @@ function safeArray(value) {
 
 function normalizeText(value) {
   return String(value || "").trim();
+}
+
+function renderTraceText(rawValue, descriptor) {
+  const rendered = renderTraceI18nText(rawValue, descriptor, state.locale, LOCALES);
+  return normalizeText(rendered) || normalizeText(rawValue);
+}
+
+function renderTraceLabel(detail) {
+  return renderTraceText(detail?.label, detail?.labelI18n);
+}
+
+function renderTraceSummary(rawValue, descriptor, fallback = t("common.none")) {
+  return renderTraceText(rawValue, descriptor) || fallback;
+}
+
+function formatTraceRawValue(value) {
+  const normalized = normalizeText(value);
+  return normalized || t("common.none");
 }
 
 function escapeQueryValue(value) {
@@ -2632,11 +2804,11 @@ function getSelectedDreamTrace() {
 }
 
 function formatIndexTrigger(trigger) {
-  return t(`trigger.${trigger || "manual_sync"}`);
+  return formatTraceRawValue(trigger);
 }
 
 function formatDreamTrigger(trigger) {
-  return t(`trigger.${trigger || "manual"}`);
+  return formatTraceRawValue(trigger);
 }
 
 function renderTraceModeControls(container) {
@@ -2707,7 +2879,7 @@ function renderIndexTriggerFilters(container) {
 
 function createTraceDetailBlock(detail) {
   const block = el("div", `memory-trace-detail-block${detail.kind === "note" ? " is-note" : ""}`);
-  block.append(el("div", "memory-trace-debug-title", detail.label));
+  block.append(el("div", "memory-trace-debug-title", renderTraceLabel(detail)));
 
   if (detail.kind === "text" || detail.kind === "note") {
     block.append(el("pre", "memory-trace-code", decodeEscapedTraceText(detail.text || t("common.none"))));
@@ -2793,6 +2965,8 @@ function createTraceSummaryCard(title, bodyText, klass = "") {
 }
 
 function traceStepLabel(step) {
+  const localizedTitle = renderTraceText(step?.title, step?.titleI18n);
+  if (localizedTitle && localizedTitle !== step?.kind) return localizedTitle;
   const explicitTitle = normalizeText(step?.title);
   if (explicitTitle && explicitTitle !== step?.kind) return explicitTitle;
   const key = `trace.step.${step?.kind || "unknown"}`;
@@ -2857,9 +3031,9 @@ function renderRecallTrace(host) {
   metaGrid.append(
     createTraceMetaChip(t("board.memoryTrace.query"), selected.query || t("common.none")),
     createTraceMetaChip(t("board.memoryTrace.session"), selected.sessionKey || t("common.none")),
-    createTraceMetaChip(t("board.memoryTrace.mode"), trace.mode || t("common.none")),
-    createTraceMetaChip(t("board.memoryTrace.route"), formatRecallRoute(retrieval.intent)),
-    createTraceMetaChip(t("board.memoryTrace.status"), selected.status || t("common.none")),
+    createTraceMetaChip(t("board.memoryTrace.mode"), formatTraceRawValue(trace.mode)),
+    createTraceMetaChip(t("board.memoryTrace.route"), formatTraceRawValue(retrieval.intent)),
+    createTraceMetaChip(t("board.memoryTrace.status"), formatTraceRawValue(selected.status)),
     createTraceMetaChip(t("board.memoryTrace.injected"), retrieval.injected ? t("common.yes") : t("common.no")),
     createTraceMetaChip(t("board.memoryTrace.started"), formatDateTime(selected.startedAt)),
     createTraceMetaChip(t("board.memoryTrace.finished"), formatDateTime(selected.finishedAt)),
@@ -2871,7 +3045,7 @@ function renderRecallTrace(host) {
     createTraceSummaryCard(t("board.memoryTrace.context"), retrieval.contextPreview || t("common.none"), "memory-trace-summary-card--artifact"),
     createTraceSummaryCard(
       t("board.memoryTrace.tools"),
-      safeArray(selected.toolEvents).map((event) => `${event.toolName} · ${event.summary}`).join("\n") || t("common.none"),
+      safeArray(selected.toolEvents).map((event) => `${event.toolName} · ${renderTraceSummary(event.summary, event.summaryI18n)}`).join("\n") || t("common.none"),
       "memory-trace-summary-card--artifact",
     ),
     createTraceSummaryCard(t("board.memoryTrace.answer"), selected.assistantReply || t("common.none"), "memory-trace-summary-card--artifact"),
@@ -2913,8 +3087,8 @@ function renderRecallTrace(host) {
     head.append(el("strong", "", traceStepLabel(step)));
     head.append(el("span", "memory-trace-kind-badge", step.kind));
     summary.append(head);
-    summary.append(el("div", "memory-trace-step-line", decodeEscapedTraceText(step.inputSummary || t("common.none"))));
-    summary.append(el("div", "memory-trace-step-line is-output", decodeEscapedTraceText(step.outputSummary || t("common.none"))));
+    summary.append(el("div", "memory-trace-step-line", decodeEscapedTraceText(renderTraceSummary(step.inputSummary, step.inputSummaryI18n))));
+    summary.append(el("div", "memory-trace-step-line is-output", decodeEscapedTraceText(renderTraceSummary(step.outputSummary, step.outputSummaryI18n))));
     toggle.append(summary);
     toggle.append(el("span", "memory-trace-step-chevron", isActive ? "▴" : "▾"));
     item.append(toggle);
@@ -2923,8 +3097,8 @@ function renderRecallTrace(host) {
       const expanded = el("div", "memory-trace-step-expanded");
       const meta = el("div", "memory-trace-expanded-meta");
       meta.append(
-        createTraceMetaChip("status", step.status || t("common.none")),
-        createTraceMetaChip("kind", step.kind || t("common.none")),
+        createTraceMetaChip(t("board.memoryTrace.status"), formatTraceRawValue(step.status)),
+        createTraceMetaChip(t("board.memoryTrace.kind"), formatTraceRawValue(step.kind)),
       );
       expanded.append(meta);
       renderTraceStepExpandedContent(expanded, step);
@@ -2960,7 +3134,7 @@ function renderIndexTrace(host) {
   const selector = el("div", "memory-trace-selector");
   const trigger = el("button", "memory-trace-selector-trigger");
   trigger.type = "button";
-  trigger.append(el("span", "memory-trace-selector-title", `${formatIndexTrigger(selected.trigger)} · ${selected.sessionKey}`));
+  trigger.append(el("span", "memory-trace-selector-title", `${formatTraceRawValue(selected.trigger)} · ${selected.sessionKey}`));
   trigger.append(el("span", "memory-trace-selector-chevron", state.traceSelectorOpen ? "▴" : "▾"));
   trigger.addEventListener("click", () => {
     state.traceSelectorOpen = !state.traceSelectorOpen;
@@ -2973,11 +3147,11 @@ function renderIndexTrace(host) {
     traces.forEach((item) => {
       const option = el("button", `memory-trace-selector-option${item.indexTraceId === selected.indexTraceId ? " active" : ""}`);
       option.type = "button";
-      option.append(el("div", "memory-trace-selector-option-title", `${formatIndexTrigger(item.trigger)} · ${item.sessionKey}`));
+      option.append(el("div", "memory-trace-selector-option-title", `${formatTraceRawValue(item.trigger)} · ${item.sessionKey}`));
       option.append(el(
         "div",
         "memory-trace-selector-option-meta",
-        `${formatDateTime(item.startedAt)} · ${item.batchSummary?.segmentCount || 0} seg · ${safeArray(item.storedResults).length} stored`,
+        t("board.memoryTrace.indexSelectorMeta", formatDateTime(item.startedAt), item.batchSummary?.segmentCount || 0, safeArray(item.storedResults).length),
       ));
       option.addEventListener("click", async () => {
         state.selectedIndexTraceId = item.indexTraceId;
@@ -2995,9 +3169,9 @@ function renderIndexTrace(host) {
 
   const metaGrid = el("div", "memory-trace-meta-grid");
   metaGrid.append(
-    createTraceMetaChip(t("board.memoryTrace.trigger"), formatIndexTrigger(selected.trigger)),
+    createTraceMetaChip(t("board.memoryTrace.trigger"), formatTraceRawValue(selected.trigger)),
     createTraceMetaChip(t("board.memoryTrace.session"), selected.sessionKey || t("common.none")),
-    createTraceMetaChip(t("board.memoryTrace.status"), selected.status || t("common.none")),
+    createTraceMetaChip(t("board.memoryTrace.status"), formatTraceRawValue(selected.status)),
     createTraceMetaChip(t("board.memoryTrace.started"), formatDateTime(selected.startedAt)),
     createTraceMetaChip(t("board.memoryTrace.finished"), formatDateTime(selected.finishedAt)),
     createTraceMetaChip(t("board.memoryTrace.focusTurns"), String(selected.batchSummary?.focusUserTurnCount || 0)),
@@ -3054,8 +3228,8 @@ function renderIndexTrace(host) {
     head.append(el("strong", "", traceStepLabel(step)));
     head.append(el("span", "memory-trace-kind-badge", step.kind));
     summary.append(head);
-    summary.append(el("div", "memory-trace-step-line", step.inputSummary || t("common.none")));
-    summary.append(el("div", "memory-trace-step-line is-output", step.outputSummary || t("common.none")));
+    summary.append(el("div", "memory-trace-step-line", renderTraceSummary(step.inputSummary, step.inputSummaryI18n)));
+    summary.append(el("div", "memory-trace-step-line is-output", renderTraceSummary(step.outputSummary, step.outputSummaryI18n)));
     toggle.append(summary);
     toggle.append(el("span", "memory-trace-step-chevron", isActive ? "▴" : "▾"));
     item.append(toggle);
@@ -3064,8 +3238,8 @@ function renderIndexTrace(host) {
       const expanded = el("div", "memory-trace-step-expanded");
       const meta = el("div", "memory-trace-expanded-meta");
       meta.append(
-        createTraceMetaChip("status", step.status || t("common.none")),
-        createTraceMetaChip("kind", step.kind || t("common.none")),
+        createTraceMetaChip(t("board.memoryTrace.status"), formatTraceRawValue(step.status)),
+        createTraceMetaChip(t("board.memoryTrace.kind"), formatTraceRawValue(step.kind)),
       );
       expanded.append(meta);
       renderTraceStepExpandedContent(expanded, step);
@@ -3101,7 +3275,7 @@ function renderDreamTrace(host) {
   const selector = el("div", "memory-trace-selector");
   const trigger = el("button", "memory-trace-selector-trigger");
   trigger.type = "button";
-  trigger.append(el("span", "memory-trace-selector-title", `${formatDreamTrigger(selected.trigger)} · ${formatDateTime(selected.startedAt)}`));
+  trigger.append(el("span", "memory-trace-selector-title", `${formatTraceRawValue(selected.trigger)} · ${formatDateTime(selected.startedAt)}`));
   trigger.append(el("span", "memory-trace-selector-chevron", state.traceSelectorOpen ? "▴" : "▾"));
   trigger.addEventListener("click", () => {
     state.traceSelectorOpen = !state.traceSelectorOpen;
@@ -3114,11 +3288,16 @@ function renderDreamTrace(host) {
     traces.forEach((item) => {
       const option = el("button", `memory-trace-selector-option${item.dreamTraceId === selected.dreamTraceId ? " active" : ""}`);
       option.type = "button";
-      option.append(el("div", "memory-trace-selector-option-title", `${formatDreamTrigger(item.trigger)} · ${formatDateTime(item.startedAt)}`));
+      option.append(el("div", "memory-trace-selector-option-title", `${formatTraceRawValue(item.trigger)} · ${formatDateTime(item.startedAt)}`));
       option.append(el(
         "div",
         "memory-trace-selector-option-meta",
-        `${item.snapshotSummary?.formalProjectCount || 0} formal · ${item.outcome?.rewrittenProjects || 0} rewritten · ${item.outcome?.deletedFiles || 0} deleted`,
+        t(
+          "board.memoryTrace.dreamSelectorMeta",
+          item.snapshotSummary?.formalProjectCount || 0,
+          item.outcome?.rewrittenProjects || 0,
+          item.outcome?.deletedFiles || 0,
+        ),
       ));
       option.addEventListener("click", async () => {
         state.selectedDreamTraceId = item.dreamTraceId;
@@ -3136,8 +3315,8 @@ function renderDreamTrace(host) {
 
   const metaGrid = el("div", "memory-trace-meta-grid");
   metaGrid.append(
-    createTraceMetaChip(t("board.memoryTrace.trigger"), formatDreamTrigger(selected.trigger)),
-    createTraceMetaChip(t("board.memoryTrace.status"), selected.status || t("common.none")),
+    createTraceMetaChip(t("board.memoryTrace.trigger"), formatTraceRawValue(selected.trigger)),
+    createTraceMetaChip(t("board.memoryTrace.status"), formatTraceRawValue(selected.status)),
     createTraceMetaChip(t("board.memoryTrace.started"), formatDateTime(selected.startedAt)),
     createTraceMetaChip(t("board.memoryTrace.finished"), formatDateTime(selected.finishedAt)),
     createTraceMetaChip(t("board.memoryTrace.rewrittenProjects"), String(selected.outcome?.rewrittenProjects || 0)),
@@ -3167,7 +3346,7 @@ function renderDreamTrace(host) {
     ),
     createTraceSummaryCard(
       t("overview.lastDreamSummary"),
-      selected.outcome?.summary || t("common.none"),
+      renderTraceSummary(selected.outcome?.summary, selected.outcome?.summaryI18n),
       "memory-trace-summary-card--artifact",
     ),
   );
@@ -3208,8 +3387,8 @@ function renderDreamTrace(host) {
     head.append(el("strong", "", traceStepLabel(step)));
     head.append(el("span", "memory-trace-kind-badge", step.kind));
     summary.append(head);
-    summary.append(el("div", "memory-trace-step-line", decodeEscapedTraceText(step.inputSummary || t("common.none"))));
-    summary.append(el("div", "memory-trace-step-line is-output", decodeEscapedTraceText(step.outputSummary || t("common.none"))));
+    summary.append(el("div", "memory-trace-step-line", decodeEscapedTraceText(renderTraceSummary(step.inputSummary, step.inputSummaryI18n))));
+    summary.append(el("div", "memory-trace-step-line is-output", decodeEscapedTraceText(renderTraceSummary(step.outputSummary, step.outputSummaryI18n))));
     toggle.append(summary);
     toggle.append(el("span", "memory-trace-step-chevron", isActive ? "▴" : "▾"));
     item.append(toggle);
@@ -3218,8 +3397,8 @@ function renderDreamTrace(host) {
       const expanded = el("div", "memory-trace-step-expanded");
       const meta = el("div", "memory-trace-expanded-meta");
       meta.append(
-        createTraceMetaChip("status", step.status || t("common.none")),
-        createTraceMetaChip("kind", step.kind || t("common.none")),
+        createTraceMetaChip(t("board.memoryTrace.status"), formatTraceRawValue(step.status)),
+        createTraceMetaChip(t("board.memoryTrace.kind"), formatTraceRawValue(step.kind)),
       );
       expanded.append(meta);
       renderTraceStepExpandedContent(expanded, step);

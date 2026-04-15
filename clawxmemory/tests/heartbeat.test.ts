@@ -127,13 +127,23 @@ describe("HeartbeatIndexer batch indexing", () => {
       "index_finished",
     ]);
     const batchLoaded = indexTraces[0]?.steps.find((step) => step.kind === "batch_loaded");
+    expect(batchLoaded?.titleI18n).toMatchObject({ key: "trace.step.batch_loaded" });
     expect(batchLoaded?.details).toEqual(expect.arrayContaining([
-      expect.objectContaining({ label: "Batch Summary" }),
-      expect.objectContaining({ label: "Batch Context" }),
+      expect.objectContaining({
+        label: "Batch Summary",
+        labelI18n: expect.objectContaining({ key: "trace.detail.batch_summary" }),
+      }),
+      expect.objectContaining({
+        label: "Batch Context",
+        labelI18n: expect.objectContaining({ key: "trace.detail.batch_context" }),
+      }),
     ]));
     const persistedStep = indexTraces[0]?.steps.find((step) => step.kind === "candidate_persisted");
     expect(persistedStep?.details).toEqual(expect.arrayContaining([
-      expect.objectContaining({ label: "Persisted Files" }),
+      expect.objectContaining({
+        label: "Persisted Files",
+        labelI18n: expect.objectContaining({ key: "trace.detail.persisted_files" }),
+      }),
     ]));
     expect(indexTraces[0]?.storedResults.map((result) => result.relativePath).sort()).toEqual(
       tmpEntries.map((entry) => entry.relativePath).sort(),
@@ -192,6 +202,70 @@ describe("HeartbeatIndexer batch indexing", () => {
     const tmpEntries = store.listTmpEntries(10);
     expect(tmpEntries).toHaveLength(1);
     expect(tmpEntries[0]?.name).toBe("Boreal");
+    repository.close();
+  });
+
+  it("reuses one tmp project file when same-session candidates only differ by trailing quotes", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "clawxmemory-heartbeat-"));
+    cleanupPaths.push(dir);
+    const repository = new MemoryRepository(join(dir, "memory.sqlite"), {
+      memoryDir: join(dir, "memory"),
+    });
+
+    repository.insertL0Session({
+      l0IndexId: "l0-quoted-1",
+      sessionKey: "agent:main:quoted#window:1",
+      timestamp: "2026-04-10T07:05:00.000Z",
+      source: "openclaw",
+      indexed: false,
+      messages: [
+        { role: "user", content: "这个项目先叫 “Boreal”。" },
+        { role: "assistant", content: "好，我先按 Boreal 记。" },
+        { role: "user", content: "Boreal 还是那个本地知识库整理工具，现在补充一下下一步。" },
+        { role: "assistant", content: "收到，我补充进去。" },
+      ],
+    });
+
+    const indexer = new HeartbeatIndexer(
+      repository,
+      {
+        extractFileMemoryCandidates: vi.fn(async (input: { timestamp: string; messages: MemoryMessage[] }) => {
+          const userText = input.messages[0]?.content ?? "";
+          if (userText.includes("先叫")) {
+            return [{
+              type: "project",
+              scope: "project",
+              name: "Boreal”",
+              description: "本地知识库整理工具",
+              capturedAt: input.timestamp,
+              sourceSessionKey: "agent:main:quoted#window:1",
+              stage: "初始定义",
+            }];
+          }
+          return [{
+            type: "project",
+            scope: "project",
+            name: "Boreal",
+            description: "本地知识库整理工具",
+            capturedAt: input.timestamp,
+            sourceSessionKey: "agent:main:quoted#window:1",
+            stage: "已经补充到下一步",
+            nextSteps: ["整理目录结构"],
+          }];
+        }),
+        rewriteUserProfile: vi.fn().mockResolvedValue(null),
+      } as never,
+      { settings: DEFAULT_SETTINGS },
+    );
+
+    await indexer.runHeartbeat({ reason: "manual" });
+
+    const store = repository.getFileMemoryStore();
+    const tmpEntries = store.listTmpEntries(10);
+    expect(tmpEntries).toHaveLength(1);
+    expect(tmpEntries[0]?.name).toBe("Boreal");
+    const record = tmpEntries[0] ? store.getMemoryRecord(tmpEntries[0].relativePath, 5000) : undefined;
+    expect(record?.content).toContain("整理目录结构");
     repository.close();
   });
 

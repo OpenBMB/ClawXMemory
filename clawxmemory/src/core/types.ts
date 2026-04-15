@@ -294,31 +294,41 @@ export interface RetrievalTraceKvEntry {
   value: string;
 }
 
+export interface TraceI18nText {
+  key: string;
+  args?: string[];
+  fallback: string;
+}
+
+interface RetrievalTraceDetailBase {
+  key: string;
+  label: string;
+  labelI18n?: TraceI18nText;
+}
+
 export type RetrievalTraceDetail =
-  | {
-      key: string;
-      label: string;
+  | (RetrievalTraceDetailBase & {
       kind: "text" | "note";
       text: string;
-    }
-  | {
-      key: string;
-      label: string;
+    })
+  | (RetrievalTraceDetailBase & {
       kind: "list";
       items: string[];
-    }
-  | {
-      key: string;
-      label: string;
+    })
+  | (RetrievalTraceDetailBase & {
       kind: "kv";
       entries: RetrievalTraceKvEntry[];
-    }
-  | {
-      key: string;
-      label: string;
+    })
+  | (RetrievalTraceDetailBase & {
       kind: "json";
       json: unknown;
-    };
+    });
+
+interface TraceStepI18nFields {
+  titleI18n?: TraceI18nText;
+  inputSummaryI18n?: TraceI18nText;
+  outputSummaryI18n?: TraceI18nText;
+}
 
 export interface RetrievalPromptDebug {
   requestLabel: string;
@@ -368,7 +378,7 @@ export type IndexTraceStepKind =
   | "user_profile_rewritten"
   | "index_finished";
 
-export interface IndexTraceStep {
+export interface IndexTraceStep extends TraceStepI18nFields {
   stepId: string;
   kind: IndexTraceStepKind;
   title: string;
@@ -429,7 +439,7 @@ export type DreamTraceStepKind =
   | "manifests_repaired"
   | "dream_finished";
 
-export interface DreamTraceStep {
+export interface DreamTraceStep extends TraceStepI18nFields {
   stepId: string;
   kind: DreamTraceStepKind;
   title: string;
@@ -448,6 +458,7 @@ export interface DreamTraceOutcome {
   deletedFiles: number;
   profileUpdated: boolean;
   summary: string;
+  summaryI18n?: TraceI18nText;
 }
 
 export interface DreamTraceRecord {
@@ -477,7 +488,7 @@ export type RetrievalTraceStepKind =
   | "fallback_applied"
   | "recall_skipped";
 
-export interface RetrievalTraceStep {
+export interface RetrievalTraceStep extends TraceStepI18nFields {
   stepId: string;
   kind: RetrievalTraceStepKind;
   title: string;
@@ -507,6 +518,7 @@ export interface CaseToolEvent {
   occurredAt: string;
   status: "running" | "success" | "error";
   summary: string;
+  summaryI18n?: TraceI18nText;
   paramsPreview?: string;
   resultPreview?: string;
   durationMs?: number;

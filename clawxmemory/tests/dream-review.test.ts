@@ -56,6 +56,8 @@ describe("DreamRewriteRunner", () => {
     const traces = repository.listRecentDreamTraces(5);
     expect(traces).toHaveLength(1);
     expect(traces[0]?.status).toBe("completed");
+    expect(traces[0]?.steps[0]?.titleI18n).toMatchObject({ key: "trace.step.dream_start" });
+    expect(traces[0]?.outcome.summaryI18n).toMatchObject({ key: "trace.text.dream_finished.output.no_memory" });
     expect(traces[0]?.steps.map((step) => step.kind)).toEqual([
       "dream_start",
       "snapshot_loaded",
@@ -155,7 +157,141 @@ describe("DreamRewriteRunner", () => {
     expect(traces[0]?.steps.some((step) => step.kind === "global_plan_generated")).toBe(true);
     expect(traces[0]?.steps.some((step) => step.kind === "project_rewrite_generated")).toBe(true);
     expect(traces[0]?.steps.some((step) => step.kind === "project_mutations_applied")).toBe(true);
+    expect(traces[0]?.steps.find((step) => step.kind === "project_rewrite_generated")?.titleI18n)
+      .toMatchObject({ key: "trace.text.project_rewrite_generated.title" });
+    expect(traces[0]?.steps.find((step) => step.kind === "manifests_repaired")?.outputSummaryI18n)
+      .toMatchObject({ key: "trace.text.manifests_repaired.output" });
     expect(traces[0]?.mutations.some((mutation) => mutation.action === "write")).toBe(true);
+    repository.close();
+  });
+
+  it("merges legacy duplicate tmp project files before asking Dream for a plan", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "clawxmemory-dream-"));
+    cleanupPaths.push(dir);
+    const repository = new MemoryRepository(join(dir, "memory.sqlite"), {
+      memoryDir: join(dir, "memory"),
+    });
+    const store = repository.getFileMemoryStore();
+
+    store.writeCandidateToRelativePath("projects/_tmp/Project/boreal-a.md", {
+      type: "project",
+      scope: "project",
+      projectId: "_tmp",
+      name: "Boreal”",
+      description: "本地知识库整理工具",
+      capturedAt: "2026-04-11T09:00:00.000Z",
+      sourceSessionKey: "seed-quoted",
+      stage: "初始定义",
+    });
+    store.writeCandidateToRelativePath("projects/_tmp/Project/boreal-b.md", {
+      type: "project",
+      scope: "project",
+      projectId: "_tmp",
+      name: "Boreal",
+      description: "本地知识库整理工具",
+      capturedAt: "2026-04-11T09:00:00.000Z",
+      sourceSessionKey: "seed-quoted",
+      stage: "补充了下一步",
+      nextSteps: ["整理目录结构"],
+    });
+
+    let observedProjectRecordCount = 0;
+    const runner = new DreamRewriteRunner(repository, createDreamExtractor({
+      planDreamFileMemory: async (input: { records: Array<{ type: string; entryId: string }> }) => {
+        observedProjectRecordCount = input.records.filter((record) => record.type === "project").length;
+        return {
+          summary: "noop",
+          duplicateTopicCount: 0,
+          conflictTopicCount: 0,
+          projects: [],
+          deletedProjectIds: [],
+          deletedEntryIds: [],
+        };
+      },
+    }));
+
+    await runner.run();
+
+    expect(observedProjectRecordCount).toBe(1);
+    const tmpEntries = store.listTmpEntries(20).filter((entry) => entry.type === "project");
+    expect(tmpEntries).toHaveLength(1);
+    expect(tmpEntries[0]?.name).toBe("Boreal");
+    repository.close();
+  });
+
+  it("allows one source file to support multiple rewritten outputs when target paths stay distinct", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "clawxmemory-dream-"));
+    cleanupPaths.push(dir);
+    const repository = new MemoryRepository(join(dir, "memory.sqlite"), {
+      memoryDir: join(dir, "memory"),
+    });
+    const store = repository.getFileMemoryStore();
+
+    const tmpProject = store.upsertCandidate({
+      type: "project",
+      scope: "project",
+      name: "Boreal",
+      description: "本地知识库整理工具。",
+      stage: "目前只有一份粗项目记忆。",
+      decisions: ["后续需要拆成项目状态和协作规则"],
+    });
+
+    const runner = new DreamRewriteRunner(repository, createDreamExtractor({
+      planDreamFileMemory: async () => ({
+        summary: "Promote one tmp project into a formal project.",
+        duplicateTopicCount: 0,
+        conflictTopicCount: 0,
+        projects: [{
+          planKey: "boreal",
+          projectName: "Boreal",
+          description: "本地知识库整理工具。",
+          aliases: ["Boreal"],
+          status: "active",
+          evidenceEntryIds: [tmpProject.relativePath],
+          retainedEntryIds: [tmpProject.relativePath],
+        }],
+        deletedProjectIds: [],
+        deletedEntryIds: [],
+      }),
+      rewriteDreamFileProject: async () => ({
+        summary: "Split one source project note into project state plus collaboration rule.",
+        projectMeta: {
+          projectName: "Boreal",
+          description: "本地知识库整理工具。",
+          aliases: ["Boreal"],
+          status: "active",
+        },
+        files: [
+          {
+            type: "project",
+            name: "current-stage",
+            description: "当前项目状态",
+            sourceEntryIds: [tmpProject.relativePath],
+            stage: "已经拆出稳定的项目状态文件。",
+          },
+          {
+            type: "feedback",
+            name: "collaboration-rule",
+            description: "协作交付规则",
+            sourceEntryIds: [tmpProject.relativePath],
+            rule: "汇报时先说完成了什么，再说风险。",
+            howToApply: "每次汇报项目前都应用。",
+          },
+        ],
+        deletedEntryIds: [],
+      }),
+    }));
+
+    const result = await runner.run();
+
+    expect(result.rewrittenProjects).toBe(1);
+    const projectId = store.listProjectIds().find((item) => item !== "_tmp");
+    expect(projectId).toBeTruthy();
+    const entries = store.listMemoryEntries({ scope: "project", projectId: projectId!, limit: 20 });
+    expect(entries.map((entry) => entry.relativePath).sort()).toEqual([
+      `projects/${projectId}/Feedback/collaboration-rule.md`,
+      `projects/${projectId}/Project/current-stage.md`,
+    ]);
     repository.close();
   });
 

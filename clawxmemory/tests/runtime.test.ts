@@ -546,6 +546,12 @@ describe("MemoryPluginRuntime", () => {
       "manifest_selected",
     ]);
     expect((records[0]?.toolEvents as Array<Record<string, unknown>>)?.map((event) => event.phase)).toEqual(["start", "result"]);
+    expect((records[0]?.toolEvents as Array<Record<string, unknown>>)?.[0]?.summaryI18n).toMatchObject({
+      key: "trace.tool.summary.started",
+    });
+    expect((records[0]?.toolEvents as Array<Record<string, unknown>>)?.[1]?.summaryI18n).toMatchObject({
+      key: "trace.tool.summary.completed",
+    });
 
     runtime.stop();
   });

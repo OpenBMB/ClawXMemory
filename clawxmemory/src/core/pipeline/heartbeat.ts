@@ -9,10 +9,12 @@ import type {
   MemoryMessage,
   MemoryRecordType,
   RetrievalPromptDebug,
+  TraceI18nText,
 } from "../types.js";
 import { LlmMemoryExtractor, type FileMemoryExtractionDebug } from "../skills/llm-extraction.js";
 import { MemoryRepository } from "../storage/sqlite.js";
 import { TMP_PROJECT_ID } from "../file-memory.js";
+import { traceI18n } from "../trace-i18n.js";
 import { buildL0IndexId, hashText, nowIso } from "../utils/id.js";
 import { decodeEscapedUnicodeText, decodeEscapedUnicodeValue } from "../utils/text.js";
 import { hasExplicitRememberIntent } from "../../message-utils.js";
@@ -184,6 +186,84 @@ function inferGroupingLabel(
   };
 }
 
+function textDetail(
+  key: string,
+  label: string,
+  text: string,
+  labelI18n?: TraceI18nText,
+): NonNullable<IndexTraceStep["details"]>[number] {
+  return {
+    key,
+    label,
+    ...(labelI18n ? { labelI18n } : {}),
+    kind: "text",
+    text: decodeEscapedUnicodeText(text, true),
+  };
+}
+
+function noteDetail(
+  key: string,
+  label: string,
+  text: string,
+  labelI18n?: TraceI18nText,
+): NonNullable<IndexTraceStep["details"]>[number] {
+  return {
+    key,
+    label,
+    ...(labelI18n ? { labelI18n } : {}),
+    kind: "note",
+    text: decodeEscapedUnicodeText(text, true),
+  };
+}
+
+function listDetail(
+  key: string,
+  label: string,
+  items: string[],
+  labelI18n?: TraceI18nText,
+): NonNullable<IndexTraceStep["details"]>[number] {
+  return {
+    key,
+    label,
+    ...(labelI18n ? { labelI18n } : {}),
+    kind: "list",
+    items: items.map((item) => decodeEscapedUnicodeText(item, true)),
+  };
+}
+
+function kvDetail(
+  key: string,
+  label: string,
+  entries: Array<{ label: string; value: unknown }>,
+  labelI18n?: TraceI18nText,
+): NonNullable<IndexTraceStep["details"]>[number] {
+  return {
+    key,
+    label,
+    ...(labelI18n ? { labelI18n } : {}),
+    kind: "kv",
+    entries: entries.map((entry) => ({
+      label: entry.label,
+      value: decodeEscapedUnicodeText(String(entry.value ?? ""), true),
+    })),
+  };
+}
+
+function jsonDetail(
+  key: string,
+  label: string,
+  json: unknown,
+  labelI18n?: TraceI18nText,
+): NonNullable<IndexTraceStep["details"]>[number] {
+  return {
+    key,
+    label,
+    ...(labelI18n ? { labelI18n } : {}),
+    kind: "json",
+    json: decodeEscapedUnicodeValue(json, true),
+  };
+}
+
 function createStep(
   trace: IndexTraceRecord,
   kind: IndexTraceStep["kind"],
@@ -196,6 +276,9 @@ function createStep(
     metrics?: Record<string, unknown>;
     details?: IndexTraceStep["details"];
     promptDebug?: RetrievalPromptDebug;
+    titleI18n?: TraceI18nText;
+    inputSummaryI18n?: TraceI18nText;
+    outputSummaryI18n?: TraceI18nText;
   } = {},
 ): void {
   trace.steps.push({
@@ -209,6 +292,9 @@ function createStep(
     ...(options.metrics ? { metrics: options.metrics } : {}),
     ...(options.details ? { details: options.details } : {}),
     ...(options.promptDebug ? { promptDebug: options.promptDebug } : {}),
+    ...(options.titleI18n ? { titleI18n: options.titleI18n } : {}),
+    ...(options.inputSummaryI18n ? { inputSummaryI18n: options.inputSummaryI18n } : {}),
+    ...(options.outputSummaryI18n ? { outputSummaryI18n: options.outputSummaryI18n } : {}),
   });
 }
 
@@ -320,6 +406,10 @@ export class HeartbeatIndexer {
         "info",
         `trigger=${trace.trigger}`,
         `Preparing batch indexing for ${sessionKey}.`,
+        {
+          titleI18n: traceI18n("trace.step.index_start", "Index Started"),
+          outputSummaryI18n: traceI18n("trace.text.index_start.output.preparing_batch", "Preparing batch indexing for {0}.", sessionKey),
+        },
       );
       createStep(
         trace,
@@ -329,32 +419,40 @@ export class HeartbeatIndexer {
         `${trace.batchSummary.segmentCount} segments from ${trace.batchSummary.fromTimestamp || "n/a"} to ${trace.batchSummary.toTimestamp || "n/a"}`,
         `${batchContextMessages.length} messages loaded into batch context.`,
         {
+          titleI18n: traceI18n("trace.step.batch_loaded", "Batch Loaded"),
+          inputSummaryI18n: traceI18n(
+            "trace.text.batch_loaded.input",
+            "{0} segments from {1} to {2}",
+            trace.batchSummary.segmentCount,
+            trace.batchSummary.fromTimestamp || "n/a",
+            trace.batchSummary.toTimestamp || "n/a",
+          ),
+          outputSummaryI18n: traceI18n(
+            "trace.text.batch_loaded.output",
+            "{0} messages loaded into batch context.",
+            batchContextMessages.length,
+          ),
           metrics: {
             segmentCount: trace.batchSummary.segmentCount,
             focusUserTurnCount: trace.batchSummary.focusUserTurnCount,
           },
           details: [
-            {
-              key: "batch-summary",
-              label: "Batch Summary",
-              kind: "kv",
-              entries: [
-                { label: "sessionKey", value: sessionKey },
-                { label: "from", value: trace.batchSummary.fromTimestamp || "" },
-                { label: "to", value: trace.batchSummary.toTimestamp || "" },
-                { label: "l0Ids", value: trace.batchSummary.l0Ids.join(", ") || "none" },
-              ],
-            },
-            {
-              key: "batch-context",
-              label: "Batch Context",
-              kind: "json",
-              json: decodeEscapedUnicodeValue(batchContextMessages.map((message, index) => ({
+            kvDetail("batch-summary", "Batch Summary", [
+              { label: "sessionKey", value: sessionKey },
+              { label: "from", value: trace.batchSummary.fromTimestamp || "" },
+              { label: "to", value: trace.batchSummary.toTimestamp || "" },
+              { label: "l0Ids", value: trace.batchSummary.l0Ids.join(", ") || "none" },
+            ], traceI18n("trace.detail.batch_summary", "Batch Summary")),
+            jsonDetail(
+              "batch-context",
+              "Batch Context",
+              batchContextMessages.map((message, index) => ({
                 index,
                 role: message.role,
                 content: message.content,
-              })), true),
-            },
+              })),
+              traceI18n("trace.detail.batch_context", "Batch Context"),
+            ),
           ],
         },
       );
@@ -368,25 +466,32 @@ export class HeartbeatIndexer {
           ? "User turns will be classified one by one."
           : "No user turns found; this batch will be marked indexed without storing memory.",
         {
+          titleI18n: traceI18n("trace.step.focus_turns_selected", "Focus Turns Selected"),
+          inputSummaryI18n: traceI18n(
+            "trace.text.focus_turns_selected.input",
+            "{0} user turns in this batch.",
+            trace.batchSummary.focusUserTurnCount,
+          ),
+          outputSummaryI18n: trace.batchSummary.focusUserTurnCount > 0
+            ? traceI18n("trace.text.focus_turns_selected.output.classifying", "User turns will be classified one by one.")
+            : traceI18n(
+                "trace.text.focus_turns_selected.output.no_user_turns",
+                "No user turns found; this batch will be marked indexed without storing memory.",
+              ),
           details: [
-            {
-              key: "focus-turn-selection-summary",
-              label: "Focus Selection Summary",
-              kind: "kv",
-              entries: [
-                { label: "userTurns", value: String(trace.batchSummary.focusUserTurnCount) },
-                { label: "assistantMessagesInContext", value: String(batchContextMessages.filter((message) => message.role === "assistant").length) },
-                { label: "assistantUsedAsContextOnly", value: "yes" },
-              ],
-            },
+            kvDetail("focus-turn-selection-summary", "Focus Selection Summary", [
+              { label: "userTurns", value: String(trace.batchSummary.focusUserTurnCount) },
+              { label: "assistantMessagesInContext", value: String(batchContextMessages.filter((message) => message.role === "assistant").length) },
+              { label: "assistantUsedAsContextOnly", value: "yes" },
+            ], traceI18n("trace.detail.focus_selection_summary", "Focus Selection Summary")),
             ...sessions
               .flatMap((session) => focusTurnsBySession.get(session.l0IndexId) ?? [])
-              .map((message, index) => ({
-                key: `focus-turn-${index + 1}`,
-                label: `Focus Turn ${index + 1}`,
-                kind: "text" as const,
-                text: decodeEscapedUnicodeText(message.content, true),
-              })),
+              .map((message, index) => textDetail(
+                `focus-turn-${index + 1}`,
+                `Focus Turn ${index + 1}`,
+                message.content,
+                traceI18n("trace.detail.focus_turn", "Focus Turn {0}", index + 1),
+              )),
           ],
         },
       );
@@ -436,39 +541,35 @@ export class HeartbeatIndexer {
                 ? `classified=${candidateTypes.join(", ")}`
                 : "classified=discarded",
               {
+                titleI18n: traceI18n("trace.step.turn_classified", "Turn Classified"),
                 refs: {
                   classification: finalCandidates.length > 0 ? candidateTypes : ["discarded"],
                 },
                 details: [
-                  {
-                    key: `focus-turn-text-${session.l0IndexId}`,
-                    label: "Focus User Turn",
-                    kind: "text",
-                    text: decodeEscapedUnicodeText(focusTurn.content, true),
-                  },
-                  {
-                    key: `classification-result-${session.l0IndexId}`,
-                    label: "Classification Result",
-                    kind: "kv",
-                    entries: [
-                      { label: "sessionKey", value: session.sessionKey },
-                      { label: "timestamp", value: session.timestamp },
-                      { label: "result", value: finalCandidates.length > 0 ? candidateTypes.join(", ") : "discarded" },
-                    ],
-                  },
-                  {
-                    key: `classification-candidates-${session.l0IndexId}`,
-                    label: "Classifier Candidates",
-                    kind: "json",
-                    json: decodeEscapedUnicodeValue(finalCandidates, true),
-                  },
+                  textDetail(
+                    `focus-turn-text-${session.l0IndexId}`,
+                    "Focus User Turn",
+                    focusTurn.content,
+                    traceI18n("trace.detail.focus_user_turn", "Focus User Turn"),
+                  ),
+                  kvDetail(`classification-result-${session.l0IndexId}`, "Classification Result", [
+                    { label: "sessionKey", value: session.sessionKey },
+                    { label: "timestamp", value: session.timestamp },
+                    { label: "result", value: finalCandidates.length > 0 ? candidateTypes.join(", ") : "discarded" },
+                  ], traceI18n("trace.detail.classification_result", "Classification Result")),
+                  jsonDetail(
+                    `classification-candidates-${session.l0IndexId}`,
+                    "Classifier Candidates",
+                    finalCandidates,
+                    traceI18n("trace.detail.classifier_candidates", "Classifier Candidates"),
+                  ),
                   ...(discarded.length > 0
-                    ? [{
-                        key: `discarded-reasons-${session.l0IndexId}`,
-                        label: "Discarded Reasons",
-                        kind: "json" as const,
-                        json: decodeEscapedUnicodeValue(discarded, true),
-                      }]
+                    ? [jsonDetail(
+                        `discarded-reasons-${session.l0IndexId}`,
+                        "Discarded Reasons",
+                        discarded,
+                        traceI18n("trace.detail.discarded_reasons", "Discarded Reasons"),
+                      )]
                     : []),
                 ],
                 ...(extractionPromptDebug ? { promptDebug: extractionPromptDebug } : {}),
@@ -485,25 +586,42 @@ export class HeartbeatIndexer {
                 ? `${finalCandidates.length} candidates survived validation.`
                 : "No candidates survived validation.",
               {
+                titleI18n: traceI18n("trace.step.candidate_validated", "Candidate Validated"),
+                inputSummaryI18n: traceI18n(
+                  "trace.text.candidate_validated.input",
+                  "{0} normalized candidates, {1} discarded.",
+                  normalizedCandidates.length,
+                  discarded.length,
+                ),
+                outputSummaryI18n: finalCandidates.length > 0
+                  ? traceI18n(
+                      "trace.text.candidate_validated.output.survived",
+                      "{0} candidates survived validation.",
+                      finalCandidates.length,
+                    )
+                  : traceI18n(
+                      "trace.text.candidate_validated.output.none_survived",
+                      "No candidates survived validation.",
+                    ),
                 details: [
-                  {
-                    key: `raw-candidates-${session.l0IndexId}`,
-                    label: "Raw Candidates",
-                    kind: "json",
-                    json: decodeEscapedUnicodeValue(finalCandidates, true),
-                  },
-                  {
-                    key: `normalized-candidates-${session.l0IndexId}`,
-                    label: "Normalized Candidates",
-                    kind: "list",
-                    items: normalizedCandidates.map((candidate) => describeCandidate(candidate)),
-                  },
-                  {
-                    key: `discarded-candidates-${session.l0IndexId}`,
-                    label: "Discarded Candidates",
-                    kind: "json",
-                    json: decodeEscapedUnicodeValue(discarded, true),
-                  },
+                  jsonDetail(
+                    `raw-candidates-${session.l0IndexId}`,
+                    "Raw Candidates",
+                    finalCandidates,
+                    traceI18n("trace.detail.raw_candidates", "Raw Candidates"),
+                  ),
+                  listDetail(
+                    `normalized-candidates-${session.l0IndexId}`,
+                    "Normalized Candidates",
+                    normalizedCandidates.map((candidate) => describeCandidate(candidate)),
+                    traceI18n("trace.detail.normalized_candidates", "Normalized Candidates"),
+                  ),
+                  jsonDetail(
+                    `discarded-candidates-${session.l0IndexId}`,
+                    "Discarded Candidates",
+                    discarded,
+                    traceI18n("trace.detail.discarded_candidates", "Discarded Candidates"),
+                  ),
                 ],
               },
             );
@@ -518,11 +636,25 @@ export class HeartbeatIndexer {
                 ? "Resolved storage groups for validated candidates."
                 : "No validated candidates to group.",
               {
-                details: [{
-                  key: `grouped-candidates-${session.l0IndexId}`,
-                  label: "Grouping Result",
-                  kind: "json",
-                  json: decodeEscapedUnicodeValue(finalCandidates.map((candidate) => {
+                titleI18n: traceI18n("trace.step.candidate_grouped", "Candidate Grouped"),
+                inputSummaryI18n: traceI18n(
+                  "trace.text.candidate_grouped.input",
+                  "{0} validated candidates ready for grouping.",
+                  finalCandidates.length,
+                ),
+                outputSummaryI18n: finalCandidates.length > 0
+                  ? traceI18n(
+                      "trace.text.candidate_grouped.output.grouped",
+                      "Resolved storage groups for validated candidates.",
+                    )
+                  : traceI18n(
+                      "trace.text.candidate_grouped.output.none",
+                      "No validated candidates to group.",
+                    ),
+                details: [jsonDetail(
+                  `grouped-candidates-${session.l0IndexId}`,
+                  "Grouping Result",
+                  finalCandidates.map((candidate) => {
                     const grouping = inferGroupingLabel(this.repository, candidate);
                     return {
                       candidateType: candidate.type,
@@ -532,8 +664,9 @@ export class HeartbeatIndexer {
                       projectId: grouping.projectId ?? null,
                       storageKind: grouping.storageKind,
                     };
-                  }), true),
-                }],
+                  }),
+                  traceI18n("trace.detail.grouping_result", "Grouping Result"),
+                )],
               },
             );
 
@@ -566,18 +699,34 @@ export class HeartbeatIndexer {
                 ? `${persistedRecords.length} memory files written.`
                 : "No project or feedback files were written for this turn.",
               {
-                details: [{
-                  key: `persisted-files-${session.l0IndexId}`,
-                  label: "Persisted Files",
-                  kind: "json",
-                  json: decodeEscapedUnicodeValue(persistedRecords.map((record) => ({
+                titleI18n: traceI18n("trace.step.candidate_persisted", "Candidate Persisted"),
+                inputSummaryI18n: traceI18n(
+                  "trace.text.candidate_persisted.input",
+                  "{0} file candidates ready to persist.",
+                  fileCandidates.length,
+                ),
+                outputSummaryI18n: persistedRecords.length > 0
+                  ? traceI18n(
+                      "trace.text.candidate_persisted.output.written",
+                      "{0} memory files written.",
+                      persistedRecords.length,
+                    )
+                  : traceI18n(
+                      "trace.text.candidate_persisted.output.none_written",
+                      "No project or feedback files were written for this turn.",
+                    ),
+                details: [jsonDetail(
+                  `persisted-files-${session.l0IndexId}`,
+                  "Persisted Files",
+                  persistedRecords.map((record) => ({
                     type: record.type,
                     name: record.name,
                     projectId: record.projectId ?? null,
                     relativePath: record.relativePath,
                     storageKind: inferStorageKind(record),
-                  })), true),
-                }],
+                  })),
+                  traceI18n("trace.detail.persisted_files", "Persisted Files"),
+                )],
               },
             );
             userCandidates.push(...batchUserCandidates);
@@ -597,12 +746,13 @@ export class HeartbeatIndexer {
             session.l0IndexId,
             error instanceof Error ? error.message : String(error),
             {
-              details: [{
-                key: `index-error-${session.l0IndexId}`,
-                label: "Index Error",
-                kind: "note",
-                text: error instanceof Error ? error.message : String(error),
-              }],
+              titleI18n: traceI18n("trace.text.index_error.title", "Index Error"),
+              details: [noteDetail(
+                `index-error-${session.l0IndexId}`,
+                "Index Error",
+                error instanceof Error ? error.message : String(error),
+                traceI18n("trace.detail.index_error", "Index Error"),
+              )],
             },
           );
           this.logger?.warn?.(`[clawxmemory] heartbeat file-memory extraction failed for ${session.l0IndexId}: ${String(error)}`);
@@ -637,11 +787,21 @@ export class HeartbeatIndexer {
               `${userCandidates.length} user candidates merged.`,
               `Stored user profile at ${record.relativePath}.`,
               {
-                details: [{
-                  key: "user-profile-result",
-                  label: "User Profile Result",
-                  kind: "json",
-                  json: {
+                titleI18n: traceI18n("trace.step.user_profile_rewritten", "User Profile Rewritten"),
+                inputSummaryI18n: traceI18n(
+                  "trace.text.user_profile_rewritten.input",
+                  "{0} user candidates merged.",
+                  userCandidates.length,
+                ),
+                outputSummaryI18n: traceI18n(
+                  "trace.text.user_profile_rewritten.output.stored",
+                  "Stored user profile at {0}.",
+                  record.relativePath,
+                ),
+                details: [jsonDetail(
+                  "user-profile-result",
+                  "User Profile Result",
+                  {
                     before: {
                       profile: existingUserProfile.profile,
                       preferences: existingUserProfile.preferences,
@@ -656,7 +816,8 @@ export class HeartbeatIndexer {
                     },
                     relativePath: record.relativePath,
                   },
-                }],
+                  traceI18n("trace.detail.user_profile_result", "User Profile Result"),
+                )],
                 ...(userRewriteDebug ? { promptDebug: userRewriteDebug } : {}),
               },
             );
@@ -672,12 +833,18 @@ export class HeartbeatIndexer {
             `${userCandidates.length} user candidates merged.`,
             error instanceof Error ? error.message : String(error),
             {
-              details: [{
-                key: "user-profile-error",
-                label: "User Rewrite Error",
-                kind: "note",
-                text: error instanceof Error ? error.message : String(error),
-              }],
+              titleI18n: traceI18n("trace.step.user_profile_rewritten", "User Profile Rewritten"),
+              inputSummaryI18n: traceI18n(
+                "trace.text.user_profile_rewritten.input",
+                "{0} user candidates merged.",
+                userCandidates.length,
+              ),
+              details: [noteDetail(
+                "user-profile-error",
+                "User Rewrite Error",
+                error instanceof Error ? error.message : String(error),
+                traceI18n("trace.detail.user_rewrite_error", "User Rewrite Error"),
+              )],
               ...(userRewriteDebug ? { promptDebug: userRewriteDebug } : {}),
             },
           );
@@ -698,16 +865,17 @@ export class HeartbeatIndexer {
         `segments=${trace.batchSummary.segmentCount}`,
         `stored=${trace.storedResults.length}, failed=${sessionHadError ? 1 : 0}`,
         {
+          titleI18n: traceI18n("trace.step.index_finished", "Index Finished"),
           metrics: {
             storedResults: trace.storedResults.length,
             failed: sessionHadError ? 1 : 0,
           },
-          details: [{
-            key: "stored-results",
-            label: "Stored Results",
-            kind: "json",
-            json: trace.storedResults,
-          }],
+          details: [jsonDetail(
+            "stored-results",
+            "Stored Results",
+            trace.storedResults,
+            traceI18n("trace.detail.stored_results", "Stored Results"),
+          )],
         },
       );
       this.repository.saveIndexTrace(trace);

@@ -67,7 +67,19 @@ async function seedFileMemory(repository: MemoryRepository): Promise<void> {
       query: "what is the current status",
       startedAt: "2026-04-09T08:31:00.000Z",
       status: "completed",
-      toolEvents: [],
+      toolEvents: [{
+        eventId: "tool_exported",
+        phase: "result",
+        toolName: "memory_search",
+        occurredAt: "2026-04-09T08:31:05.000Z",
+        status: "success",
+        summary: "memory_search completed.",
+        summaryI18n: {
+          key: "trace.tool.summary.completed",
+          args: ["memory_search"],
+          fallback: "memory_search completed.",
+        },
+      }],
       assistantReply: "Here is the status.",
     },
   ]);
@@ -85,7 +97,38 @@ async function seedFileMemory(repository: MemoryRepository): Promise<void> {
         fromTimestamp: "2026-04-09T08:00:00.000Z",
         toTimestamp: "2026-04-09T08:32:00.000Z",
       },
-      steps: [],
+      steps: [{
+        stepId: "index_step_exported",
+        kind: "batch_loaded",
+        title: "Batch Loaded",
+        titleI18n: {
+          key: "trace.step.batch_loaded",
+          fallback: "Batch Loaded",
+        },
+        status: "success",
+        inputSummary: "1 segments from 2026-04-09T08:00:00.000Z to 2026-04-09T08:32:00.000Z",
+        inputSummaryI18n: {
+          key: "trace.text.batch_loaded.input",
+          args: ["1", "2026-04-09T08:00:00.000Z", "2026-04-09T08:32:00.000Z"],
+          fallback: "1 segments from 2026-04-09T08:00:00.000Z to 2026-04-09T08:32:00.000Z",
+        },
+        outputSummary: "1 messages loaded into batch context.",
+        outputSummaryI18n: {
+          key: "trace.text.batch_loaded.output",
+          args: ["1"],
+          fallback: "1 messages loaded into batch context.",
+        },
+        details: [{
+          key: "batch-summary",
+          label: "Batch Summary",
+          labelI18n: {
+            key: "trace.detail.batch_summary",
+            fallback: "Batch Summary",
+          },
+          kind: "kv",
+          entries: [{ label: "sessionKey", value: "session_exported" }],
+        }],
+      }],
       storedResults: [],
     },
   ]);
@@ -111,6 +154,11 @@ async function seedFileMemory(repository: MemoryRepository): Promise<void> {
         deletedFiles: 0,
         profileUpdated: false,
         summary: "Dream complete",
+        summaryI18n: {
+          key: "trace.text.dream_finished.output.completed_summary",
+          args: ["4", "1", "0", "0", "0"],
+          fallback: "Dream complete",
+        },
       },
     },
   ]);
@@ -166,8 +214,13 @@ describe("memory bundle import/export", () => {
       .toContain("Archived note");
     expect(bundle.lastDreamStatus).toBe("success");
     expect(bundle.recentCaseTraces?.[0]?.caseId).toBe("case_exported");
+    expect(bundle.recentCaseTraces?.[0]?.toolEvents?.[0]?.summaryI18n).toMatchObject({ key: "trace.tool.summary.completed" });
     expect(bundle.recentIndexTraces?.[0]?.indexTraceId).toBe("index_exported");
+    expect(bundle.recentIndexTraces?.[0]?.steps?.[0]?.titleI18n).toMatchObject({ key: "trace.step.batch_loaded" });
     expect(bundle.recentDreamTraces?.[0]?.dreamTraceId).toBe("dream_exported");
+    expect(bundle.recentDreamTraces?.[0]?.outcome?.summaryI18n).toMatchObject({
+      key: "trace.text.dream_finished.output.completed_summary",
+    });
   });
 
   it("round-trips v3 snapshots, restores recent traces, and clears old runtime queue", async () => {
@@ -209,9 +262,12 @@ describe("memory bundle import/export", () => {
     expect(result.recentCaseTraces?.[0]?.caseId).toBe("case_exported");
     expect(result.recentIndexTraces?.[0]?.indexTraceId).toBe("index_exported");
     expect(result.recentDreamTraces?.[0]?.dreamTraceId).toBe("dream_exported");
+    expect(result.recentIndexTraces?.[0]?.steps?.[0]?.titleI18n).toMatchObject({ key: "trace.step.batch_loaded" });
     expect((target.getPipelineState("recentCaseTraces") as Array<Record<string, unknown>> | undefined)?.[0]?.caseId).toBe("case_exported");
     expect((target.getPipelineState("recentIndexTraces") as Array<Record<string, unknown>> | undefined)?.[0]?.indexTraceId).toBe("index_exported");
     expect((target.getPipelineState("recentDreamTraces") as Array<Record<string, unknown>> | undefined)?.[0]?.dreamTraceId).toBe("dream_exported");
+    expect((target.getPipelineState("recentDreamTraces") as Array<Record<string, unknown>> | undefined)?.[0]?.outcome?.summaryI18n)
+      .toMatchObject({ key: "trace.text.dream_finished.output.completed_summary" });
     expect(target.getPipelineState("indexingSettings")).toEqual({
       reasoningMode: "accuracy_first",
       autoIndexIntervalMinutes: 120,

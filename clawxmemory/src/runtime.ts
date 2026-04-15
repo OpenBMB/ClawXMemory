@@ -46,6 +46,7 @@ import type {
   PluginHookToolContext,
 } from "openclaw/plugin-sdk/plugin-runtime";
 import { buildPluginConfig, type PluginRuntimeConfig } from "./config.js";
+import { traceI18n } from "./core/trace-i18n.js";
 import { hasExplicitRememberIntent, inspectTranscriptMessage, isCommandOnlyUserText, isSessionBoundaryMarkerMessage, isSessionStartupMarkerText, normalizeMessages, normalizeTranscriptMessage } from "./message-utils.js";
 import { buildPluginTools } from "./tools.js";
 import { LocalUiServer } from "./ui-server.js";
@@ -415,13 +416,19 @@ function buildRecallSkippedTrace(query: string, reason: string): RetrievalTrace 
         stepId: `${traceId}:step:1`,
         kind: "recall_start",
         title: "Recall Started",
+        titleI18n: traceI18n("trace.step.recall_start", "Recall Started"),
         status: "info",
         inputSummary: previewText(query, 220),
         outputSummary: "Runtime inspected this turn before attempting retrieval.",
+        outputSummaryI18n: traceI18n(
+          "trace.text.recall_start.output.runtime_inspected",
+          "Runtime inspected this turn before attempting retrieval.",
+        ),
         details: [
           {
             key: "recall-query",
             label: "Recall Query",
+            labelI18n: traceI18n("trace.detail.recall_query", "Recall Query"),
             kind: "kv",
             entries: [
               { label: "query", value: query },
@@ -433,14 +440,26 @@ function buildRecallSkippedTrace(query: string, reason: string): RetrievalTrace 
         stepId: `${traceId}:step:2`,
         kind: "recall_skipped",
         title: "Recall Skipped",
+        titleI18n: traceI18n("trace.step.recall_skipped", "Recall Skipped"),
         status: "skipped",
         inputSummary: `reason=${reason}`,
         outputSummary,
+        outputSummaryI18n: reason === "memory_write_turn"
+          ? traceI18n(
+              "trace.text.recall_skipped.output.memory_write_turn",
+              "Automatic recall did not run because this turn is a memory write request.",
+            )
+          : traceI18n(
+              "trace.text.recall_skipped.output.reason",
+              "Automatic recall did not run because {0}.",
+              reason,
+            ),
         refs: { reason },
         details: [
           {
             key: "skip-reason",
             label: "Skip Reason",
+            labelI18n: traceI18n("trace.detail.skip_reason", "Skip Reason"),
             kind: "kv",
             entries: [
               { label: "reason", value: reason },
@@ -826,6 +845,19 @@ export class MemoryPluginRuntime {
 
   private saveSkippedDreamTrace(trigger: DreamTraceRecord["trigger"], summary: string, skipReason: string): void {
     const startedAt = nowIso();
+    const skippedSummaryI18n = skipReason === "already_running"
+      ? traceI18n(
+          trigger === "scheduled"
+            ? "trace.text.dream_finished.output.scheduled_already_running"
+            : "trace.text.dream_finished.output.manual_already_running",
+          summary,
+        )
+      : skipReason === "no_memory_updates_since_last_dream"
+        ? traceI18n(
+            "trace.text.dream_finished.output.no_memory_updates_since_last_dream",
+            summary,
+          )
+        : null;
     const trace: DreamTraceRecord = {
       dreamTraceId: `dream_trace_${hashText(`${trigger}:${startedAt}:${skipReason}`)}`,
       trigger,
@@ -839,17 +871,26 @@ export class MemoryPluginRuntime {
           stepId: `dream_trace_step_${hashText(`${startedAt}:start`)}`,
           kind: "dream_start",
           title: "Dream Start",
+          titleI18n: traceI18n("trace.step.dream_start", "Dream Start"),
           status: "info",
           inputSummary: `${trigger} Dream run started.`,
+          inputSummaryI18n: traceI18n("trace.text.dream_start.input", "{0} Dream run started.", trigger),
           outputSummary: "Dream evaluated whether it should run.",
+          outputSummaryI18n: traceI18n("trace.text.dream_start.output.evaluated", "Dream evaluated whether it should run."),
         },
         {
           stepId: `dream_trace_step_${hashText(`${startedAt}:finish`)}`,
           kind: "dream_finished",
           title: "Dream Finished",
+          titleI18n: traceI18n("trace.step.dream_finished", "Dream Finished"),
           status: "skipped",
           inputSummary: "Dream was skipped before any rewrite work started.",
+          inputSummaryI18n: traceI18n(
+            "trace.text.dream_finished.input.skipped_before_work",
+            "Dream was skipped before any rewrite work started.",
+          ),
           outputSummary: summary,
+          ...(skippedSummaryI18n ? { outputSummaryI18n: skippedSummaryI18n } : {}),
         },
       ],
       mutations: [],
@@ -859,6 +900,24 @@ export class MemoryPluginRuntime {
         deletedFiles: 0,
         profileUpdated: false,
         summary,
+        ...(skipReason === "already_running"
+          ? {
+              summaryI18n: traceI18n(
+                trigger === "scheduled"
+                  ? "trace.text.dream_finished.output.scheduled_already_running"
+                  : "trace.text.dream_finished.output.manual_already_running",
+                summary,
+              ),
+            }
+          : {}),
+        ...(skipReason === "no_memory_updates_since_last_dream"
+          ? {
+              summaryI18n: traceI18n(
+                "trace.text.dream_finished.output.no_memory_updates_since_last_dream",
+                summary,
+              ),
+            }
+          : {}),
       },
     };
     this.repository.saveDreamTrace(trace, RECENT_DREAM_TRACE_LIMIT);
@@ -935,9 +994,14 @@ export class MemoryPluginRuntime {
         stepId: `${record.retrieval.trace.traceId}:step:${record.retrieval.trace.steps.length + 1}`,
         kind: "recall_skipped",
         title: "Recall Interrupted",
+        titleI18n: traceI18n("trace.text.recall_skipped.title.interrupted", "Recall Interrupted"),
         status: "warning",
         inputSummary: `reason=${reason}`,
         outputSummary: "A newer user turn interrupted this case before completion.",
+        outputSummaryI18n: traceI18n(
+          "trace.text.recall_skipped.output.interrupted_by_new_turn",
+          "A newer user turn interrupted this case before completion.",
+        ),
       });
       record.retrieval.trace.finishedAt = nowIso();
     }
@@ -1557,6 +1621,7 @@ export class MemoryPluginRuntime {
           occurredAt,
           status: "running",
           summary: `${event.toolName} started.`,
+          summaryI18n: traceI18n("trace.tool.summary.started", "{0} started.", event.toolName),
           paramsPreview: previewJson(event.params, 360),
         });
         this.appendCaseToolEvent(rawSessionKey, query, {
@@ -1567,6 +1632,7 @@ export class MemoryPluginRuntime {
           occurredAt,
           status: "error",
           summary: `${event.toolName} blocked by ClawXMemory boundary.`,
+          summaryI18n: traceI18n("trace.tool.summary.blocked", "{0} blocked by ClawXMemory boundary.", event.toolName),
           paramsPreview: previewJson(event.params, 240),
           resultPreview: `Blocked path: ${blockedPath.displayPath}`,
         });
@@ -1589,6 +1655,7 @@ export class MemoryPluginRuntime {
       occurredAt,
       status: "running",
       summary: `${event.toolName} started.`,
+      summaryI18n: traceI18n("trace.tool.summary.started", "{0} started.", event.toolName),
       paramsPreview: previewJson(event.params, 360),
     });
   };
@@ -1617,6 +1684,9 @@ export class MemoryPluginRuntime {
       summary: failed
         ? `${event.toolName} failed.`
         : `${event.toolName} completed.`,
+      summaryI18n: failed
+        ? traceI18n("trace.tool.summary.failed", "{0} failed.", event.toolName)
+        : traceI18n("trace.tool.summary.completed", "{0} completed.", event.toolName),
       paramsPreview: previewJson(event.params, 240),
       resultPreview,
       ...(typeof event.durationMs === "number" ? { durationMs: event.durationMs } : {}),

@@ -317,6 +317,12 @@ function sanitizeFeedbackSectionText(value: string | undefined): string {
   return normalized;
 }
 
+function normalizeIdentityName(value: string | undefined): string {
+  const normalized = normalizeWhitespace(value ?? "");
+  if (!normalized) return "";
+  return normalizeWhitespace(normalized.replace(/^[`"'“”‘’「」『』《》〈〉]+|[`"'“”‘’「」『』《》〈〉]+$/g, ""));
+}
+
 function selectTypeDirectory(type: MemoryRecordType): string {
   if (type === "user") return USER_DIR;
   if (type === "feedback") return FEEDBACK_DIR;
@@ -325,11 +331,11 @@ function selectTypeDirectory(type: MemoryRecordType): string {
 
 function buildTmpCandidateFileName(candidate: MemoryCandidate): string {
   const baseName = candidate.type === "project"
-    ? normalizeWhitespace(candidate.name || "project-item")
-    : normalizeWhitespace(candidate.name || "feedback-item");
+    ? normalizeIdentityName(candidate.name || candidate.description || candidate.stage || "project-item") || "project-item"
+    : normalizeIdentityName(candidate.name || "feedback-item") || "feedback-item";
   const fingerprint = hashText(JSON.stringify({
     type: candidate.type,
-    name: candidate.name ?? "",
+    name: normalizeIdentityName(candidate.name ?? ""),
     description: candidate.description,
     summary: candidate.summary,
     preferences: candidate.preferences ?? [],
@@ -355,7 +361,7 @@ function sameTmpCandidateIdentity(
 ): boolean {
   return record.projectId === TMP_PROJECT_ID
     && record.type === candidate.type
-    && record.name === normalizedName
+    && normalizeIdentityName(record.name) === normalizeIdentityName(normalizedName)
     && (record.sourceSessionKey ?? "") === (candidate.sourceSessionKey ?? "")
     && (record.capturedAt ?? "") === (candidate.capturedAt ?? "");
 }
@@ -1587,8 +1593,8 @@ export class FileMemoryStore {
     const baseDir = join(this.projectRoot(projectId), typeDir);
     ensureDir(baseDir);
     const normalizedName = candidate.type === "project"
-      ? normalizeWhitespace(candidate.name || candidate.description || candidate.stage || "project-note")
-      : normalizeWhitespace(candidate.name || "memory-item");
+      ? normalizeIdentityName(candidate.name || candidate.description || candidate.stage || "project-note") || "project-note"
+      : normalizeIdentityName(candidate.name || "memory-item") || "memory-item";
     const existingTmpRecord = projectId === TMP_PROJECT_ID && candidate.capturedAt && candidate.sourceSessionKey
       ? this.listTmpEntries(500)
         .map((entry) => this.readRecordFromPath(entry.absolutePath))
@@ -1957,12 +1963,13 @@ export class FileMemoryStore {
     });
   }
 
-  repairManifests(): { changed: number; summary: string } {
+  repairManifests(): { changed: number; summary: string; memoryFileCount: number } {
     const before = this.listMemoryEntries({ limit: 1000, includeTmp: true });
     const after = this.rebuildAllManifests({ includeTmp: true });
     const changed = Math.abs(after.length - before.length);
     return {
       changed,
+      memoryFileCount: after.length,
       summary: `Rebuilt manifests for ${after.length} memory files.`,
     };
   }
@@ -1970,7 +1977,7 @@ export class FileMemoryStore {
   mergeDuplicateEntries(entries: MemoryManifestEntry[]): { merged: number; changedFiles: string[] } {
     const groups = new Map<string, MemoryManifestEntry[]>();
     for (const entry of entries) {
-      const key = `${entry.scope}:${entry.projectId ?? "global"}:${entry.type}:${slugify(entry.name)}`;
+      const key = `${entry.scope}:${entry.projectId ?? "global"}:${entry.type}:${slugify(normalizeIdentityName(entry.name) || entry.name)}`;
       const bucket = groups.get(key) ?? [];
       bucket.push(entry);
       groups.set(key, bucket);
