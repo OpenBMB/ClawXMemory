@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <b>A Multi-Level Memory System for Long-Term Context</b>
+  <b>A File-Based Long-Term Memory Plugin for OpenClaw</b>
 </p>
 
 <p align="center">
@@ -23,22 +23,28 @@
 
 **Latest Updates** 🔥
 
-- **[2026.04.01]** 🎉 ClawXMemory is now open source as a multi-level memory system for long-term context
+- **[2026.04.01]** 🎉 ClawXMemory is now open source as a file-based long-term memory plugin for OpenClaw
 
 ---
 
 ## 📖 About ClawXMemory
 
-ClawXMemory is a multi-level memory system jointly developed by [THUNLP (Tsinghua University)](https://nlp.csai.tsinghua.edu.cn/), [Renmin University of China](http://ai.ruc.edu.cn/), [AI9Stars](https://github.com/AI9Stars), [OpenBMB](https://www.openbmb.cn/home), and [ModelBest](https://modelbest.cn/en), designed for long-term context modeling and management.
+ClawXMemory is an [OpenClaw](https://github.com/openclaw/openclaw) memory-slot plugin jointly developed by [THUNLP (Tsinghua University)](https://nlp.csai.tsinghua.edu.cn/), [Renmin University of China](http://ai.ruc.edu.cn/), [AI9Stars](https://github.com/AI9Stars), [OpenBMB](https://www.openbmb.cn/home), and [ModelBest](https://modelbest.cn/en), designed for durable long-term memory that stays inspectable and local-first.
 
-Built on [EdgeClaw](https://github.com/openbmb/Edgeclaw)'s native long-term memory capability, it introduces a deeply structured abstraction and systematic extension of the memory mechanism, then plugs into the [OpenClaw](https://github.com/openclaw/openclaw) ecosystem through a plugin-based design. ClawXMemory is not just a simple accumulation of historical context for large models. Instead, it provides a structured, multi-level, and evolvable long-term memory system. During conversations, the system gradually distills scattered information into memory fragments, then further aggregates them into project memory, timeline memory, and user profiles. When generating a response, the model actively reasons and navigates along this "memory tree," bringing only genuinely useful and highly relevant context into the current conversation.
+The current architecture is markdown-first:
 
-To address what to remember, how to organize it, and how to actually make memory usable, ClawXMemory provides four core capabilities:
+- durable memory is written to markdown files such as `user-profile.md`, `project.meta.md`, `Project/*.md`, and `Feedback/*.md`
+- SQLite keeps only runtime control-plane state such as raw captured sessions, settings, and recent traces
+- background indexing turns new conversations into file memories
+- Dream reorganizes, merges, rewrites, and deletes superseded file memories
+- answer-time recall selects a single relevant project, scans file headers, then loads only the selected evidence into the current turn
 
-- **Structured multi-level memory system**: Move beyond flat history logs. The system progressively extracts and aggregates raw conversations (L0) into memory fragments (L1) and higher-level memories (L2), building a richer memory structure that keeps growing and evolving with user interaction.
-- **Continuous Memory Consolidation**: The system automatically detects topic shifts in the user’s conversation and, during idle moments, triggers memory consolidation to progressively transform raw dialogue into higher-level structured memory.
-- **Model-driven selection and reasoning**: Instead of relying on rigid vector retrieval, ClawXMemory lets the model actively "think" along the memory index, locating and reasoning over relevant context layer by layer.
-- **Memory management and visualization**: A built-in visual dashboard offers both canvas and list views, making the hierarchy and relationships of memory easy to inspect. All data is stored locally in SQLite by default, with one-click import and export for seamless state migration across devices.
+ClawXMemory provides four core capabilities:
+
+- **File-based long-term memory**: durable user, project, and feedback memories are stored as markdown files that can be inspected directly on disk
+- **Background indexing and Dream organization**: new sessions are converted into memory files automatically, then periodically reorganized into cleaner formal project memory
+- **Model-guided recall**: recall first decides whether memory is needed, then selects the most relevant project and supporting files instead of stuffing raw history into the prompt
+- **Local dashboard and traces**: the built-in UI exposes memory files, runtime overview, and Recall / Index / Dream traces for debugging and review
 
 
 
@@ -49,7 +55,7 @@ https://github.com/user-attachments/assets/f6c754a7-f3a1-4dfb-8a43-c60cae2e2f77
 
 ### ⚙️ How ClawXMemory Works
 
-ClawXMemory can be summarized as: hierarchical memory construction + model-driven selection. It quietly turns everyday conversations into a structured knowledge base for long-term context modeling.
+ClawXMemory can be summarized as: background file-memory construction + model-guided recall. It quietly turns everyday conversations into reusable long-term memory files.
 
 > [!TIP]
 > **Example: continuously advancing a long-running task**
@@ -58,19 +64,17 @@ ClawXMemory can be summarized as: hierarchical memory construction + model-drive
 >
 > When you later ask, "What stage am I at now?", the system answers directly from that structured state instead of searching for a needle in a haystack across historical chats.
 
-#### 1. Building the multi-level memory index
+#### 1. Building file memory in the background
 
-During memory construction, ClawXMemory takes the conversation stream as input and silently refines and organizes information layer by layer in the background:
+During indexing, ClawXMemory turns raw sessions into durable markdown memories in the background:
 
-| Memory level | Type | Meaning |
-| :--- | :--- | :--- |
-| **L2** | **Project Memory** | Long-term high-level memory aggregated around a specific topic or task |
-| **L2** | **Time Memory** | Periodic memory aggregated along a timeline, such as by day or week |
-| **L1** | **Memory Fragments** | Structured core summaries generated for closed topics |
-| **L0** | **Raw Conversation** | The lowest-level original message records |
-| **Global** | **Profile** | A continuously updated singleton global user profile |
+- `global/User/user-profile.md`
+- `projects/<projectId>/project.meta.md`
+- `projects/<projectId>/Project/*.md`
+- `projects/<projectId>/Feedback/*.md`
+- `_tmp` project memory for items that still need Dream organization
 
-The whole process requires no manual action. You can stay focused on natural conversation and task progress: short-term context handles the current multi-turn exchange, while ClawXMemory turns those experiences into reusable long-term assets in the background.
+The whole process requires no manual action. You stay focused on the current conversation while ClawXMemory quietly extracts reusable long-term context in the background.
 
 <p align="center">
   <picture>
@@ -78,11 +82,16 @@ The whole process requires no manual action. You can stay focused on natural con
   </picture>
 </p>
 
-#### 2. Model-driven memory selection and reasoning
+#### 2. Model-guided memory selection
 
-The pain point of traditional memory systems is often not the lack of memory, but the fact that they have retrieval without understanding. When a user asks questions like "What stage is this project at now?", "How did we finalize that plan last week?", or "Didn't you remember that I prefer Chinese wording?", the real challenge is not just finding a highly similar text snippet. It is whether the system knows which part of memory to inspect, and how deeply it needs to dig.
+The hard part of long-term memory is not just storing context. It is choosing the right memory files for the current turn.
 
-ClawXMemory addresses this by turning passive retrieval into active reasoning. The model explores the multi-level memory structure on its own. It first evaluates relevance from higher-level memory such as project memory, time memory, or user profile. Only when that is not enough does it drill down into finer-grained memory fragments, and when necessary it can even trace back to a specific raw conversation.
+ClawXMemory handles this by letting the model decide:
+
+- whether memory is needed at all
+- whether the query is about user memory or project memory
+- which single formal project is most relevant
+- which project and feedback files are the best evidence for the current turn
 
 <p align="center">
   <picture>
@@ -90,7 +99,7 @@ ClawXMemory addresses this by turning passive retrieval into active reasoning. T
   </picture>
 </p>
 
-This process is closer to how a human expert would progressively reason along memory structure than how a database would blindly run `SELECT *`. What finally enters the model generation step is no longer a long history packed in as much as possible, but carefully filtered context that is truly relevant. In short, ClawXMemory is not trying to solve "how to stuff more history into the prompt," but "how to accurately extract and use the long-term context that actually matters."
+What enters the prompt is no longer a long history packed in as much as possible, but a small set of memory files that are actually relevant. In short, ClawXMemory is not trying to solve "how to stuff more history into the prompt," but "how to accurately extract and use the long-term context that actually matters."
 
 ---
 

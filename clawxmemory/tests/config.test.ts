@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { join } from "node:path";
 import { buildPluginConfig } from "../src/config.js";
 
 describe("buildPluginConfig", () => {
@@ -9,11 +10,8 @@ describe("buildPluginConfig", () => {
     expect(config.uiPathPrefix).toBe("/clawxmemory");
     expect(config.defaultIndexingSettings).toEqual({
       reasoningMode: "answer_first",
-      recallTopK: 10,
       autoIndexIntervalMinutes: 60,
       autoDreamIntervalMinutes: 360,
-      autoDreamMinNewL1: 10,
-      dreamProjectRebuildTimeoutMs: 180_000,
     });
   });
 
@@ -27,9 +25,18 @@ describe("buildPluginConfig", () => {
     expect(config.uiPort).toBe(1024);
   });
 
-  it("preserves a zero dream rebuild timeout override", () => {
+  it("ignores legacy dream rebuild timeout overrides", () => {
     const config = buildPluginConfig({ dreamProjectRebuildTimeoutMs: 0 });
-    expect(config.dreamProjectRebuildTimeoutMs).toBe(0);
-    expect(config.defaultIndexingSettings.dreamProjectRebuildTimeoutMs).toBe(0);
+    expect(config.defaultIndexingSettings).toEqual({
+      reasoningMode: "answer_first",
+      autoIndexIntervalMinutes: 60,
+      autoDreamIntervalMinutes: 360,
+    });
+  });
+
+  it("derives memoryDir from dbPath when only dbPath is overridden", () => {
+    const config = buildPluginConfig({ dbPath: "/tmp/clawxmemory-tests/memory.sqlite" });
+    expect(config.dbPath).toBe("/tmp/clawxmemory-tests/memory.sqlite");
+    expect(config.memoryDir).toBe(join("/tmp/clawxmemory-tests", "memory"));
   });
 });

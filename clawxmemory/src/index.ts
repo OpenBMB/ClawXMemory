@@ -7,7 +7,7 @@ import { pluginConfigJsonSchema, pluginConfigUiHints } from "./config.js";
 const plugin = definePluginEntry({
   id: "openbmb-clawxmemory",
   name: "ClawXMemory",
-  description: "L0/L1/L2 local-first memory plugin for OpenClaw.",
+  description: "File-based long-term memory plugin for OpenClaw.",
   kind: "memory",
   configSchema: {
     jsonSchema: pluginConfigJsonSchema,
